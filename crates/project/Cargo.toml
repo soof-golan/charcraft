@@ -1,0 +1,25 @@
+[package]
+name = "charcraft-project"
+description = "Character Animator projects and puppets (.chproj folders, .puppet zips) to and from a typed model, lossless on save"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+anim-archive = { workspace = true }
+anim-core = { workspace = true }
+charcraft-ltab = { workspace = true }
+charcraft-rope = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+proptest = { workspace = true }
+serde_json = { workspace = true }
+tempfile = { workspace = true }

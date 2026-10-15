@@ -143,6 +143,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "charcraft-project"
+version = "0.1.0"
+dependencies = [
+ "anim-archive",
+ "anim-core",
+ "charcraft-ltab",
+ "charcraft-rope",
+ "proptest",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror",
+]
+
+[[package]]
 name = "charcraft-rope"
 version = "0.1.0"
 dependencies = [
