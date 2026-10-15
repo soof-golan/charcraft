@@ -1,0 +1,20 @@
+[package]
+name = "charcraft-ltab"
+description = "The Lua-table text format Character Animator uses for metadata: tolerant parser, byte-exact printer, typed access and serde bridge"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+anim-core = { workspace = true }
+serde = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+proptest = { workspace = true }
+serde_json = { workspace = true }
