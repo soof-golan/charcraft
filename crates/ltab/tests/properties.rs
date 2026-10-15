@@ -9,7 +9,11 @@
     reason = "integration test helpers"
 )]
 
-use charcraft_ltab::{Error, Key, LValue, Limits, format_g17, parse, parse_bytes, parse_with, to_string_compact, to_string_pretty};
+use charcraft_ltab::{
+    Error, Key, LValue, Limits, format_g17, from_lvalue, from_str, parse, parse_bytes, parse_with, to_lvalue, to_string, to_string_compact, to_string_pretty,
+};
+use std::collections::BTreeMap;
+
 use proptest::collection::vec;
 use proptest::prelude::*;
 
@@ -67,6 +71,41 @@ fn arb_value() -> impl Strategy<Value = LValue> {
     arb_scalar().prop_recursive(4, 64, 6, |inner| vec((arb_key(), inner), 0..6).prop_map(LValue::Table))
 }
 
+/// Documents in the shape serde can carry without loss: named, integer, number and boolean keys in maps, and
+/// all-positional tables as sequences (no mixed tables, whose positional entries would be renumbered).
+#[expect(clippy::disallowed_types, reason = "proptest's prop_oneof! expands to std::sync::Arc")]
+fn arb_plain_value() -> impl Strategy<Value = LValue> {
+    let plain_key = prop_oneof![
+        4 => arb_text().prop_map(Key::Str),
+        2 => any::<i64>().prop_map(Key::Int),
+        1 => arb_f64().prop_map(Key::float),
+        1 => any::<bool>().prop_map(Key::Bool),
+    ];
+    arb_scalar().prop_recursive(3, 48, 5, move |inner| {
+        prop_oneof![
+            vec((plain_key.clone(), inner.clone()), 0..5).prop_map(LValue::Table),
+            vec(inner, 1..5).prop_map(|items| LValue::Table(items.into_iter().map(|item| (Key::Pos, item)).collect())),
+        ]
+    })
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+struct Row {
+    values: Vec<f64>,
+    count: Option<i64>,
+    note: Option<String>,
+}
+
+fn arb_row() -> impl Strategy<Value = Row> {
+    (vec(arb_f64(), 0..5), prop::option::of(any::<i64>()), prop::option::of(arb_text())).prop_map(|(values, count, note)| Row { values, count, note })
+}
+
+/// 512 cases by default; `PROPTEST_CASES=100000` runs a deep fuzz.
+fn config() -> ProptestConfig {
+    let cases = std::env::var("PROPTEST_CASES").ok().and_then(|value| value.parse().ok()).unwrap_or(512);
+    ProptestConfig::with_cases(cases)
+}
+
 /// Strings built from the characters that matter to the lexer, to reach deep parser states.
 fn arb_ltab_ish() -> impl Strategy<Value = String> {
     vec(
@@ -109,7 +148,7 @@ fn arb_ltab_ish() -> impl Strategy<Value = String> {
 }
 
 proptest! {
-    #![proptest_config(ProptestConfig::with_cases(512))]
+    #![proptest_config(config())]
 
     #[test]
     fn pretty_output_parses_back_to_the_same_value(value in arb_value()) {
@@ -154,6 +193,23 @@ proptest! {
         let mantissa = text.split('e').next().unwrap();
         let significant: String = mantissa.chars().filter(char::is_ascii_digit).collect();
         prop_assert!(significant.trim_start_matches('0').len() <= 17, "{}", text);
+    }
+
+    #[test]
+    fn documents_survive_a_trip_through_serde(value in arb_plain_value()) {
+        let back: LValue = from_lvalue(&value).unwrap();
+        prop_assert_eq!(&back, &value);
+        // Writing through serde keeps every entry with a name or integer key (number and boolean keys are written
+        // as text for JSON's sake) and drops nil-valued map entries, since Lua stores no nil.
+        let written = to_lvalue(&value).unwrap();
+        prop_assert_eq!(written.iter().count() <= value.iter().count(), true);
+    }
+
+    #[test]
+    fn typed_maps_round_trip_through_text(map in prop::collection::btree_map(arb_text(), arb_row(), 0..5)) {
+        let text = to_string(&map).unwrap();
+        let back: BTreeMap<String, Row> = from_str(&text).unwrap();
+        prop_assert_eq!(back, map);
     }
 
     #[test]
