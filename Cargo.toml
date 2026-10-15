@@ -63,6 +63,12 @@ proptest = "1"
 tempfile = "3"
 flate2 = { version = "1.1", default-features = false, features = ["rust_backend"] }
 sha1 = "0.11"
+sha2 = "0.11"
+dirs = "7"
+ureq = "3"
+# Live input (charcraft-tracking). ONNX Runtime is a release candidate: pin it exactly.
+ort = { version = "=2.0.0-rc.14", default-features = false, features = ["std", "download-binaries", "tls-rustls", "copy-dylibs"] }
+nokhwa = { version = "0.10", default-features = false, features = ["input-native"] }
 
 # anim-artwork reads Illustrator files through VectorCraft's PDF stack. Patches don't propagate through git
 # dependencies, so the pins VectorCraft needs are repeated here (same revs as its own root manifest).

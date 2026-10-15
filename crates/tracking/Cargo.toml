@@ -1,0 +1,41 @@
+[package]
+name = "charcraft-tracking"
+description = "Webcam face tracking as an actor: camera capture (nokhwa), face landmarks (ONNX Runtime), landmark to face-parameter maths, calibration and smoothing"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[features]
+default = ["download"]
+# Webcam capture through nokhwa (V4L2, AVFoundation, Media Foundation).
+camera = ["dep:nokhwa"]
+# Face detection and landmarks through ONNX Runtime (binary downloaded at build time).
+onnx = ["dep:ort"]
+# Fetch model weights on first use (verified against the registry's SHA-256).
+download = ["dep:ureq"]
+
+[dependencies]
+anim-core = { workspace = true }
+crossbeam-channel = { workspace = true }
+dirs = { workspace = true }
+nokhwa = { workspace = true, optional = true }
+ort = { workspace = true, optional = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+thiserror = { workspace = true }
+ureq = { workspace = true, optional = true }
+
+[dev-dependencies]
+image = { workspace = true }
+proptest = { workspace = true }
+tempfile = { workspace = true }
+
+[[example]]
+name = "probe"
+required-features = ["onnx"]
