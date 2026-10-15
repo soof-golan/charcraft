@@ -41,6 +41,27 @@
 //! # Ok::<(), charcraft_ltab::Error>(())
 //! ```
 //!
+//! Typed models read and write through `serde` ([`from_str`], [`from_lvalue`], [`to_string`], [`to_lvalue`]).
+//! [`to_string`] sorts keys the way Character Animator does and prints numbers the way it does (`0.2` as
+//! `0.20000000000000001`, `100.0` as `100`):
+//!
+//! ```
+//! use charcraft_ltab::{from_str, to_string};
+//! use serde::{Deserialize, Serialize};
+//!
+//! #[derive(Debug, PartialEq, Serialize, Deserialize)]
+//! struct Blinker {
+//!     length: i64,
+//!     rate: f64,
+//!     randomness: Option<f64>,
+//! }
+//!
+//! let blinker: Blinker = from_str("{ length = 80, rate = 0.20000000000000001 }")?;
+//! assert_eq!(blinker, Blinker { length: 80, rate: 0.2, randomness: None });
+//! assert_eq!(to_string(&blinker)?, "{\n\tlength = 80,\n\trate = 0.20000000000000001,\n}\n");
+//! # Ok::<(), charcraft_ltab::Error>(())
+//! ```
+//!
 //! Strings are UTF-8 and pass through untouched, so right-to-left names (Hebrew, Arabic) and bidi control
 //! characters survive a round trip; there is no text shaping at this level.
 //!
@@ -49,14 +70,18 @@
 //! characters as 3-digit decimals, and keys that are Lua reserved words are bracketed. The reader accepts every
 //! variant, so only byte-exact re-serialisation of such files could differ.
 
+mod de;
 mod error;
 mod number;
 mod parse;
+mod ser;
 mod value;
 mod write;
 
+pub use de::{from_lvalue, from_str};
 pub use error::{Error, Result, SyntaxError};
 pub use number::{Number, format_g17, parse_number_text};
 pub use parse::{HARD_MAX_DEPTH, Limits, parse, parse_bytes, parse_bytes_with, parse_with};
+pub use ser::{to_lvalue, to_string};
 pub use value::{Key, LValue};
 pub use write::{Newline, PrettyOptions, to_string_compact, to_string_pretty, to_string_with};
