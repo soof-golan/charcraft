@@ -46,9 +46,9 @@ pub use classed::{ClassedDoc, class_of};
 pub use error::{Error, Result};
 pub use manifest::{ArchiveInfo, BehaviorDefaults};
 pub use model::{
-    BehaviorDef, BehaviorInstance, Binding, BindingKind, BoundBehavior, Bounds, Handle, HotTake, KeyTrigger, LayerKind, LayerNode, Location, Marker, MediaFile,
-    MediaItem, MediaKind, Model, ParamDef, PuppetItem, RecordingFile, RecordingRef, Scene, Tag, TagDef, Take, TimeItem, Track, TrackItem, Transform, Trigger,
-    TriggerGroup,
+    BehaviorDef, BehaviorInstance, Binding, BindingKind, BoundBehavior, Bounds, Handle, HotTake, KeyTrigger, Keyframe, KeyframeBucket, LayerKind, LayerNode,
+    Location, Marker, MediaFile, MediaItem, MediaKind, Model, ParamDef, PuppetItem, RecordingFile, RecordingRef, ReplacementKind, ReplacementSet, Scene, Tag,
+    TagDef, Take, TimeItem, Track, TrackItem, Transform, Trigger, TriggerGroup,
 };
 pub use model::{behavior, media, puppet, scene};
 pub use package::{Package, PackageEntry};

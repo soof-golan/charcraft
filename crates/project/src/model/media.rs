@@ -100,13 +100,47 @@ pub fn media_kind(class: &str) -> Option<MediaKind> {
     }
 }
 
-/// Decodes a media item. `on_disk` maps file names to the matching file in the package.
+/// The files of `Ch Media/` in a package, found by the path an alias recorded.
+#[derive(Debug, Clone, Default)]
+pub struct MediaIndex {
+    by_path: BTreeMap<String, MediaFile>,
+    by_name: BTreeMap<String, MediaFile>,
+}
+
+impl MediaIndex {
+    /// Adds a file.
+    pub fn insert(&mut self, file: MediaFile) {
+        if let Some(name) = file.path.rsplit('/').next() {
+            self.by_name.entry(name.to_owned()).or_insert_with(|| file.clone());
+        }
+        self.by_path.insert(file.path.clone(), file);
+    }
+
+    /// The file an alias stands for. The part of the recorded path after `Ch Media/` is tried first (it keeps
+    /// sub-folders such as `Recordings/2024-07-10/`), then the bare file name.
+    #[must_use]
+    pub fn find(&self, alias_path: Option<&str>, file_name: Option<&str>) -> Option<&MediaFile> {
+        let relative = alias_path.and_then(|p| p.split_once("Ch Media/")).map(|(_, rest)| format!("Ch Media/{}", rest.replace('\\', "/")));
+        relative.as_deref().and_then(|r| self.by_path.get(r)).or_else(|| file_name.and_then(|n| self.by_name.get(n)))
+    }
+}
+
+/// The `fullpath` and file name of the alias in `value`, for tables that carry one (`_alias` or `_fileAlias`).
 #[must_use]
-pub fn decode(path: &str, class: &str, kind: MediaKind, value: &LValue, on_disk: &BTreeMap<String, MediaFile>) -> MediaItem {
+pub fn alias_of(value: &LValue) -> (Option<String>, Option<String>) {
     let alias = value.get("_alias").or_else(|| value.get("_fileAlias"));
-    let alias_path = alias_path(alias);
-    let file_name = alias_path.as_deref().map(|p| p.rsplit(['/', '\\']).next().unwrap_or(p).to_owned()).or_else(|| Some(last_segment(path).to_owned()));
-    let file = file_name.as_deref().and_then(|n| on_disk.get(n)).cloned();
+    let path = alias_path(alias);
+    let name = path.as_deref().map(|p| p.rsplit(['/', '\\']).next().unwrap_or(p).to_owned());
+    (path, name)
+}
+
+/// Decodes a media item. `on_disk` finds the matching file in the package.
+#[must_use]
+pub fn decode(path: &str, class: &str, kind: MediaKind, value: &LValue, on_disk: &MediaIndex) -> MediaItem {
+    let alias = value.get("_alias").or_else(|| value.get("_fileAlias"));
+    let (alias_path, alias_name) = alias_of(value);
+    let file_name = alias_name.or_else(|| Some(last_segment(path).to_owned()));
+    let file = on_disk.find(alias_path.as_deref(), file_name.as_deref()).cloned();
     let duration = value.get("_duration_serializableRatioTime").and_then(|r| {
         let den = number(r, "denominator");
         (den > 0.0).then(|| number(r, "numerator") / den)

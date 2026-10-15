@@ -13,7 +13,7 @@ use std::path::PathBuf;
 
 use anim_archive::Container;
 use charcraft_ltab::LValue;
-use charcraft_project::{ClassedDoc, Project, ProjectKind};
+use charcraft_project::{ClassedDoc, Project, ProjectKind, ReplacementKind};
 use charcraft_rope::class_name;
 
 fn samples() -> Option<PathBuf> {
@@ -61,6 +61,9 @@ fn both_puppets_load_and_list_their_content() {
         assert!(layers.len() >= 10, "{name}: {} layers", layers.len());
         assert!(layers.iter().any(|n| n.tags.iter().any(|t| t.name.starts_with("Adobe.LipSynch."))), "{name} has lip sync mouths");
         assert!(layers.iter().all(|n| !n.missing), "{name}: every child puppet resolves");
+        let mouth_sets: Vec<_> =
+            model.puppets.iter().flat_map(charcraft_project::PuppetItem::replacement_sets).filter(|s| s.kind == ReplacementKind::Viseme).collect();
+        assert!(mouth_sets.iter().any(|s| s.members.len() >= 5), "{name}: a mouth puppet swaps its viseme layers");
         assert_eq!(model.media.len(), 1, "{name}: one artwork file");
         assert!(model.media.iter().all(|m| m.file.is_some()), "{name}: artwork is in Ch Media");
         assert!(model.puppets.iter().filter(|p| p.is_part).count() >= 10);
@@ -155,6 +158,12 @@ fn the_news_anchors_project_loads_from_folder_marker_and_zip() {
     assert!(male.behaviors.iter().any(|b| b.behavior == "Adobe.LipSync2.js"));
     assert!(scene.behavior_instances().any(|b| !b.takes.is_empty()), "takes are recorded");
     assert_ne!(scene.recordings.len(), 0);
+    let with_data = scene.recordings.iter().find(|r| r.buckets > 0).expect("a recording with keyframes");
+    let buckets = by_folder.keyframe_buckets(&with_data.path).unwrap();
+    assert_eq!(buckets.len(), with_data.buckets);
+    assert!(buckets.iter().any(|b| !b.keyframes.is_empty()));
+    assert!(buckets.windows(2).all(|w| w[0].index < w[1].index));
+    assert!(model.recordings.iter().any(|r| r.file.is_some()), "recorded takes are found in Ch Media/Recordings");
 
     let male = model.puppet("ProjectItems/male_anchor").unwrap();
     assert_eq!(male.trigger_groups.len(), 1);

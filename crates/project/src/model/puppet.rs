@@ -191,6 +191,27 @@ pub struct HotTake {
     pub behaviors: Vec<String>,
 }
 
+/// Why a group of layers replace each other.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub enum ReplacementKind {
+    /// Mouth shapes: layers tagged `Adobe.LipSynch.*` (the visemes) or `Adobe.Face.*Mouth`.
+    Viseme,
+    /// Layers shown by a keyboard or other trigger.
+    Trigger,
+}
+
+/// A set of sibling layers of which one shows at a time (a swap set), derived from tags and triggers.
+///
+/// Character Animator has no stored "swap set" object in the sample files: the grouping comes from the layer
+/// tags and triggers, which is what this derives.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ReplacementSet {
+    /// Why the layers belong together.
+    pub kind: ReplacementKind,
+    /// The binding ids of the members, in order.
+    pub members: Vec<String>,
+}
+
 /// A puppet file of the project (`Puppet{...}`).
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct PuppetItem {
@@ -249,6 +270,26 @@ impl PuppetItem {
             }
         }
         counts
+    }
+
+    /// The groups of layers that replace each other: the mouth shapes, and layers a trigger shows.
+    #[must_use]
+    pub fn replacement_sets(&self) -> Vec<ReplacementSet> {
+        let mut sets = Vec::new();
+        let visemes: Vec<String> = self
+            .bindings
+            .iter()
+            .filter(|b| b.tags.iter().any(|t| t.name.starts_with("Adobe.LipSynch.") || (t.name.starts_with("Adobe.Face.") && t.name.ends_with("Mouth"))))
+            .map(|b| b.id.clone())
+            .collect();
+        if visemes.len() > 1 {
+            sets.push(ReplacementSet { kind: ReplacementKind::Viseme, members: visemes });
+        }
+        let triggered: Vec<String> = self.bindings.iter().filter(|b| b.key_trigger.key.is_some() || !b.triggers.is_empty()).map(|b| b.id.clone()).collect();
+        if triggered.len() > 1 {
+            sets.push(ReplacementSet { kind: ReplacementKind::Trigger, members: triggered });
+        }
+        sets
     }
 
     /// The name shown for the puppet: its display name, its root handle's name or its file name.

@@ -21,8 +21,11 @@ use crate::package::Package;
 
 pub use behavior::{BehaviorDef, ParamDef, TagDef};
 pub use media::{Bounds, MediaFile, MediaItem, MediaKind};
-pub use puppet::{Binding, BindingKind, BoundBehavior, Handle, HotTake, KeyTrigger, Location, PuppetItem, Tag, Transform, Trigger, TriggerGroup};
-pub use scene::{BehaviorInstance, Marker, RecordingRef, Scene, Take, TimeItem, Track, TrackItem};
+pub use puppet::{
+    Binding, BindingKind, BoundBehavior, Handle, HotTake, KeyTrigger, Location, PuppetItem, ReplacementKind, ReplacementSet, Tag, Transform, Trigger,
+    TriggerGroup,
+};
+pub use scene::{BehaviorInstance, Keyframe, KeyframeBucket, Marker, RecordingRef, Scene, Take, TimeItem, Track, TrackItem};
 pub use tree::{LayerKind, LayerNode};
 
 /// A recorded event graph (`.arf`) kept in the store.
@@ -34,6 +37,10 @@ pub struct RecordingFile {
     pub class: String,
     /// Size of the stored text in bytes.
     pub size: usize,
+    /// The path the alias recorded on the author's machine.
+    pub alias_path: Option<String>,
+    /// The recording as found in `Ch Media/`.
+    pub file: Option<MediaFile>,
 }
 
 /// Everything decoded from a project.
@@ -66,13 +73,11 @@ impl Model {
     #[must_use]
     pub fn decode(files: &BTreeMap<String, &[u8]>, package: &Package) -> Self {
         let mut model = Self::default();
-        let mut on_disk: BTreeMap<String, MediaFile> = BTreeMap::new();
+        let mut on_disk = media::MediaIndex::default();
         for entry in package.files() {
             if entry.name().starts_with("Ch Media/") {
                 let file = MediaFile { path: entry.name().to_owned(), size: entry.size() };
-                if let Some(name) = entry.name().rsplit('/').next() {
-                    on_disk.entry(name.to_owned()).or_insert_with(|| file.clone());
-                }
+                on_disk.insert(file.clone());
                 model.media_files.push(file);
             }
         }
@@ -112,7 +117,9 @@ impl Model {
             } else if let Some(kind) = is_media {
                 model.media.push(media::decode(path, &class, kind, &doc.value, &on_disk));
             } else {
-                model.recordings.push(RecordingFile { path: path.clone(), class, size: blob.len() });
+                let (alias_path, file_name) = media::alias_of(&doc.value);
+                let file = on_disk.find(alias_path.as_deref(), file_name.as_deref()).cloned();
+                model.recordings.push(RecordingFile { path: path.clone(), class, size: blob.len(), alias_path, file });
             }
         }
         model.fill_scenes(files, scenes);

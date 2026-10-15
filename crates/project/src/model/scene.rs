@@ -139,6 +139,42 @@ pub struct RecordingRef {
     pub buckets: usize,
 }
 
+/// One keyframe of a recorded parameter.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct Keyframe {
+    /// Time in seconds, relative to the bucket's take.
+    pub time: f64,
+    /// The value (a number for most parameters).
+    pub value: LValue,
+}
+
+/// One stored chunk of keyframes (`KeyframeBucket{...}`).
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct KeyframeBucket {
+    /// Store path of the bucket file.
+    pub path: String,
+    /// The bucket number (the file name).
+    pub index: i64,
+    /// Edited by the user after recording.
+    pub edited: bool,
+    /// Keyframes in time order as stored.
+    pub keyframes: Vec<Keyframe>,
+}
+
+/// Decodes a `KeyframeBucket{...}` file.
+#[must_use]
+pub fn decode_keyframe_bucket(path: &str, index: i64, value: &LValue) -> KeyframeBucket {
+    KeyframeBucket {
+        path: path.to_owned(),
+        index,
+        edited: boolean(value, "_bEdited"),
+        keyframes: value
+            .get("_aKeyframes")
+            .map(|list| list.iter().filter_map(|(_, k)| Some(Keyframe { time: k.get("t")?.as_f64()?, value: k.get("v")?.clone() })).collect())
+            .unwrap_or_default(),
+    }
+}
+
 /// A scene: size, rate and length, its tracks and markers.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Scene {

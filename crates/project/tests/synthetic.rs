@@ -342,6 +342,87 @@ fn hostile_inputs_are_errors_not_panics() {
     assert!(matches!(project.save(), Err(Error::Missing(_))));
 }
 
+fn linked_puppet(guid: &str, child: &str) -> Vec<u8> {
+    format!(
+        "Puppet{{\n\t_idaBindings = IDArray_001{{\n\t\t_aIDArray = {{\n\t\t\t{{\n\t\t\t\tid = \"B1\",\n\t\t\t\tv = PuppetBinding{{\n\t\t\t\t\t_ppath = PPath{{\n\t\t\t\t\t\tp = \"/ProjectItems/{child}\",\n\t\t\t\t\t}},\n\t\t\t\t}},\n\t\t\t}},\n\t\t}},\n\t}},\n\t_sGuid = \"{guid}\",\n}}\n"
+    )
+    .into_bytes()
+}
+
+#[test]
+fn puppets_that_contain_each_other_do_not_loop() {
+    let mut project = Project::new_project("Loops").unwrap();
+    project
+        .commit(
+            vec![
+                Change::Put("ProjectItems/A".to_owned(), linked_puppet("a", "B")),
+                Change::Put("ProjectItems/B".to_owned(), linked_puppet("b", "A")),
+                Change::Put("ProjectItems/Self".to_owned(), linked_puppet("s", "Self")),
+            ],
+            "loop",
+        )
+        .unwrap();
+    let model = project.model().unwrap();
+    let tree = model.layer_tree("ProjectItems/A").unwrap();
+    let names: Vec<_> = tree.flatten().iter().map(|n| (n.name.clone(), n.missing)).collect();
+    assert_eq!(names.len(), 3, "A, B and the unresolved link back to A: {names:?}");
+    assert!(names.last().is_some_and(|(_, missing)| *missing));
+    assert_eq!(model.layer_tree("ProjectItems/Self").unwrap().flatten().len(), 2);
+    assert!(model.layer_tree("ProjectItems/Nope").is_none());
+}
+
+#[test]
+fn absurdly_deep_handle_trees_are_cut_off() {
+    let depth = 300;
+    let mut text = String::new();
+    for _ in 0..depth {
+        text.push_str("Handle{ _sName = \"h\", _aChildren = { ");
+    }
+    for _ in 0..depth {
+        text.push_str("} }, ");
+    }
+    let source = format!("Puppet{{ _origin = {} }}", text.trim_end_matches(", "));
+    let mut project = Project::new_project("Deep").unwrap();
+    project.commit(vec![Change::Put("ProjectItems/D".to_owned(), source.into_bytes())], "deep").unwrap();
+    let model = project.model().unwrap();
+    // Either the table parser refused the nesting (listed as a problem) or the handle tree was cut off.
+    if let Some(puppet) = model.puppet("ProjectItems/D") {
+        let mut levels = 0;
+        let mut node = puppet.origin.as_ref();
+        while let Some(handle) = node {
+            levels += 1;
+            node = handle.children.first();
+        }
+        assert!(levels <= 40, "{levels} levels");
+    } else {
+        assert_ne!(model.problems.len(), 0);
+    }
+}
+
+#[test]
+fn mouths_and_triggered_layers_form_replacement_sets() {
+    let mut project = Project::new_project("Sets").unwrap();
+    let binding = |id: &str, tag: &str, key: &str| {
+        format!(
+            "{{\n\t\t\t\tid = \"{id}\",\n\t\t\t\tv = SkinBinding{{\n\t\t\t\t\t_keyTrigger = BindingKeyTrigger{{\n\t\t\t\t\t\t_triggerKey = \"{key}\",\n\t\t\t\t\t}},\n\t\t\t\t\t_tTags = {{\n\t\t\t\t\t\t[\"{tag}\"] = false,\n\t\t\t\t\t}},\n\t\t\t\t}},\n\t\t\t}},"
+        )
+    };
+    let items: String = [
+        binding("B1", "Adobe.LipSynch.Ah", "a"),
+        binding("B2", "Adobe.LipSynch.Oh", "o"),
+        binding("B3", "Adobe.Face.NeutralMouth", ""),
+        binding("B4", "Other", ""),
+    ]
+    .join("\n");
+    let source = format!("Puppet{{\n\t_idaBindings = IDArray_001{{\n\t\t_aIDArray = {{\n{items}\n\t\t}},\n\t}},\n}}\n");
+    project.commit(vec![Change::Put("ProjectItems/M".to_owned(), source.into_bytes())], "mouths").unwrap();
+    let model = project.model().unwrap();
+    let sets = model.puppet("ProjectItems/M").unwrap().replacement_sets();
+    assert_eq!(sets.len(), 2);
+    assert_eq!(sets[0].members, ["B1", "B2", "B3"]);
+    assert_eq!(sets[1].members, ["B1", "B2"]);
+}
+
 #[test]
 fn removing_a_folder_removes_everything_under_it() {
     let mut project = hero_project();

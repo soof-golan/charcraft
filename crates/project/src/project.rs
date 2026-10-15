@@ -346,6 +346,27 @@ impl Project {
         })
     }
 
+    /// The keyframe buckets recorded for a take, in bucket order. `recording_ref` is
+    /// [`crate::RecordingRef::path`] (the `recordingRef` file beside the `kfba/` folder).
+    ///
+    /// # Errors
+    ///
+    /// Store errors when `HEAD` does not resolve, and parse errors for a damaged bucket.
+    pub fn keyframe_buckets(&self, recording_ref: &str) -> Result<Vec<crate::scene::KeyframeBucket>> {
+        let dir = recording_ref.strip_suffix("/recordingRef").unwrap_or(recording_ref);
+        let prefix = format!("{dir}/kfba/");
+        let mut buckets = Vec::new();
+        for (path, blob) in self.files()? {
+            let Some(index) = path.strip_prefix(&prefix).and_then(|n| n.parse::<i64>().ok()) else {
+                continue;
+            };
+            let doc = ClassedDoc::parse(blob)?;
+            buckets.push(crate::scene::decode_keyframe_bucket(&path, index, &doc.value));
+        }
+        buckets.sort_by_key(|b| b.index);
+        Ok(buckets)
+    }
+
     /// Decodes puppets, scenes, media and behaviors.
     ///
     /// # Errors
