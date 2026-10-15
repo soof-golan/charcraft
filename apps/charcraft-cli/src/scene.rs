@@ -150,11 +150,7 @@ fn build_puppet(project: &Project, model: &Model, item: &PuppetItem) -> Result<P
 }
 
 fn origin_of(item: &PuppetItem) -> Vec2 {
-    item.tagged_locations
-        .iter()
-        .find(|(name, _)| name == "__user_origin")
-        .and_then(|(_, xy)| Some(Vec2::new(*xy.first()?, *xy.get(1)?)))
-        .unwrap_or(Vec2::ZERO)
+    item.tagged_locations.iter().find(|(name, _)| name == "__user_origin").and_then(|(_, xy)| Some(Vec2::new(*xy.first()?, *xy.get(1)?))).unwrap_or(Vec2::ZERO)
 }
 
 fn skin_of(item: &PuppetItem) -> Vec2 {
@@ -183,7 +179,9 @@ fn audio_of(project: &Project, model: &Model, scene: &Scene) -> Result<Option<Sc
 pub fn load_stage(project: &Project, scene_name: Option<&str>) -> Result<Stage> {
     let model = project.model()?;
     let scene = match scene_name {
-        Some(name) => model.scene(name).ok_or_else(|| eyre!("no scene named {name:?}; the project has: {}", model.scenes.iter().map(|s| s.name.as_str()).collect::<Vec<_>>().join(", ")))?,
+        Some(name) => model.scene(name).ok_or_else(|| {
+            eyre!("no scene named {name:?}; the project has: {}", model.scenes.iter().map(|s| s.name.as_str()).collect::<Vec<_>>().join(", "))
+        })?,
         None => model.scenes.first().ok_or_else(|| eyre!("the project has no scenes"))?,
     };
     let mut warnings = Vec::new();
@@ -263,7 +261,10 @@ impl<'a> StageRenderer<'a> {
             let n = anim_core::num::round_f64_to_u32((extent * scale).max(1.0));
             if even { n.saturating_add(n % 2) } else { n }
         };
-        let performances = (0_u64..).zip(&stage.layers).map(|(i, _)| Performance::new(keys.to_vec(), length, Options { seed: seed.wrapping_add(i), blink: true, breathe: true })).collect();
+        let performances = (0_u64..)
+            .zip(&stage.layers)
+            .map(|(i, _)| Performance::new(keys.to_vec(), length, Options { seed: seed.wrapping_add(i), blink: true, breathe: true }))
+            .collect();
         Self {
             stage,
             renderer: Renderer::new(),
@@ -351,6 +352,56 @@ mod tests {
         assert_eq!(&dst[4..], &[10, 20, 30, 255]);
         // Half red over white: red channel stays high, green and blue are halved.
         assert!(dst[0] >= 254 && (126..=129).contains(&dst[1]) && (126..=129).contains(&dst[2]) && dst[3] == 255, "{dst:?}");
+    }
+
+    fn encode(color: png::ColorType, width: u32, height: u32, data: &[u8]) -> Vec<u8> {
+        let mut out = Vec::new();
+        let mut encoder = png::Encoder::new(&mut out, width, height);
+        encoder.set_color(color);
+        encoder.set_depth(png::BitDepth::Eight);
+        encoder.write_header().unwrap().write_image_data(data).unwrap();
+        out
+    }
+
+    fn first_pixels(bytes: &[u8]) -> (Size, Vec<u8>) {
+        let tree = png_artwork(bytes).unwrap();
+        Puppet::from_artwork(&tree).unwrap();
+        let anim_artwork::ArtKind::Group(children) = &tree.root.kind else { panic!("root is a group") };
+        let anim_artwork::ArtKind::Raster { image, .. } = &children[0].kind else { panic!("one raster") };
+        (tree.size, image.premultiplied_rgba.clone())
+    }
+
+    #[test]
+    fn pictures_become_one_layer_artwork_in_every_color_type() {
+        let (size, px) = first_pixels(&encode(png::ColorType::Rgba, 2, 1, &[255, 0, 0, 255, 0, 255, 0, 128]));
+        assert_eq!((size.width, size.height), (2.0, 1.0));
+        assert_eq!(&px[..4], &[255, 0, 0, 255]);
+        assert_eq!(px[7], 128);
+        let (_, px) = first_pixels(&encode(png::ColorType::Rgb, 1, 1, &[1, 2, 3]));
+        assert_eq!(px, [1, 2, 3, 255]);
+        let (_, px) = first_pixels(&encode(png::ColorType::Grayscale, 1, 1, &[77]));
+        assert_eq!(px, [77, 77, 77, 255]);
+        let (_, px) = first_pixels(&encode(png::ColorType::GrayscaleAlpha, 1, 1, &[200, 255]));
+        assert_eq!(px, [200, 200, 200, 255]);
+    }
+
+    #[test]
+    fn hostile_pictures_are_errors() {
+        assert!(png_artwork(b"").is_err());
+        assert!(png_artwork(b"\x89PNG\r\n\x1a\n garbage").is_err());
+        let mut truncated = encode(png::ColorType::Rgba, 4, 4, &[9; 64]);
+        truncated.truncate(truncated.len() / 2);
+        assert!(png_artwork(&truncated).is_err());
+    }
+
+    #[test]
+    fn placement_reads_transform_parameters() {
+        use charcraft_ltab::LValue;
+        let params = vec![("anchorPtX".to_owned(), LValue::Int(-516)), ("uniformScale".to_owned(), LValue::Int(50)), ("scaleX".to_owned(), LValue::Int(200))];
+        let p = Placement::from_params(&params);
+        assert_eq!(p.anchor, Vec2::new(-516.0, 0.0));
+        assert_eq!(p.scale, Vec2::new(1.0, 0.5));
+        assert_eq!(Placement::from_params(&[]), Placement::default());
     }
 
     #[test]

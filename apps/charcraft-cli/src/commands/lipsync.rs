@@ -50,7 +50,12 @@ pub fn file_of(audio_name: &str, audio: &PcmBuffer, keys: &[VisemeKey]) -> Visem
         duration_seconds: audio.seconds(),
         keys: keys
             .iter()
-            .map(|k| KeyOut { start_ticks: k.start.0, time_seconds: k.start.seconds(), viseme: k.viseme.ca_layer_name().to_owned(), animate: k.viseme.to_animate().label().to_owned() })
+            .map(|k| KeyOut {
+                start_ticks: k.start.0,
+                time_seconds: k.start.seconds(),
+                viseme: k.viseme.ca_layer_name().to_owned(),
+                animate: k.viseme.to_animate().label().to_owned(),
+            })
             .collect(),
     }
 }

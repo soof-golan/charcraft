@@ -69,15 +69,26 @@ pub fn render_text(report: &InfoReport) -> String {
         if let Some(build) = &p.build {
             let _ = writeln!(out, "build: {build}");
         }
-        let _ = writeln!(out, "puppets: {}  scenes: {}  media: {}  behaviors installed: {}", p.puppets.len(), p.scenes.len(), p.media.len(), p.behaviors_installed);
+        let _ =
+            writeln!(out, "puppets: {}  scenes: {}  media: {}  behaviors installed: {}", p.puppets.len(), p.scenes.len(), p.media.len(), p.behaviors_installed);
         for pup in p.puppets.iter().filter(|x| !x.is_part) {
-            let _ = writeln!(out, "  puppet {} ({}): {} layers, {} triggers, behaviors: {}", pup.name, pup.path, pup.layers, pup.triggers, pup.behaviors.join(", "));
+            let _ = writeln!(
+                out,
+                "  puppet {} ({}): {} layers, {} triggers, behaviors: {}",
+                pup.name,
+                pup.path,
+                pup.layers,
+                pup.triggers,
+                pup.behaviors.join(", ")
+            );
         }
         for s in &p.scenes {
-            let _ = writeln!(out, "  scene {:?}: {}x{} @ {} fps, {:.1} s, {} tracks, {} takes", s.name, s.width, s.height, s.fps, s.duration, s.tracks, s.takes);
+            let _ =
+                writeln!(out, "  scene {:?}: {}x{} @ {} fps, {:.1} s, {} tracks, {} takes", s.name, s.width, s.height, s.fps, s.duration, s.tracks, s.takes);
         }
         for m in p.media.iter().filter(|m| m.kind != "Other") {
-            let _ = writeln!(out, "  media {} {} {}", m.kind, m.file_name.as_deref().unwrap_or(&m.path), if m.in_package { "" } else { "(not in the package)" });
+            let _ =
+                writeln!(out, "  media {} {} {}", m.kind, m.file_name.as_deref().unwrap_or(&m.path), if m.in_package { "" } else { "(not in the package)" });
         }
         for w in p.problems.iter().chain(&p.warnings) {
             let _ = writeln!(out, "  warning: {w}");
@@ -88,7 +99,14 @@ pub fn render_text(report: &InfoReport) -> String {
         let _ = writeln!(out, "  mouth groups: {}", if p.mouth_groups.is_empty() { "none".to_owned() } else { p.mouth_groups.join(", ") });
         let _ = writeln!(out, "  mouth shapes: {}", if p.visemes.is_empty() { "none".to_owned() } else { p.visemes.join(", ") });
         for g in &p.groups {
-            let _ = writeln!(out, "  group {} [{}]{}{}", g.path, g.tags.join(", "), if g.handles.is_empty() { String::new() } else { format!(" handles: {}", g.handles.len()) }, if g.warped { " warped" } else { "" });
+            let _ = writeln!(
+                out,
+                "  group {} [{}]{}{}",
+                g.path,
+                g.tags.join(", "),
+                if g.handles.is_empty() { String::new() } else { format!(" handles: {}", g.handles.len()) },
+                if g.warped { " warped" } else { "" }
+            );
         }
         for w in &p.warnings {
             let _ = writeln!(out, "  warning: {w}");
