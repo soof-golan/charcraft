@@ -64,6 +64,14 @@ tempfile = "3"
 flate2 = { version = "1.1", default-features = false, features = ["rust_backend"] }
 sha1 = "0.11"
 
+# anim-artwork reads Illustrator files through VectorCraft's PDF stack. Patches don't propagate through git
+# dependencies, so the pins VectorCraft needs are repeated here (same revs as its own root manifest).
+[patch.crates-io]
+hayro-syntax = { git = "https://github.com/storytold/craft-libs", rev = "ca50d63b773c99f96e75c77ce5a1d21e7c9cda0d" }
+hayro-interpret = { git = "https://github.com/storytold/craft-libs", rev = "ca50d63b773c99f96e75c77ce5a1d21e7c9cda0d" }
+hayro-jbig2 = { git = "https://github.com/storytold/craft-libs", rev = "ca50d63b773c99f96e75c77ce5a1d21e7c9cda0d" }
+krilla = { git = "https://github.com/storytold/craft-libs", rev = "ca50d63b773c99f96e75c77ce5a1d21e7c9cda0d" }
+
 [workspace.lints.rust]
 unsafe_code = "forbid"
 
