@@ -1,0 +1,36 @@
+[package]
+name = "charcraft-cli"
+description = "Headless CharCraft: inspect, render, lip sync, animate, export and convert puppets and projects"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "charcraft-cli"
+path = "src/main.rs"
+
+[dependencies]
+anim-artwork = { workspace = true }
+anim-audio = { workspace = true }
+anim-core = { workspace = true }
+anim-display = { workspace = true }
+anim-export = { workspace = true }
+anim-lipsync = { workspace = true }
+anim-render = { workspace = true }
+anim-video = { workspace = true }
+charcraft-ltab = { workspace = true }
+charcraft-project = { workspace = true }
+charcraft-puppet = { workspace = true }
+clap = { workspace = true }
+color-eyre = { workspace = true }
+png = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
