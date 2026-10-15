@@ -84,4 +84,4 @@ pub use number::{Number, format_g17, parse_number_text};
 pub use parse::{HARD_MAX_DEPTH, Limits, parse, parse_bytes, parse_bytes_with, parse_with};
 pub use ser::{to_lvalue, to_string};
 pub use value::{Key, LValue};
-pub use write::{Newline, PrettyOptions, to_string_compact, to_string_pretty, to_string_with};
+pub use write::{Newline, PrettyOptions, reprint, to_string_compact, to_string_pretty, to_string_with};

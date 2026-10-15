@@ -83,6 +83,20 @@ pub fn to_string_with(value: &LValue, options: &PrettyOptions) -> String {
     writer.out
 }
 
+/// Prints `edited` the way `original` was written.
+///
+/// If `original` already holds exactly `edited`, it comes back byte for byte, whatever its layout, comments or
+/// escapes were (so files nobody changed are never rewritten differently, even where our idea of Character
+/// Animator's layout is wrong). Otherwise `edited` is printed with [`to_string_with`], using the line ending that
+/// `original` uses.
+#[must_use]
+pub fn reprint(original: &str, edited: &LValue) -> String {
+    if crate::parse(original).is_ok_and(|current| current == *edited) {
+        return original.to_owned();
+    }
+    to_string_with(edited, &PrettyOptions { newline: Newline::detect(original) })
+}
+
 /// Prints `value` on one line without any optional whitespace: `{rate=30,["a b"]="x",1}`.
 #[must_use]
 pub fn to_string_compact(value: &LValue) -> String {
@@ -278,6 +292,18 @@ mod tests {
         assert_eq!(Newline::detect("\n"), Newline::Lf);
         assert_eq!(Newline::detect("no breaks"), Newline::Lf);
         assert_eq!(parse(&crlf).unwrap(), value);
+    }
+
+    #[test]
+    fn reprint_keeps_untouched_documents_byte_exact_and_matches_line_endings() {
+        let odd = "-- a comment\r\n{ b = 'x';  a = {1, 2,}, ['k'] = \"\\65\" }\r\n";
+        let mut value = parse(odd).unwrap();
+        assert_eq!(reprint(odd, &value), odd);
+        value.set_path("a/new", 5).unwrap();
+        let edited = reprint(odd, &value);
+        assert_eq!(edited, "{\r\n\tb = \"x\",\r\n\ta = {\r\n\t\t1,\r\n\t\t2,\r\n\t\tnew = 5,\r\n\t},\r\n\tk = \"A\",\r\n}\r\n");
+        assert_eq!(parse(&edited).unwrap(), value);
+        assert_eq!(reprint("not ltab {{{", &LValue::Int(1)), "1\n");
     }
 
     #[test]

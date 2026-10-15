@@ -17,9 +17,10 @@ use crate::number::{Number, format_g17, parse_number_text};
 ///
 /// Equality is structural: floats compare by bit pattern *and* source text, so `0.2` and `0.20000000000000001` are
 /// different documents even though they are the same number.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub enum LValue {
     /// `nil`.
+    #[default]
     Nil,
     /// `true` or `false`.
     Bool(bool),
@@ -456,16 +457,10 @@ impl LValue {
     /// Removes every entry with the string key `key` and returns the last one's value.
     pub fn remove(&mut self, key: &str) -> Option<Self> {
         let entries = self.as_table_mut()?;
-        let mut removed = None;
-        let mut index = 0;
-        while let Some((k, _)) = entries.get(index) {
-            if k.as_str() == Some(key) {
-                removed = Some(entries.remove(index).1);
-            } else {
-                index = index.saturating_add(1);
-            }
-        }
-        removed
+        let last = entries.iter().rposition(|(k, _)| k.as_str() == Some(key))?;
+        let removed = entries.remove(last).1;
+        entries.retain(|(k, _)| k.as_str() != Some(key));
+        Some(removed)
     }
 
     /// Appends a positional (array-style) value.
