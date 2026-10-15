@@ -21,6 +21,15 @@ pub enum Error {
     /// The puppet's artwork file is not in the project.
     #[error("the artwork file {0} is not in the project")]
     MissingArtwork(String),
+    /// No layer has this path or label.
+    #[error("no layer {0:?}")]
+    NoLayer(String),
+    /// The edit needs an independent group.
+    #[error("{0:?} is not an independent group (names of independent groups start with +)")]
+    NotIndependent(String),
+    /// The edit was refused.
+    #[error("{0}")]
+    Rejected(&'static str),
 }
 
 /// Result alias.

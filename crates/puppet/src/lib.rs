@@ -8,6 +8,9 @@
 //! ([`anim_rig`]), and mouth shapes, blinks and swaps are chosen by visibility. The neutral pose draws the
 //! artwork unchanged.
 //!
+//! For tools, [`PuppetOp`] (edits), [`LayerInfo`], [`Puppet::summary`] and [`PuppetPose`] are plain serde values
+//! addressed by layer path; the [`api`] module has the tool table an MCP server maps them to.
+//!
 //! ```no_run
 //! use anim_artwork::{import_path, Limits};
 //! use charcraft_puppet::{Puppet, PuppetPose, Viseme};
@@ -25,6 +28,7 @@
 #![allow(clippy::suboptimal_flops, reason = "no fused multiply-add: poses must be bit-identical on every CPU")]
 #![cfg_attr(test, allow(clippy::arithmetic_side_effects, clippy::assert_is_empty, clippy::many_single_char_names, reason = "test code"))]
 
+pub mod api;
 mod build;
 mod error;
 mod eval;
@@ -36,6 +40,7 @@ mod summary;
 pub mod tags;
 mod warp;
 
+pub use api::{LayerInfo, OpOutcome, PuppetOp};
 pub use build::MAX_LAYERS;
 pub use error::{Error, Result};
 pub use model::{HandleDef, HandleKind, Layer, LayerId, LayerKind, Puppet, SwapSet};

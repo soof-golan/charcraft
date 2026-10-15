@@ -156,8 +156,8 @@ pub const AUTO_TAGS: &[AutoTag] = &[
     handle("Adobe.Walk.RightWrist", &["rightwrist"]),
     handle("Adobe.Walk.LeftWrist", &["leftwrist"]),
     handle(ids::BODY, &["body"]),
-    handle(ids::LEFT_ARM, &["leftarm"]),
-    handle(ids::RIGHT_ARM, &["rightarm"]),
+    handle(ids::LEFT_ARM, &["leftarm", "armleft"]),
+    handle(ids::RIGHT_ARM, &["rightarm", "armright"]),
     handle(ids::BREATHE, &["breathe"]),
 ];
 

@@ -357,6 +357,25 @@ fn summary_describes_the_puppet() {
 }
 
 #[test]
+fn tool_ops_edit_a_puppet_by_path() {
+    use charcraft_puppet::{Error, PuppetOp};
+    let mut p = Puppet::from_artwork(&puppet_tree()).unwrap();
+    let out = p.apply(&PuppetOp::AddHandle { group: "Body".into(), name: "Fixed".into(), kind: HandleKind::Fixed, position: [100.0, 195.0] }).unwrap();
+    assert_eq!(out.key.as_deref(), Some("Body/Fixed"));
+    assert!(p.apply(&PuppetOp::AddTag { layer: "Head/Face".into(), tag: "X.Tag".into() }).unwrap().changed);
+    assert!(!p.apply(&PuppetOp::AddTag { layer: "Head/Face".into(), tag: "X.Tag".into() }).unwrap().changed);
+    assert!(matches!(p.apply(&PuppetOp::AddTag { layer: "Nope".into(), tag: "t".into() }), Err(Error::NoLayer(_))));
+    assert!(matches!(p.apply(&PuppetOp::SetOrigin { group: "Head/Face".into(), origin: [0.0, 0.0] }), Err(Error::NotIndependent(_))));
+    assert!(matches!(p.apply(&PuppetOp::SetOrigin { group: "Head".into(), origin: [f64::NAN, 0.0] }), Err(Error::Rejected(_))));
+    assert!(p.apply(&PuppetOp::SetVisible { layer: "Head/Face".into(), visible: false }).unwrap().changed);
+    let info = p.layer_info("mouth").unwrap();
+    assert_eq!(info.path, "Head/mouth");
+    assert_eq!(info.children.len(), 14);
+    assert!(info.independent && info.origin.is_some());
+    assert!(p.layer_info("Nope").is_none());
+}
+
+#[test]
 fn an_empty_artwork_is_a_puppet_with_nothing_to_draw() {
     let tree = ArtworkTree { size: Size::new(4.0, 4.0), root: ArtNode::group("", Vec::new()), warnings: Vec::new() };
     let p = Puppet::from_artwork(&tree).unwrap();
