@@ -99,6 +99,10 @@ pub struct Status {
     pub calibration: Calibration,
     /// Calibration capture progress `(done, wanted)` while one runs.
     pub calibrating: Option<(usize, usize)>,
+    /// The output ranges in use.
+    pub sensitivity: Sensitivity,
+    /// The smoothing in use.
+    pub smoothing: Smoothing,
 }
 
 /// What the actor reports.
@@ -282,6 +286,8 @@ impl Worker {
             dropped: self.dropped,
             calibration: self.solver.calibration,
             calibrating: self.solver.calibration_progress(),
+            sensitivity: self.solver.sensitivity,
+            smoothing: self.solver.smoothing,
         }
     }
 

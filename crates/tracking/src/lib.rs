@@ -27,9 +27,8 @@
 //!
 //! # Tools
 //!
-//! Every public data type is `serde`-serialisable, so an MCP tool can return the latest [`input::FaceInput`], the
-//! [`actor::Status`] and the [`solver::Calibration`] as JSON, and accept [`solver::Sensitivity`] and
-//! [`solver::Smoothing`] as tool arguments.
+//! Every public data type is `serde`-serialisable, and [`tools`] packages the actor as a small set of JSON tools
+//! (status, latest face, start, stop, calibrate, tune) with schemas, ready for the app's MCP layer to list and route.
 
 #![allow(clippy::suboptimal_flops, reason = "no fused multiply-add: results must be bit-identical on every CPU")]
 #![allow(clippy::many_single_char_names, clippy::similar_names, reason = "geometry code follows the usual (x, y, u, v, a, b) notation")]
@@ -53,5 +52,6 @@ pub mod pipeline;
 pub mod solver;
 pub mod source;
 pub mod synthetic;
+pub mod tools;
 
 pub use error::{Error, Result};
