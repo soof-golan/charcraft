@@ -13,6 +13,7 @@ use charcraft_ltab::{
     Error, Key, LValue, Limits, format_g17, from_lvalue, from_str, parse, parse_bytes, parse_with, to_lvalue, to_string, to_string_compact, to_string_pretty,
 };
 use std::collections::BTreeMap;
+use std::fmt::Write as _;
 
 use proptest::collection::vec;
 use proptest::prelude::*;
@@ -247,6 +248,43 @@ proptest! {
             Err(error) => prop_assert!(depth > 128 || depth == 0, "{error}"),
         }
     }
+}
+
+#[test]
+fn large_documents_parse_and_print_without_blowing_up() {
+    // 200k entries across nested tables: linear time and memory, byte-exact when printed back.
+    let mut text = String::from("{\n");
+    for group in 0..200 {
+        writeln!(text, "\tgroup{group:03} = {{").unwrap();
+        for item in 0..1000 {
+            writeln!(text, "\t\titem{item:04} = {item}.5,").unwrap();
+        }
+        text.push_str("\t},\n");
+    }
+    text.push_str("}\n");
+    let doc = parse(&text).unwrap();
+    assert_eq!(doc.iter().count(), 200);
+    assert_eq!(doc.get_path_f64("group199/item0999"), Some(999.5));
+    assert_eq!(to_string_pretty(&doc), text);
+}
+
+#[test]
+fn hostile_repetition_stays_linear() {
+    // Long runs of long-bracket syntax and of unclosed constructs must not be rescanned quadratically.
+    let started = std::time::Instant::now();
+    for text in [
+        format!("{{[{}", "=".repeat(2_000_000)),
+        format!("[{}[", "=".repeat(2_000_000)),
+        "]=".repeat(1_000_000),
+        format!("[=={}", "]".repeat(1_000_000)),
+        "--[".repeat(500_000),
+    ] {
+        let _ = parse(&text);
+    }
+    for text in [format!("{}\"", "\\".repeat(1_000_000)), "{".repeat(1_000_000), "-".repeat(1_000_000), "0".repeat(1_000_000), "\"".repeat(1_000_000)] {
+        let _ = parse(&text);
+    }
+    assert!(started.elapsed() < std::time::Duration::from_secs(20), "parser took {:?}", started.elapsed());
 }
 
 #[test]
