@@ -1,0 +1,23 @@
+[package]
+name = "charcraft-rope"
+description = "Reader and writer for Character Animator's project store: the append-only projectdata.rope log, its git-style objects and refs"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+anim-archive = { workspace = true }
+charcraft-ltab = { workspace = true }
+flate2 = { workspace = true }
+serde = { workspace = true }
+sha1 = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+proptest = { workspace = true }
+serde_json = { workspace = true }
