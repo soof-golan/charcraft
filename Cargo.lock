@@ -532,6 +532,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "charcraft-behaviors"
+version = "0.1.0"
+dependencies = [
+ "anim-artwork",
+ "anim-core",
+ "anim-display",
+ "anim-lipsync",
+ "anim-render",
+ "charcraft-ltab",
+ "charcraft-project",
+ "charcraft-puppet",
+ "png",
+ "proptest",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "charcraft-cli"
 version = "0.1.0"
 dependencies = [
