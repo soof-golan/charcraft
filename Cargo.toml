@@ -66,8 +66,9 @@ sha1 = "0.11"
 sha2 = "0.11"
 dirs = "7"
 ureq = "3"
-# Live input (charcraft-tracking). ONNX Runtime is a release candidate: pin it exactly.
-ort = { version = "=2.0.0-rc.14", default-features = false, features = ["std", "download-binaries", "tls-rustls", "copy-dylibs"] }
+# Live input (charcraft-tracking). ONNX Runtime is a release candidate: pin it exactly. The crate picks the linking
+# mode (downloaded static binaries or a runtime-loaded library) through its own features.
+ort = { version = "=2.0.0-rc.14", default-features = false, features = ["std"] }
 nokhwa = { version = "0.10", default-features = false, features = ["input-native"] }
 
 # anim-artwork reads Illustrator files through VectorCraft's PDF stack. Patches don't propagate through git

@@ -207,10 +207,7 @@ impl TrackingActor {
     pub fn spawn(factory: SourceFactory) -> TrackingHandle {
         let (command_tx, command_rx) = unbounded();
         let (event_tx, event_rx) = bounded(EVENT_QUEUE);
-        let thread = std::thread::Builder::new()
-            .name("charcraft-tracking".into())
-            .spawn(move || Worker::new(factory, command_rx, event_tx).run())
-            .ok();
+        let thread = std::thread::Builder::new().name("charcraft-tracking".into()).spawn(move || Worker::new(factory, command_rx, event_tx).run()).ok();
         TrackingHandle { commands: command_tx, events: event_rx, thread }
     }
 
@@ -509,10 +506,7 @@ mod tests {
     #[test]
     fn frames_without_a_face_are_reported_untracked() {
         use crate::source::Observation;
-        let frames = vec![
-            Observation { time: Tick(0), landmarks: Some(SyntheticFace::default().landmarks()) },
-            Observation { time: Tick(1), landmarks: None },
-        ];
+        let frames = vec![Observation { time: Tick(0), landmarks: Some(SyntheticFace::default().landmarks()) }, Observation { time: Tick(1), landmarks: None }];
         let h = TrackingActor::spawn_scripted(move || ScriptedSource::new("gap", frames.clone()));
         h.send(Command::Start { camera: start() }).unwrap();
         let mut tracked = vec![];

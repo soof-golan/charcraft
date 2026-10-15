@@ -210,7 +210,9 @@ pub fn weighted_nms(mut dets: Vec<Detection>) -> Vec<Detection> {
 }
 
 fn bounds(points: &[[f32; 2]]) -> [f32; 4] {
-    points.iter().fold([f32::INFINITY, f32::INFINITY, f32::NEG_INFINITY, f32::NEG_INFINITY], |b, p| [b[0].min(p[0]), b[1].min(p[1]), b[2].max(p[0]), b[3].max(p[1])])
+    points
+        .iter()
+        .fold([f32::INFINITY, f32::INFINITY, f32::NEG_INFINITY, f32::NEG_INFINITY], |b, p| [b[0].min(p[0]), b[1].min(p[1]), b[2].max(p[0]), b[3].max(p[1])])
 }
 
 /// The crop a face's mesh is computed in: `bbox` grown to a square 1.5 times its long side, turned so `from` to
@@ -468,7 +470,24 @@ mod tests {
                 let s = f(DETECTOR_SIZE);
                 let (dx, dy) = ((0.5 - a[0]) * s, (0.5 - a[1]) * s);
                 scores[0] = 5.0;
-                regressors[..REGRESSION_STRIDE].copy_from_slice(&[dx, dy, 60.0, 60.0, dx - 10.0, dy - 5.0, dx + 10.0, dy - 5.0, dx, dy, dx, dy + 10.0, dx - 25.0, dy, dx + 25.0, dy]);
+                regressors[..REGRESSION_STRIDE].copy_from_slice(&[
+                    dx,
+                    dy,
+                    60.0,
+                    60.0,
+                    dx - 10.0,
+                    dy - 5.0,
+                    dx + 10.0,
+                    dy - 5.0,
+                    dx,
+                    dy,
+                    dx,
+                    dy + 10.0,
+                    dx - 25.0,
+                    dy,
+                    dx + 25.0,
+                    dy,
+                ]);
             }
             Ok(DetectorOutput { regressors, scores })
         }
@@ -478,7 +497,8 @@ mod tests {
                 return Err(Error::Inference("wrong mesh input size".into()));
             }
             self.meshes += 1;
-            let face = self.mesh_face.unwrap_or_else(|| SyntheticFace { eye_distance_px: 70.0, center: [0.0, 0.0], frame: [256, 256], ..SyntheticFace::default() });
+            let face =
+                self.mesh_face.unwrap_or_else(|| SyntheticFace { eye_distance_px: 70.0, center: [0.0, 0.0], frame: [256, 256], ..SyntheticFace::default() });
             let points = face.landmarks().points.iter().flat_map(|p| p.0).collect();
             Ok(MeshOutput { points, presence: self.presence })
         }

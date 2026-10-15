@@ -153,7 +153,8 @@ pub fn measure(l: &Landmarks) -> Option<Measures> {
         mouth_width: mouth_width / iod,
         smile: if mouth_width > f32::EPSILON { corners_up / mouth_width } else { 0.0 },
     };
-    let finite = [m.orientation.yaw, m.orientation.pitch, m.orientation.roll, m.size, m.brow_l, m.brow_r, m.eye_l, m.eye_r, m.mouth_open, m.mouth_width, m.smile];
+    let finite =
+        [m.orientation.yaw, m.orientation.pitch, m.orientation.roll, m.size, m.brow_l, m.brow_r, m.eye_l, m.eye_r, m.mouth_open, m.mouth_width, m.smile];
     (finite.iter().chain(&m.gaze).chain(&m.center).all(|v| v.is_finite())).then_some(m)
 }
 
@@ -178,7 +179,8 @@ mod tests {
 
     #[test]
     fn orientation_round_trips_synthetic_rotations() {
-        for (yaw, pitch, roll) in [(0.3, 0.0, 0.0), (-0.4, 0.0, 0.0), (0.0, 0.25, 0.0), (0.0, -0.3, 0.0), (0.0, 0.0, 0.35), (0.0, 0.0, -0.5), (0.3, -0.2, 0.15)] {
+        for (yaw, pitch, roll) in [(0.3, 0.0, 0.0), (-0.4, 0.0, 0.0), (0.0, 0.25, 0.0), (0.0, -0.3, 0.0), (0.0, 0.0, 0.35), (0.0, 0.0, -0.5), (0.3, -0.2, 0.15)]
+        {
             let base = measure(&SyntheticFace::default().landmarks()).unwrap().orientation;
             let m = measure(&SyntheticFace { yaw, pitch, roll, ..SyntheticFace::default() }.landmarks()).unwrap();
             close(m.orientation.yaw - base.yaw, yaw, 0.03);

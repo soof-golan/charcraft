@@ -222,10 +222,7 @@ fn http_get(url: &str, model: &ModelInfo) -> Result<Vec<u8>> {
 
 #[cfg(not(feature = "download"))]
 fn http_get(_url: &str, model: &ModelInfo) -> Result<Vec<u8>> {
-    Err(Error::ModelUnavailable {
-        name: model.name,
-        reason: format!("built without the `download` feature; place the file at {} yourself", model.file_name),
-    })
+    Err(Error::ModelUnavailable { name: model.name, reason: format!("built without the `download` feature; place the file at {} yourself", model.file_name) })
 }
 
 #[cfg(test)]

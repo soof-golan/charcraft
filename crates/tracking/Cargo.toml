@@ -13,9 +13,15 @@ workspace = true
 [features]
 default = ["download"]
 # Webcam capture through nokhwa (V4L2, AVFoundation, Media Foundation).
-camera = ["dep:nokhwa"]
-# Face detection and landmarks through ONNX Runtime (binary downloaded at build time).
-onnx = ["dep:ort"]
+camera = ["dep:nokhwa", "dep:image"]
+# Face detection and landmarks through ONNX Runtime, linked from binaries ONNX Runtime's build downloads
+# (needs glibc 2.38+ and a recent libstdc++ on Linux: Ubuntu 24.04, Fedora 39, Debian 13).
+onnx = ["onnx-runtime", "ort/download-binaries", "ort/tls-rustls", "ort/copy-dylibs"]
+# The same, with libonnxruntime loaded at run time from ORT_DYLIB_PATH: for older Linux distributions, packaged
+# apps that ship their own runtime, and Jetson (JetPack's ONNX Runtime).
+onnx-dynamic = ["onnx-runtime", "ort/load-dynamic"]
+# Internal: the ONNX Runtime code, shared by both linking modes.
+onnx-runtime = ["dep:ort"]
 # Fetch model weights on first use (verified against the registry's SHA-256).
 download = ["dep:ureq"]
 
@@ -23,6 +29,7 @@ download = ["dep:ureq"]
 anim-core = { workspace = true }
 crossbeam-channel = { workspace = true }
 dirs = { workspace = true }
+image = { workspace = true, features = ["jpeg"], optional = true }
 nokhwa = { workspace = true, optional = true }
 ort = { workspace = true, optional = true }
 serde = { workspace = true }
@@ -32,10 +39,10 @@ thiserror = { workspace = true }
 ureq = { workspace = true, optional = true }
 
 [dev-dependencies]
-image = { workspace = true }
+image = { workspace = true, features = ["jpeg"] }
 proptest = { workspace = true }
 tempfile = { workspace = true }
 
 [[example]]
 name = "probe"
-required-features = ["onnx"]
+required-features = ["onnx-runtime"]

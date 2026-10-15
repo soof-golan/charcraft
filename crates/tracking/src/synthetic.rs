@@ -132,11 +132,7 @@ fn rotation(beta: f32, alpha: f32, gamma: f32) -> Matrix {
     let (sb, cb) = beta.sin_cos();
     let (sa, ca) = alpha.sin_cos();
     let (sg, cg) = gamma.sin_cos();
-    [
-        [cg * cb - sg * sa * sb, -sg * ca, cg * sb + sg * sa * cb],
-        [sg * cb + cg * sa * sb, cg * ca, sg * sb - cg * sa * cb],
-        [-ca * sb, sa, ca * cb],
-    ]
+    [[cg * cb - sg * sa * sb, -sg * ca, cg * sb + sg * sa * cb], [sg * cb + cg * sa * sb, cg * ca, sg * sb - cg * sa * cb], [-ca * sb, sa, ca * cb]]
 }
 
 fn apply(m: &Matrix, v: V3) -> V3 {

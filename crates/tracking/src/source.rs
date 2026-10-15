@@ -61,10 +61,7 @@ impl ScriptedSource {
     #[must_use]
     pub fn from_faces(name: impl Into<String>, faces: &[SyntheticFace], fps: u32) -> Self {
         let step = Tick::from_units(1, i64::from(fps.max(1)));
-        let frames = (0_i64..)
-            .zip(faces)
-            .map(|(i, face)| Observation { time: Tick(step.0.saturating_mul(i)), landmarks: Some(face.landmarks()) })
-            .collect();
+        let frames = (0_i64..).zip(faces).map(|(i, face)| Observation { time: Tick(step.0.saturating_mul(i)), landmarks: Some(face.landmarks()) }).collect();
         Self::new(name, frames)
     }
 
@@ -172,6 +169,40 @@ pub trait FrameSource {
     /// # Errors
     /// Whatever the device reports.
     fn next_frame(&mut self) -> Result<Option<(Tick, Frame)>>;
+}
+
+/// A [`FrameSource`] that repeats one image `count` times at `fps`: a still photo standing in for a camera, for
+/// tests and demos of the whole pipeline.
+#[derive(Clone, Debug)]
+pub struct StillImage {
+    frame: Frame,
+    remaining: usize,
+    emitted: i64,
+    step: Tick,
+}
+
+impl StillImage {
+    /// `frame` repeated `count` times, stamped at `fps` frames per second.
+    #[must_use]
+    pub fn new(frame: Frame, count: usize, fps: u32) -> Self {
+        Self { frame, remaining: count, emitted: 0, step: Tick::from_units(1, i64::from(fps.max(1))) }
+    }
+}
+
+impl FrameSource for StillImage {
+    fn name(&self) -> String {
+        "still image".into()
+    }
+
+    fn next_frame(&mut self) -> Result<Option<(Tick, Frame)>> {
+        if self.remaining == 0 {
+            return Ok(None);
+        }
+        self.remaining = self.remaining.saturating_sub(1);
+        let time = Tick(self.step.0.saturating_mul(self.emitted));
+        self.emitted = self.emitted.saturating_add(1);
+        Ok(Some((time, self.frame.clone())))
+    }
 }
 
 /// Something that finds a face's landmarks in a frame, remembering the previous frame to follow the face.
@@ -290,6 +321,13 @@ mod tests {
             self.0 = !self.0;
             Ok(self.0.then(|| SyntheticFace::default().landmarks()))
         }
+    }
+
+    #[test]
+    fn a_still_image_repeats_with_rising_timestamps() {
+        let mut s = StillImage::new(Frame::solid(2, 2, [1, 2, 3]).unwrap(), 3, 30);
+        let times: Vec<_> = std::iter::from_fn(|| s.next_frame().unwrap().map(|(t, _)| t)).collect();
+        assert_eq!(times, [Tick(0), Tick::from_units(1, 30), Tick::from_units(2, 30)]);
     }
 
     #[test]

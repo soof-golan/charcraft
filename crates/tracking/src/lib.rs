@@ -20,7 +20,9 @@
 //! * [`model`]: the registry of open-licensed models (name, licence, URL, SHA-256) and the store that downloads them
 //!   into the platform cache directory on first use and verifies them. Weights are never committed.
 //! * `camera` (feature `camera`): enumerates webcams and opens one at a requested resolution through nokhwa.
-//! * `onnx` (feature `onnx`): `MediaPipe` `BlazeFace` and Face Mesh V2 running on ONNX Runtime.
+//! * `onnx` (feature `onnx` or `onnx-dynamic`): `MediaPipe` `BlazeFace` and Face Mesh V2 on ONNX Runtime, linked
+//!   from downloaded binaries or loaded at run time. `pipeline` holds the runtime-independent geometry.
+//! * `live` (features `camera` and an ONNX one): [`actor::SourceFactory`] for the real webcam and models.
 //! * [`synthetic`]: a parametric face in the landmark layout, for tests, demos and development without a camera.
 //!
 //! # Tools
@@ -41,9 +43,11 @@ pub mod error;
 pub mod frame;
 pub mod input;
 pub mod landmarks;
+#[cfg(all(feature = "camera", feature = "onnx-runtime"))]
+pub mod live;
 pub mod measure;
 pub mod model;
-#[cfg(feature = "onnx")]
+#[cfg(feature = "onnx-runtime")]
 pub mod onnx;
 pub mod pipeline;
 pub mod solver;

@@ -21,10 +21,7 @@ impl Default for Calibration {
     /// A typical face: good enough to start with, better after [`Calibration::from_samples`].
     fn default() -> Self {
         let typical = measure(&SyntheticFace::default().landmarks()).unwrap_or_default();
-        Self {
-            neutral: Measures { orientation: Orientation::default(), center: [0.0, 0.0], size: 0.12, gaze: [0.0, 0.0], ..typical },
-            captured: false,
-        }
+        Self { neutral: Measures { orientation: Orientation::default(), center: [0.0, 0.0], size: 0.12, gaze: [0.0, 0.0], ..typical }, captured: false }
     }
 }
 
@@ -215,6 +212,13 @@ impl FaceSolver {
         Self { calibration, ..Self::default() }
     }
 
+    /// This solver with different smoothing.
+    #[must_use]
+    pub const fn with_smoothing(mut self, smoothing: Smoothing) -> Self {
+        self.smoothing = smoothing;
+        self
+    }
+
     /// Starts capturing the neutral face from the next `frames` tracked frames.
     pub fn begin_calibration(&mut self, frames: usize) {
         self.capture = Some(Capture { wanted: frames.max(1), samples: Vec::new() });
@@ -280,9 +284,7 @@ impl FaceSolver {
         // Frames stamped at (almost) the same instant carry no speed information: use a nominal 60 Hz step.
         let dt = gap.filter(|g| *g > 1e-4).map_or(1.0 / 60.0, anim_core::num::f64_to_f32);
         let p = &self.smoothing;
-        let params = [
-            p.head, p.head, p.head, p.head, p.head, p.head, p.brows, p.brows, p.eyes, p.eyes, p.gaze, p.gaze, p.mouth, p.mouth, p.mouth,
-        ];
+        let params = [p.head, p.head, p.head, p.head, p.head, p.head, p.brows, p.brows, p.eyes, p.eyes, p.gaze, p.gaze, p.mouth, p.mouth, p.mouth];
         for ((value, filter), params) in v.iter_mut().zip(self.filters.iter_mut()).zip(params) {
             *value = filter.apply(*value, dt, params);
         }
