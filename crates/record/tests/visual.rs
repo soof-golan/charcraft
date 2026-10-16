@@ -760,7 +760,7 @@ fn determinism_scene(with_b: bool) -> Scene {
     let mut scene = scene_at(FrameRate::FPS_29_97, 6.0);
     scene.seed = 7;
     let mut a = PuppetTrack::new("A", "Hero");
-    a.behaviors.push(StackOp::SetParam { index: 1, name: "Trim_Ah".to_owned(), value: serde_json::json!(200.0) });
+    a.behaviors.push(StackOp::SetParam { index: 2, name: "Trim_Ah".to_owned(), value: serde_json::json!(200.0) });
     scene.add_track(a).unwrap();
     if with_b {
         scene.add_track(PuppetTrack::new("B", "Hero")).unwrap();
