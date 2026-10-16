@@ -38,7 +38,7 @@ pub fn run(opened: Opened, png: Option<&Path>) -> Result<Report, String> {
     // The commands work on the document: change the length, ask for the scene back.
     let registry = crate::session::registry().map_err(|e| e.to_string())?;
     let (ui, _unused) = crossbeam_channel::unbounded();
-    let links = crate::session::Links { live: crate::live::LiveLink::disconnected(), ui };
+    let links = crate::session::Links::new(crate::live::LiveLink::disconnected(), ui);
     let mut session = anim_session::Session::new(crate::session::AppDoc::new(rec.clone(), rig, links), registry);
     session.execute("scene.set", &json!({ "duration_seconds": 1.0 })).map_err(|e| e.to_string())?;
     let info = session.execute("scene.info", &json!({})).map_err(|e| e.to_string())?;

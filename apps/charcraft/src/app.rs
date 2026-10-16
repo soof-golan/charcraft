@@ -165,7 +165,7 @@ impl CharCraftApp {
         let live = LiveHandle::spawn(wake.clone());
         let render = RenderHandle::spawn(wake.clone());
         let (ui_tx, ui_rx) = unbounded();
-        let links = Links { live: live.link(), ui: ui_tx };
+        let links = Links::new(live.link(), ui_tx);
         let confinement = options.control.confinement(opened.world.source.as_deref())?;
         let registry = registry().map_err(|e| e.to_string())?;
         let info = HostInfo { name: "charcraft".into(), version: env!("CARGO_PKG_VERSION").into() };

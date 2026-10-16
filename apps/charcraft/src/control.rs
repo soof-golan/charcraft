@@ -29,7 +29,12 @@ delete takes), audio_* (clips), playback_* (poses at frames), rig_* (tags, handl
 camera and microphone), ui_set (drive the window: mode, selection, playhead). Queries (query_*) describe puppets and behaviors without \
 changing anything. render_frame returns a PNG of a scene frame (or one puppet with options {puppet, viseme, blink}); screenshot returns \
 the real window; export writes mp4, mov, png-sequence or png. Every edit is one undo step; run_batch makes several edits atomic. \
-Record a performance headlessly with record_script (events: face, voice, pointer, key per frame), then render or export it.";
+Record a performance headlessly with record_script (events: face, voice, pointer, key per frame), then render or export it. \
+lipsync_record reads a sound file, records its mouth shapes as a take and places the sound on an audio track. To see a hand-made pose \
+call render_frame with options {puppet?, viseme (Ah, D, Ee, F, L, M, Oh, R, S, Uh, W-Oo, Smile, Surprised), blink, pose (any part of a \
+puppet pose, e.g. {\"head\":{\"rotation\":10}}), triggers (keys that are on), swaps ({swap set: layer label}), transparent}; or \
+{time_seconds} for a scene frame. open_document opens .puppet, .chproj, .psd, .ai and .svg files (artwork becomes a new puppet), \
+save_document writes a .charcraft document.";
 
 /// Options of the control channels.
 #[derive(Debug, Clone, Args, Default)]
@@ -170,7 +175,7 @@ pub fn run_headless(opened: Opened, args: &ControlArgs) -> Result<(), String> {
         let live = LiveHandle::spawn(|| {});
         // Nobody listens for view changes without a window: `ui_set` answers that there is no window.
         let (ui, _no_window) = crossbeam_channel::unbounded();
-        let links = Links { live: live.link(), ui };
+        let links = Links::new(live.link(), ui);
         HeadlessHost { host: make_host(opened, links, registry, confinement, info), _live: live }
     })
     .map_err(|e| e.to_string())?;

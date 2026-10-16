@@ -16,7 +16,11 @@ use anim_session::command::RunFn;
 use anim_session::{CommandError, CommandRegistry, CommandSpec, RegistryError, SizeHint, param_opt};
 use charcraft_puppet::{Puppet, PuppetOp};
 use charcraft_record::RecordDoc;
-use crossbeam_channel::Sender;
+use anim_audio::PcmBuffer;
+use anim_core::Tick;
+use charcraft_behaviors::Inputs;
+use charcraft_record::{AudioClip, ParamGroup, Recorder};
+use crossbeam_channel::{Receiver, Sender};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
@@ -101,6 +105,23 @@ pub struct Links {
     pub live: LiveLink,
     /// Requests to change the window's view.
     pub ui: Sender<UiSet>,
+    /// Sounds commands have read from files: the hooks move them into the media store (which is not part of the
+    /// undoable document) on their next tick.
+    pub sounds: Sender<Sound>,
+    /// The other end of [`Self::sounds`], drained by the hooks.
+    pub sounds_in: Receiver<Sound>,
+}
+
+/// A sound read from a file, under the media name clips use.
+pub type Sound = (String, PcmBuffer);
+
+impl Links {
+    /// Links to the actors; the sound channel is made here.
+    #[must_use]
+    pub fn new(live: LiveLink, ui: Sender<UiSet>) -> Self {
+        let (sounds, sounds_in) = crossbeam_channel::unbounded();
+        Self { live, ui, sounds, sounds_in }
+    }
 }
 
 /// The session document.
@@ -322,7 +343,88 @@ fn ui_set(doc: &mut AppDoc, params: &Value) -> Result<Value, CommandError> {
     Ok(json!({ "requested": set }))
 }
 
-const NO_PARAMS: &str = r#"{"type":"object","properties":{},"additionalProperties":false}"#;
+// --- lip sync from a sound file ----------------------------------------------------------------------------------
+
+#[derive(Deserialize)]
+#[serde(default, deny_unknown_fields)]
+struct LipsyncRecord {
+    track: usize,
+    path: String,
+    start_seconds: f64,
+    add_audio: bool,
+    audio_track: usize,
+    media: Option<String>,
+}
+
+impl Default for LipsyncRecord {
+    fn default() -> Self {
+        Self { track: 0, path: String::new(), start_seconds: 0.0, add_audio: true, audio_track: 0, media: None }
+    }
+}
+
+/// A media name for a file: its stem reduced to what `valid_media_name` allows.
+fn media_name_for(path: &str) -> String {
+    let stem = std::path::Path::new(path).file_stem().and_then(|s| s.to_str()).unwrap_or("sound");
+    let cleaned: String = stem.chars().map(|c| if c.is_ascii_alphanumeric() || matches!(c, ' ' | '.' | '_' | '-') { c } else { '_' }).take(64).collect();
+    if charcraft_record::valid_media_name(&cleaned) { cleaned } else { "sound".to_owned() }
+}
+
+/// Reads a sound file, finds the mouth shapes in it, records them as a voice take on a puppet track and (by default)
+/// puts the sound on an audio track, all as one undo step.
+fn lipsync_record(doc: &mut AppDoc, params: &Value) -> Result<Value, CommandError> {
+    let p: LipsyncRecord = serde_json::from_value(params.clone()).map_err(|e| CommandError::invalid_params(e.to_string()))?;
+    if p.path.is_empty() {
+        return Err(CommandError::invalid_params("`path` is required (a WAV, MP3, FLAC, Ogg or AAC file)"));
+    }
+    if !p.start_seconds.is_finite() || p.start_seconds < 0.0 {
+        return Err(CommandError::invalid_params("start_seconds must be zero or more"));
+    }
+    doc.rec.check_track(p.track).map_err(|e| CommandError::failed(e.to_string()))?;
+    let audio = anim_audio::decode_path(std::path::Path::new(&p.path)).map_err(|e| CommandError::failed(format!("{}: {e}", p.path)))?;
+    let keys = anim_lipsync::analyze(&audio.to_mono().samples, audio.sample_rate);
+    let fps = doc.rec.scene.fps_f64().max(1.0);
+    let length = audio.seconds();
+    let frames = anim_core::num::round_f64_to_u32((length * fps).ceil()).saturating_add(1);
+    if usize::try_from(frames).map_or(true, |n| n > charcraft_record::take::MAX_SAMPLES) {
+        return Err(CommandError::failed(format!("the sound is {length:.0} s long, too long to record as one take")));
+    }
+    let offset = Tick::from_seconds_f64(p.start_seconds);
+    let inputs: Vec<Inputs> = (0..frames)
+        .map(|f| {
+            let within = Tick::from_seconds_f64(f64::from(f) / fps);
+            Inputs::at(Tick(offset.0.saturating_add(within.0))).with_viseme(anim_lipsync::viseme_at(&keys, within))
+        })
+        .collect();
+    let mut recorder = Recorder::new();
+    recorder.arm_only([ParamGroup::Voice]);
+    let recording = recorder.record_all(&inputs, None).map_err(|e| CommandError::failed(e.to_string()))?;
+    let take = recording.take.ok_or_else(|| CommandError::failed("the sound produced no mouth data"))?;
+    let index = doc.rec.scene.add_take(p.track, take).map_err(|e| CommandError::failed(e.to_string()))?;
+    let mut result = serde_json::Map::new();
+    result.insert("track".into(), json!(p.track));
+    result.insert("take".into(), json!(index));
+    result.insert("seconds".into(), json!(length));
+    result.insert("keys".into(), json!(keys.len()));
+    result.insert(
+        "first_shapes".into(),
+        keys.iter().take(12).map(|k| json!({ "time_seconds": k.start.seconds() + p.start_seconds, "viseme": k.viseme.ca_layer_name() })).collect(),
+    );
+    if p.add_audio {
+        let name = p.media.unwrap_or_else(|| media_name_for(&p.path));
+        if !charcraft_record::valid_media_name(&name) {
+            return Err(CommandError::invalid_params(format!("{name:?} is not a usable media name (letters, digits, space, . _ -)")));
+        }
+        let clip = AudioClip::new(&name, &name, offset);
+        let clip_index = doc.rec.scene.add_clip(p.audio_track, clip).map_err(|e| CommandError::failed(e.to_string()))?;
+        doc.links.sounds.send((name.clone(), audio)).map_err(|_| CommandError::failed("the media store is gone"))?;
+        result.insert("media".into(), json!(name));
+        result.insert("audio_track".into(), json!(p.audio_track));
+        result.insert("clip".into(), json!(clip_index));
+    }
+    Ok(Value::Object(result))
+}
+
+const NO_PARAMS: &str =r#"{"type":"object","properties":{},"additionalProperties":false}"#;
 
 /// The commands the app adds to the record crate's.
 fn app_commands() -> Vec<CommandSpec<AppDoc>> {
@@ -335,6 +437,9 @@ fn app_commands() -> Vec<CommandSpec<AppDoc>> {
             .transient()
             .describe("The layers of a puppet (path, label, independent group) and the cast keys of the loaded puppets.")
             .with_schema(r#"{"type":"object","properties":{"puppet":{"type":"string"}}}"#),
+        CommandSpec::new("lipsync.record", "Lip sync a sound file", lipsync_record)
+            .describe("Read a sound file (WAV, MP3, FLAC, Ogg, AAC), find the mouth shapes in it the way Lip Sync does, record them as a new voice take on puppet track 'track' starting at start_seconds, and place the sound on audio track 'audio_track' (add_audio false skips the sound; 'media' names it). One undo step. Render or export the scene to see and hear the result.")
+            .with_schema(r#"{"type":"object","required":["path"],"properties":{"path":{"type":"string","description":"The sound file."},"track":{"type":"integer","minimum":0,"description":"Puppet track (default 0)."},"start_seconds":{"type":"number","minimum":0},"add_audio":{"type":"boolean","description":"Also place the sound on an audio track (default true)."},"audio_track":{"type":"integer","minimum":0},"media":{"type":"string","description":"Media name for the sound (default: the file name)."}},"additionalProperties":false}"#),
         CommandSpec::new("tracking.status", "Tracking status", tracking_status).transient().describe("Whether face tracking runs, frame counts, calibration, sensitivity and smoothing.").with_schema(NO_PARAMS),
         CommandSpec::new("tracking.latest", "Latest tracked face", tracking_latest)
             .transient()
@@ -417,7 +522,7 @@ mod tests {
         rig.skeletons.insert("demo".into(), Skeleton::of(&puppet));
         let (ui, _rx) = crossbeam_channel::unbounded();
         let scene = Scene::new("s", Size::new(640.0, 360.0), FrameRate::FPS_30, Tick::from_seconds_f64(2.0));
-        AppDoc::new(RecordDoc::new(scene), rig, Links { live: LiveLink::disconnected(), ui })
+        AppDoc::new(RecordDoc::new(scene), rig, Links::new(LiveLink::disconnected(), ui))
     }
 
     #[test]

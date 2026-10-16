@@ -113,6 +113,52 @@ fn object(properties: &Value) -> Value {
     json!({ "type": "object", "properties": properties })
 }
 
+/// The `render_frame` options that ask for one puppet in a hand-made pose instead of a scene frame.
+const POSE_OPTIONS: [&str; 6] = ["puppet", "pose", "viseme", "blink", "triggers", "swaps"];
+
+/// Merges `patch` into `base`: objects merge key by key, anything else replaces.
+fn merge_json(base: &mut Value, patch: &Value) {
+    match (base, patch) {
+        (Value::Object(base), Value::Object(patch)) => {
+            for (key, value) in patch {
+                merge_json(base.entry(key.clone()).or_insert(Value::Null), value);
+            }
+        }
+        (base, patch) => patch.clone_into(base),
+    }
+}
+
+/// The pose the `render_frame` options describe: `pose` (any part of a `PuppetPose`) with `viseme` (a mouth shape by
+/// its Character Animator name), `blink`, `triggers` (keys that are on) and `swaps` (swap set to chosen member) on top.
+fn pose_from_options(options: &Value) -> Result<PuppetPose, ControlError> {
+    let mut value = serde_json::to_value(PuppetPose::neutral()).map_err(failed)?;
+    if let Some(pose) = options.get("pose").filter(|p| !p.is_null()) {
+        if !pose.is_object() {
+            return Err(ControlError::invalid("`pose` must be an object (any part of a puppet pose, for example {\"head\":{\"rotation\":10}})"));
+        }
+        merge_json(&mut value, pose);
+    }
+    let mut pose: PuppetPose = serde_json::from_value(value).map_err(|e| ControlError::invalid(format!("`pose` does not fit a puppet pose: {e}")))?;
+    if let Some(name) = options.get("viseme").and_then(Value::as_str) {
+        pose.viseme = Some(charcraft_puppet::Viseme::from_label(name).ok_or_else(|| {
+            let known: Vec<&str> = charcraft_puppet::Viseme::ALL.iter().map(|v| v.label()).collect();
+            ControlError::invalid(format!("no mouth shape {name:?}; the shapes are {known:?}"))
+        })?);
+    }
+    if options.get("blink").and_then(Value::as_bool) == Some(true) {
+        pose = pose.with_blink(1.0);
+    }
+    if let Some(keys) = options.get("triggers").filter(|t| !t.is_null()) {
+        let keys: Vec<String> = serde_json::from_value(keys.clone()).map_err(|_| ControlError::invalid("`triggers` must be a list of trigger keys"))?;
+        pose.triggers.extend(keys);
+    }
+    if let Some(swaps) = options.get("swaps").filter(|t| !t.is_null()) {
+        let swaps: std::collections::BTreeMap<String, String> = serde_json::from_value(swaps.clone()).map_err(|_| ControlError::invalid("`swaps` must map a swap set name to a layer label"))?;
+        pose.swaps.extend(swaps);
+    }
+    Ok(pose)
+}
+
 fn puppet_param() -> Value {
     json!({ "puppet": { "type": "string", "description": "Cast key of the puppet (default: the first)." } })
 }
@@ -278,22 +324,27 @@ impl AppHooks<AppDoc> for Hooks {
     fn render(&mut self, doc: &AppDoc, request: &RenderRequest, _ticket: &Ticket) -> HookResult {
         let scale = f64::from(request.scale);
         let mut renderer = Renderer::new();
-        let (picture, what) = if let Some(key) = request.options.get("puppet").and_then(Value::as_str) {
-            let mut pose = PuppetPose::neutral();
-            if let Some(name) = request.options.get("viseme").and_then(Value::as_str) {
-                pose.viseme = charcraft_puppet::Viseme::ALL.into_iter().find(|v| v.label().eq_ignore_ascii_case(name));
-            }
-            if request.options.get("blink").and_then(Value::as_bool) == Some(true) {
-                pose = pose.with_blink(1.0);
-            }
+        let single = POSE_OPTIONS.iter().any(|k| request.options.get(*k).is_some_and(|v| !v.is_null()));
+        let (picture, what) = if single {
+            let key = match request.options.get("puppet").and_then(Value::as_str) {
+                Some(key) => key.to_owned(),
+                None => self.puppet_key(&request.options)?,
+            };
+            let pose = pose_from_options(&request.options)?;
+            let background = if request.options.get("transparent").and_then(Value::as_bool) == Some(true) { None } else { Some(anim_core::Rgba8::WHITE) };
             let stage = self.stage();
             let picture = stage
-                .render_puppet(&mut renderer, key, &pose, scale, Some(anim_core::Rgba8::WHITE))
+                .render_puppet(&mut renderer, &key, &pose, scale, background)
                 .map_err(failed)?
                 .ok_or_else(|| ControlError::new(ErrorKind::NotFound, format!("no puppet {key:?}")))?;
             (picture, serde_json::Map::from_iter([("puppet".to_owned(), json!(key))]))
         } else {
-            let frame = request.frame.unwrap_or_else(|| doc.rec.scene.frame_at(anim_core::Tick::from_seconds_f64(self.view.playhead_seconds)));
+            let at = match request.options.get("time_seconds").and_then(Value::as_f64) {
+                Some(t) if t.is_finite() && t >= 0.0 => Some(doc.rec.scene.frame_at(anim_core::Tick::from_seconds_f64(t))),
+                Some(_) => return Err(ControlError::invalid("time_seconds must be a finite number of seconds, zero or more")),
+                None => None,
+            };
+            let frame = at.or(request.frame).unwrap_or_else(|| doc.rec.scene.frame_at(anim_core::Tick::from_seconds_f64(self.view.playhead_seconds)));
             let frames = i64::from(doc.rec.scene.frame_count());
             if frame < 0 || frame >= frames.max(1) {
                 return Err(ControlError::invalid(format!("frame {frame} is outside 0..{frames}")));
@@ -384,6 +435,12 @@ impl AppHooks<AppDoc> for Hooks {
     }
 
     fn tick(&mut self, session: &mut Session<AppDoc>) {
+        // Sounds the commands read from files go into the media store, which the document does not hold.
+        while let Ok((name, buffer)) = self.links.sounds_in.try_recv() {
+            if let Err(e) = self.world.media.insert(&name, buffer) {
+                self.world.warnings.push(format!("sound {name:?} was not kept: {e}"));
+            }
+        }
         if self.world.sync(&session.doc().rig) {
             session.doc_mut().rec.templates = self.world.cast.templates();
         }
@@ -420,7 +477,7 @@ mod tests {
         spawn_headless(|| {
             let opened = World::demo().unwrap();
             let (ui, _rx) = crossbeam_channel::unbounded();
-            let links = Links { live: LiveLink::disconnected(), ui };
+            let links = Links::new(LiveLink::disconnected(), ui);
             let registry = crate::session::registry().unwrap();
             make_host(opened, links, registry, Confinement::unrestricted(), HostInfo { name: "charcraft".into(), version: "test".into() })
         })
@@ -485,6 +542,89 @@ mod tests {
         let status = backend.call(Request::Status {}).unwrap();
         assert_eq!(status.value["app"]["scene"]["tracks"], 1);
         backend.call(Request::Undo {}).unwrap_or_else(|_| backend.call(Request::Status {}).unwrap());
+        session.shutdown();
+    }
+
+    /// Half a second of silence, a vowel-like buzz, and a hiss: enough for the analyzer to move the mouth.
+    #[expect(clippy::as_conversions, clippy::cast_possible_truncation, reason = "test signal")]
+    fn speechlike() -> anim_audio::PcmBuffer {
+        let rate = 16_000_u32;
+        let mut samples = vec![0.0_f32; 8_000];
+        for i in 0..16_000_u32 {
+            let t = f64::from(i) / f64::from(rate);
+            let voiced: f64 = (1..=20).map(|h| (std::f64::consts::TAU * 120.0 * f64::from(h) * t).sin() / f64::from(h)).sum();
+            samples.push((0.2 * voiced) as f32);
+        }
+        let mut state = 7_u32;
+        for _ in 0..8_000 {
+            state = state.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+            samples.push((f64::from(state >> 16) / 65_536.0 - 0.5) as f32 * 0.6);
+        }
+        anim_audio::PcmBuffer::new(rate, 1, samples)
+    }
+
+    fn run(backend: &anim_mcp::Backend, id: &str, params: Value) -> Result<Reply, ControlError> {
+        // The reply wraps the command's own answer in `result`.
+        backend.call(Request::CommandRun { id: id.into(), params, merge_key: None }).map(|mut reply| {
+            reply.value = reply.value["result"].take();
+            reply
+        })
+    }
+
+    #[test]
+    fn render_takes_a_hand_made_pose_a_time_and_refuses_nonsense() {
+        let session = headless();
+        let backend = session.backend();
+        let render = |options: Value| backend.call(Request::Render { frame: None, scale: Some(0.5), path: None, options });
+        let neutral = render(json!({ "puppet": "demo" })).unwrap();
+        let oh = render(json!({ "viseme": "Oh" })).unwrap();
+        assert_eq!(oh.value["puppet"], "demo", "a pose option alone picks the first puppet");
+        assert_ne!(neutral.images.first().map(|i| &i.data), oh.images.first().map(|i| &i.data), "the mouth shape changes the picture");
+        let tilted = render(json!({ "pose": { "head": { "rotation": 25.0 } }, "transparent": true })).unwrap();
+        assert_ne!(neutral.images.first().map(|i| &i.data), tilted.images.first().map(|i| &i.data));
+        render(json!({ "triggers": ["a"], "swaps": { "Hair": "Nope" }, "blink": true })).unwrap();
+        assert!(render(json!({ "viseme": "Nonsense" })).is_err());
+        assert!(render(json!({ "pose": 3 })).is_err());
+        assert!(render(json!({ "pose": { "head": { "rotation": "up" } } })).is_err());
+        assert!(render(json!({ "triggers": "a" })).is_err());
+        assert!(render(json!({ "time_seconds": -1.0 })).is_err());
+        assert!(render(json!({ "time_seconds": 100.0 })).is_err(), "past the end of the scene");
+        assert!(render(json!({ "time_seconds": 0.5 })).is_ok());
+        session.shutdown();
+    }
+
+    #[test]
+    fn lipsync_record_makes_a_take_and_keeps_the_sound_for_export() {
+        let dir = tempfile::tempdir().unwrap();
+        let wav = dir.path().join("hello there.wav");
+        std::fs::write(&wav, charcraft_record::wav_bytes(&speechlike())).unwrap();
+        let session = headless();
+        let backend = session.backend();
+        let done = run(backend,"lipsync.record", json!({ "track": 0, "path": wav.display().to_string(), "start_seconds": 0.25 })).unwrap();
+        assert_eq!(done.value["media"], "hello there");
+        assert!(done.value["keys"].as_u64().unwrap() >= 2, "{}", done.value);
+        let takes = run(backend,"take.list", json!({ "track": 0 })).unwrap();
+        assert!(!takes.value["takes"].as_array().unwrap().is_empty());
+        let scene = run(backend,"scene.info", json!({})).unwrap();
+        assert_eq!(scene.value["audio"][0]["clips"].as_array().map(Vec::len), Some(1), "{}", scene.value);
+        // The sound reaches the media store on the host's next tick.
+        let mut sounds = Vec::new();
+        for _ in 0..50 {
+            let info = backend.call(Request::Query { name: "world_info".into(), params: json!({}) }).unwrap();
+            sounds = info.value["sounds"].as_array().cloned().unwrap_or_default();
+            if !sounds.is_empty() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        assert_eq!(sounds, [json!("hello there")]);
+        // One undo step takes the take and the clip away again.
+        backend.call(Request::Undo {}).unwrap();
+        let scene = run(backend,"scene.info", json!({})).unwrap();
+        assert!(scene.value["audio"].as_array().is_none_or(Vec::is_empty), "{}", scene.value);
+        assert!(run(backend,"lipsync.record", json!({ "track": 0, "path": dir.path().join("missing.wav").display().to_string() })).is_err());
+        assert!(run(backend,"lipsync.record", json!({ "track": 9, "path": wav.display().to_string() })).is_err());
+        assert!(run(backend,"lipsync.record", json!({ "path": wav.display().to_string(), "start_seconds": -1.0 })).is_err());
         session.shutdown();
     }
 }
