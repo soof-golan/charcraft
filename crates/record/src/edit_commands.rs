@@ -206,6 +206,91 @@ struct AudioAddTrack {
     name: Option<String>,
 }
 
+// --- markers -------------------------------------------------------------------------------------------------
+
+fn markers_json(scene: &Scene) -> Value {
+    Value::Array(
+        scene
+            .markers
+            .iter()
+            .enumerate()
+            .map(|(index, m)| json!({ "index": index, "seconds": to_seconds(m.at), "frame": scene.frame_at(m.at), "name": m.name }))
+            .collect(),
+    )
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct NoParams {}
+
+fn marker_list(doc: &mut RecordDoc, value: &Value) -> Result<Value, CommandError> {
+    let NoParams {} = params(value)?;
+    Ok(json!({ "markers": markers_json(&doc.scene) }))
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct MarkerAdd {
+    seconds: f64,
+    name: Option<String>,
+}
+
+fn marker_add(doc: &mut RecordDoc, value: &Value) -> Result<Value, CommandError> {
+    let p: MarkerAdd = params(value)?;
+    let at = seconds("seconds", p.seconds)?;
+    if at.0 < 0 || at > doc.scene.duration {
+        return Err(invalid("a marker has to sit inside the scene"));
+    }
+    let name = p.name.unwrap_or_else(|| format!("Marker {}", doc.scene.markers.len().saturating_add(1)));
+    doc.scene.markers.push(crate::scene::Marker { at, name });
+    doc.scene.markers.sort_by_key(|m| m.at.0);
+    Ok(json!({ "markers": markers_json(&doc.scene) }))
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct MarkerSet {
+    index: usize,
+    seconds: Option<f64>,
+    name: Option<String>,
+}
+
+fn marker_set(doc: &mut RecordDoc, value: &Value) -> Result<Value, CommandError> {
+    let p: MarkerSet = params(value)?;
+    let at = secs_opt("seconds", p.seconds)?;
+    let duration = doc.scene.duration;
+    if at.is_some_and(|t| t.0 < 0 || t > duration) {
+        return Err(invalid("a marker has to sit inside the scene"));
+    }
+    let marker = doc.scene.markers.get_mut(p.index).ok_or_else(|| invalid(format!("no marker {}", p.index)))?;
+    if let Some(t) = at {
+        marker.at = t;
+    }
+    if let Some(name) = p.name {
+        marker.name = name;
+    }
+    doc.scene.markers.sort_by_key(|m| m.at.0);
+    Ok(json!({ "markers": markers_json(&doc.scene) }))
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct MarkerRemove {
+    index: Option<usize>,
+}
+
+fn marker_remove(doc: &mut RecordDoc, value: &Value) -> Result<Value, CommandError> {
+    let p: MarkerRemove = params(value)?;
+    match p.index {
+        Some(i) if i < doc.scene.markers.len() => {
+            doc.scene.markers.remove(i);
+        }
+        Some(i) => return Err(invalid(format!("no marker {i}"))),
+        None => doc.scene.markers.clear(),
+    }
+    Ok(json!({ "markers": markers_json(&doc.scene) }))
+}
+
 fn audio_add_track(doc: &mut RecordDoc, value: &Value) -> Result<Value, CommandError> {
     let p: AudioAddTrack = params(value)?;
     if doc.scene.audio.len() >= MAX_AUDIO_TRACKS {
@@ -885,6 +970,19 @@ pub fn commands() -> Vec<CommandSpec<RecordDoc>> {
         CommandSpec::new("camera.set", "Scene camera", camera_set)
             .describe("Pan (position_x, position_y: the point looked at, pixels from the middle of the frame), zoom (1 = 100%), rotate (degrees) the scene camera, or make it follow a face: zoom_on_face {track, amount 0..1, zoom} (null stops following). reset true goes back to the neutral camera first. Use keyframe.set without 'track' to animate the camera.")
             .with_schema(schema!(r#""properties":{"position_x":{"type":"number"},"position_y":{"type":"number"},"zoom":{"type":"number","exclusiveMinimum":0},"rotation":{"type":"number"},"zoom_on_face":{"type":["object","null"]},"reset":{"type":"boolean"}}"#)),
+        CommandSpec::new("marker.list", "List markers", marker_list)
+            .transient()
+            .describe("The timeline markers of the scene: index, seconds, frame and name, earliest first.")
+            .with_schema(schema!(r#""properties":{}"#)),
+        CommandSpec::new("marker.add", "Add marker", marker_add)
+            .describe("Put a named marker on the scene timeline at 'seconds' (inside the scene). Answers with every marker.")
+            .with_schema(schema!(r#""required":["seconds"],"properties":{"seconds":{"type":"number","minimum":0},"name":{"type":"string"}}"#)),
+        CommandSpec::new("marker.set", "Edit marker", marker_set)
+            .describe("Rename marker 'index' (name) and/or move it (seconds).")
+            .with_schema(schema!(r#""required":["index"],"properties":{"index":{"type":"integer","minimum":0},"seconds":{"type":"number","minimum":0},"name":{"type":"string"}}"#)),
+        CommandSpec::new("marker.remove", "Remove marker", marker_remove)
+            .describe("Delete marker 'index', or every marker without 'index'.")
+            .with_schema(schema!(r#""properties":{"index":{"type":"integer","minimum":0}}"#)),
         CommandSpec::new("timing.list", "Take timing", timing_list)
             .transient()
             .describe("What happens when inside a take: the mouth shapes of a voice take as runs (shape, start, end) and the key presses of a keys take (key, down, up).")
@@ -1085,6 +1183,23 @@ mod tests {
         run(&mut s, "timing.insert_viseme", json!({ "track": 0, "take": 0, "start_seconds": 2.0, "end_seconds": 2.25, "viseme": "M" }));
         run(&mut s, "timing.remove_viseme", json!({ "track": 0, "take": 0, "index": 1 }));
         assert!(s.execute("timing.set_viseme", &json!({ "track": 0, "take": 0, "index": 1, "viseme": "bogus" })).is_err());
+    }
+
+    #[test]
+    fn markers_are_sorted_editable_and_undoable() {
+        let mut s = session();
+        run(&mut s, "marker.add", json!({ "seconds": 3.0, "name": "Punchline" }));
+        let out = run(&mut s, "marker.add", json!({ "seconds": 1.0 }));
+        assert_eq!(out["markers"][0]["name"], "Marker 2");
+        assert_eq!(out["markers"][1]["name"], "Punchline");
+        let out = run(&mut s, "marker.set", json!({ "index": 0, "seconds": 5.0, "name": "End" }));
+        assert_eq!(out["markers"][1]["name"], "End");
+        assert!(s.execute("marker.add", &json!({ "seconds": 99.0 })).is_err(), "outside the 6 s scene");
+        assert!(s.execute("marker.remove", &json!({ "index": 7 })).is_err());
+        run(&mut s, "marker.remove", json!({ "index": 0 }));
+        assert_eq!(run(&mut s, "marker.list", json!({}))["markers"].as_array().unwrap().len(), 1);
+        s.undo().unwrap();
+        assert_eq!(s.doc().scene.markers.len(), 2);
     }
 
     #[test]

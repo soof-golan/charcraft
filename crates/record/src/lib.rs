@@ -69,7 +69,7 @@ pub use import::{ImportOptions, Imported, TakePolicy, import_scene, import_scene
 pub use keyframes::{Ease, Key, Lane};
 pub use playback::{Evaluator, Templates, track_inputs, track_stack};
 pub use recorder::{Arming, RecordedAudio, Recorder, Recording};
-pub use scene::{AudioClip, AudioTrack, Placement, PuppetTrack, Scene};
+pub use scene::{AudioClip, AudioTrack, Marker, Placement, PuppetTrack, Scene};
 pub use speech::voice_from_audio;
 pub use stage::{Cast, CastMember, Layout, SceneFrames, render_frame};
 pub use store::{SceneFile, load, save, sidecar_path};

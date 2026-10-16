@@ -136,6 +136,32 @@ fn timeline_menu(ui: &mut Ui, view: &mut View, ctx: &Ctx<'_>, actions: &mut Vec<
             actions.push(Action::Seek((view.playhead + 1.0 / fps).min(last)));
         }
         ui.separator();
+        if item(ui, "Add Marker at Playhead", "") {
+            actions.push(Action::Run("marker.add", json!({ "seconds": view.playhead.clamp(0.0, last) })));
+        }
+        let markers = &ctx.doc.rec.scene.markers;
+        ui.add_enabled_ui(!markers.is_empty(), |ui| {
+            ui.menu_button("Markers", |ui| {
+                for (index, marker) in markers.iter().enumerate() {
+                    ui.horizontal(|ui| {
+                        if ui.button(format!("{}  {:.2}s", marker.name, marker.at.seconds())).clicked() {
+                            actions.push(Action::Seek(marker.at.seconds()));
+                            ui.close();
+                        }
+                        if ui.small_button("Remove").clicked() {
+                            actions.push(Action::Run("marker.remove", json!({ "index": index })));
+                            ui.close();
+                        }
+                    });
+                }
+                ui.separator();
+                if ui.button("Remove All Markers").clicked() {
+                    actions.push(Action::Run("marker.remove", json!({})));
+                    ui.close();
+                }
+            });
+        });
+        ui.separator();
         ui.checkbox(&mut view.looping, "Loop Playback");
         ui.checkbox(&mut view.monitor, "Monitor Live Performance");
         ui.separator();

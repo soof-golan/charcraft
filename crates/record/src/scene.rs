@@ -224,6 +224,15 @@ impl AudioClip {
     }
 }
 
+/// A named point on the scene's timeline (Character Animator's timeline markers).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Marker {
+    /// Where it sits.
+    pub at: Tick,
+    /// What it says.
+    pub name: String,
+}
+
 /// A track of sounds.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AudioTrack {
@@ -270,6 +279,9 @@ pub struct Scene {
     /// Where the camera looks.
     #[serde(default)]
     pub camera: Camera,
+    /// Timeline markers, earliest first.
+    #[serde(default)]
+    pub markers: Vec<Marker>,
 }
 
 impl Scene {
@@ -287,6 +299,7 @@ impl Scene {
             tracks: Vec::new(),
             audio: Vec::new(),
             camera: Camera::default(),
+            markers: Vec::new(),
         }
     }
 
