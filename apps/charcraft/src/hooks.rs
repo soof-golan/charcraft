@@ -176,6 +176,15 @@ impl Hooks {
         }
     }
 
+    /// Makes an opened document the current one: its world replaces the old one and the stage starts over. Returns
+    /// the session document to put in the session.
+    pub fn adopt(&mut self, opened: crate::world::Opened) -> AppDoc {
+        self.world = opened.world;
+        self.epoch = self.epoch.saturating_add(1);
+        self.stage = None;
+        AppDoc::new(opened.rec, opened.rig, self.links.clone()).with_meta(opened.meta)
+    }
+
     /// The stage for the current puppets, rebuilt when they changed.
     fn stage(&mut self) -> &Stage {
         let (epoch, generation) = (self.epoch, self.world.generation);
@@ -261,7 +270,7 @@ impl AppHooks<AppDoc> for Hooks {
     fn status(&self, session: &Session<AppDoc>) -> Value {
         let scene = &session.doc().rec.scene;
         json!({
-            "document": { "title": self.world.title, "kind": self.world.kind, "source": self.world.source.as_ref().map(|p| p.display().to_string()), "warnings": self.world.warnings.len() },
+            "document": { "title": self.world.title, "kind": self.world.kind, "source": self.world.source.as_ref().map(|p| p.display().to_string()), "warnings": self.world.warning_rows().len(), "stale": self.world.stale },
             "puppets": self.world.cast.keys().collect::<Vec<_>>(),
             "scene": { "name": scene.name, "frames": scene.frame_count(), "fps": scene.fps_f64(), "tracks": scene.tracks.len(), "audio_tracks": scene.audio.len() },
             "view": self.view,
@@ -288,6 +297,10 @@ impl AppHooks<AppDoc> for Hooks {
                 "The project panel: puppets (name, folders, size, tracks that play them, where imported from), scenes, audio, sounds and the document's file.",
             ),
             QuerySpec::new("view_state", "What the window shows: mode, selected track and layer, playhead, playing, recording."),
+            QuerySpec::new(
+                "import_warnings",
+                "The import warnings list: what the loaders could not carry over and what the layer names give away (duplicate names, a face without eyes, handle tags on plain groups). Each row has the puppet, the kind, the layer path and a sentence.",
+            ),
         ]
     }
 
@@ -329,8 +342,13 @@ impl AppHooks<AppDoc> for Hooks {
                 "sounds": self.world.media.names().collect::<Vec<_>>(),
                 "warnings": self.world.warnings,
                 "last_job": self.last_job,
+                "artwork_changed_on_disk": self.world.stale,
             }),
             "project_info" => projectio::project_info(&self.world, session.doc(), session.path(), session.is_dirty()),
+            "import_warnings" => {
+                let rows = self.world.warning_rows();
+                json!({ "count": rows.len(), "warnings": rows, "artwork_changed_on_disk": self.world.stale })
+            }
             "view_state" => serde_json::to_value(&self.view).map_err(failed)?,
             other => return Err(ControlError::new(ErrorKind::NotFound, format!("no query named {other:?}"))),
         };
@@ -533,19 +551,13 @@ impl AppHooks<AppDoc> for Hooks {
 
     fn load(&mut self, path: &Path) -> Result<AppDoc, ControlError> {
         let opened = World::open(path).map_err(failed)?;
-        self.world = opened.world;
-        self.epoch = self.epoch.saturating_add(1);
-        self.stage = None;
         self.events.push_back(DocEvent::Opened(path.to_path_buf()));
-        Ok(AppDoc::new(opened.rec, opened.rig, self.links.clone()).with_meta(opened.meta))
+        Ok(self.adopt(opened))
     }
 
     fn new_document(&mut self) -> Result<AppDoc, ControlError> {
         let opened = World::demo().map_err(failed)?;
-        self.world = opened.world;
-        self.epoch = self.epoch.saturating_add(1);
-        self.stage = None;
-        Ok(AppDoc::new(opened.rec, opened.rig, self.links.clone()).with_meta(opened.meta))
+        Ok(self.adopt(opened))
     }
 
     fn save(&mut self, doc: &AppDoc, file: &mut File) -> io::Result<()> {
@@ -568,6 +580,16 @@ impl AppHooks<AppDoc> for Hooks {
         while let Ok((name, buffer)) = self.links.sounds_in.try_recv() {
             if let Err(e) = self.world.media.insert(&name, buffer) {
                 self.world.warnings.push(format!("sound {name:?} was not kept: {e}"));
+            }
+        }
+        // Puppets the commands built (a re-import, the Puppet Maker) go into the cast, which the document does not hold.
+        while let Ok(delivery) = self.links.puppets_in.try_recv() {
+            self.world.deliver(delivery);
+        }
+        // Edit Original: the artwork file goes to the application the system has for it.
+        while let Ok(path) = self.links.opens_in.try_recv() {
+            if let Err(e) = opener::open(&path) {
+                self.world.warnings.push(format!("{} could not be opened: {e}", path.display()));
             }
         }
         if self.world.sync(&session.doc().rig) {

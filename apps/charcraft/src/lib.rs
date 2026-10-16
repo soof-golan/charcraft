@@ -21,6 +21,8 @@
 //! * [`compose`], [`render`], [`export`]: from poses to pixels, in the window and for files.
 //! * [`live`]: the camera, tracking and microphone actor.
 //! * [`demo`]: a puppet drawn in code, so the app and `--smoke` work without any artwork.
+//! * [`puppet_cmds`] and [`reimport`]: bringing puppets in (Puppet Maker, starter puppets) and keeping them in step
+//!   with their artwork files (re-import, Edit Original).
 //! * [`app`] and [`ui`]: the window.
 
 #![allow(clippy::suboptimal_flops, reason = "no fused multiply-add: poses must be bit-identical on every CPU")]
@@ -45,6 +47,8 @@ pub mod hooks;
 pub mod live;
 pub mod project_cmds;
 pub mod projectio;
+pub mod puppet_cmds;
+pub mod reimport;
 pub mod render;
 pub mod session;
 pub mod smoke;

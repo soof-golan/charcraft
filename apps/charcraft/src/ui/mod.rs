@@ -11,7 +11,7 @@ use egui::{RichText, Ui};
 use crate::state::Mode;
 use serde_json::json;
 
-use crate::view::{Action, Ctx, Prompt, SaveKind, View, WorkspaceAction};
+use crate::view::{Action, Ctx, Dialog, Prompt, SaveKind, View, WorkspaceAction};
 use crate::workspace::{builtin_workspaces, chord_text};
 
 pub mod edit;
@@ -20,6 +20,7 @@ pub mod layers;
 pub mod panels;
 pub mod prefs;
 pub mod project;
+pub mod puppets;
 pub mod record;
 pub mod rig;
 pub mod rigtools;
@@ -32,7 +33,7 @@ pub fn draw(ui: &mut Ui, view: &mut View, ctx: &Ctx<'_>) -> Vec<Action> {
     let mut actions = Vec::new();
     if view.mode != Mode::Stream || view.hud || view.start {
         top_bar(ui, view, ctx, &mut actions);
-        status_bar(ui, view, ctx);
+        status_bar(ui, view, ctx, &mut actions);
     }
     if view.start {
         start::show(ui, view, ctx, &mut actions);
@@ -49,6 +50,7 @@ pub fn draw(ui: &mut Ui, view: &mut View, ctx: &Ctx<'_>) -> Vec<Action> {
     prompt(ui, view, ctx, &mut actions);
     export::show(ui, view, ctx, &mut actions);
     prefs::show(ui, view, &mut actions);
+    puppets::show(ui, view, ctx, &mut actions);
     actions
 }
 
@@ -83,6 +85,14 @@ fn file_menu(ui: &mut Ui, view: &mut View, ctx: &Ctx<'_>, actions: &mut Vec<Acti
         actions.push(Action::New);
         ui.close();
     }
+    ui.menu_button("New from starter puppet", |ui| {
+        for template in charcraft_maker::templates() {
+            if ui.button(template.title).on_hover_text(template.about).clicked() {
+                actions.push(Action::NewMade(Box::new(template.spec)));
+                ui.close();
+            }
+        }
+    });
     if item(ui, view, "Open or import...", "file.open") {
         view.prompt = Some((Prompt::Open, default_dir()));
     }
@@ -206,6 +216,39 @@ fn window_menu(ui: &mut Ui, view: &mut View, actions: &mut Vec<Action>) {
     }
 }
 
+/// The Puppet menu: bringing artwork in again, opening the original, the Puppet Maker and the starter puppets.
+fn puppet_menu(ui: &mut Ui, view: &mut View, ctx: &Ctx<'_>, actions: &mut Vec<Action>) {
+    let source = ctx.doc.rig.source.as_deref();
+    let reimport = if ctx.world.stale { "Reimport artwork (changed on disk)" } else { "Reimport artwork" };
+    if ui.add_enabled(source.is_some(), egui::Button::new(reimport)).on_hover_text("Read the artwork file again and keep the rig").clicked() {
+        actions.push(Action::Run("puppet.reimport", json!({})));
+        ui.close();
+    }
+    if ui.add_enabled(source.is_some(), egui::Button::new("Edit original")).on_hover_text("Open the artwork file in its own application").clicked() {
+        actions.push(Action::Run("puppet.edit_original", json!({})));
+        ui.close();
+    }
+    ui.add_enabled(source.is_some(), egui::Checkbox::new(&mut view.auto_reimport, "Reimport when the file changes"));
+    ui.separator();
+    if ui.button("Puppet Maker...").clicked() {
+        view.dialog = Some(Dialog::Maker);
+        ui.close();
+    }
+    ui.menu_button("Add starter puppet", |ui| {
+        for template in charcraft_maker::templates() {
+            if ui.button(template.title).on_hover_text(template.about).clicked() {
+                actions.push(Action::Run("puppet.make", json!({ "template": template.id })));
+                ui.close();
+            }
+        }
+    });
+    ui.separator();
+    if ui.button(format!("Import warnings ({})", ctx.world.warning_rows().len())).clicked() {
+        view.dialog = Some(Dialog::Warnings);
+        ui.close();
+    }
+}
+
 fn top_bar(ui: &mut Ui, view: &mut View, ctx: &Ctx<'_>, actions: &mut Vec<Action>) {
     egui::Panel::top("top_bar").show(ui, |ui| {
         ui.horizontal(|ui| {
@@ -223,6 +266,7 @@ fn top_bar(ui: &mut Ui, view: &mut View, ctx: &Ctx<'_>, actions: &mut Vec<Action
                         ui.close();
                     }
                 });
+                ui.menu_button("Puppet", |ui| puppet_menu(ui, view, ctx, actions));
                 ui.menu_button("View", |ui| {
                     let mut dark = view.dark;
                     if ui.checkbox(&mut dark, "Dark theme").changed() {
@@ -248,10 +292,16 @@ fn top_bar(ui: &mut Ui, view: &mut View, ctx: &Ctx<'_>, actions: &mut Vec<Action
     });
 }
 
-fn status_bar(ui: &mut Ui, view: &View, ctx: &Ctx<'_>) {
+fn status_bar(ui: &mut Ui, view: &mut View, ctx: &Ctx<'_>, actions: &mut Vec<Action>) {
     egui::Panel::bottom("status_bar").show(ui, |ui| {
         ui.horizontal(|ui| {
             ui.label(RichText::new(visual(&view.status).into_owned()).weak().size(12.0));
+            if ctx.world.stale {
+                ui.label(RichText::new("The artwork file changed on disk.").size(12.0).color(egui::Color32::from_rgb(0xe8, 0xb0, 0x3c)));
+                if ui.small_button("Reimport").clicked() {
+                    actions.push(Action::Run("puppet.reimport", json!({})));
+                }
+            }
             if let Some((fraction, message)) = &view.exporting {
                 ui.add(egui::ProgressBar::new(*fraction).desired_width(160.0).text(message.clone()));
             }
@@ -259,7 +309,13 @@ fn status_bar(ui: &mut Ui, view: &View, ctx: &Ctx<'_>) {
                 ui.label(RichText::new(visual(done).into_owned()).size(12.0));
             }
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                ui.label(RichText::new(format!("{} warnings", ctx.world.warnings.len())).weak().size(11.0));
+                let count = ctx.world.warning_rows().len();
+                if ui
+                    .add(egui::Button::new(RichText::new(format!("{count} warning{}", if count == 1 { "" } else { "s" })).weak().size(11.0)).frame(false))
+                    .clicked()
+                {
+                    view.dialog = Some(Dialog::Warnings);
+                }
             });
         });
     });

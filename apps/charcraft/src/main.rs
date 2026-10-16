@@ -2,6 +2,8 @@
 //!
 //! ```text
 //! charcraft [FILE]                         open a .puppet, .chproj, .psd, .ai, .svg or .charcraft (the demo puppet without)
+//! charcraft --template ID                  start from a starter puppet (classic, round-pal, square-bot, long-hair, bun)
+//! charcraft --dialog warnings|maker        open the import warnings list or the Puppet Maker at the start
 //! charcraft --smoke [FILE]                 render one frame offscreen and exit 0 (no window needed)
 //! charcraft --screenshot OUT.png [FILE] [--mode rig|record|stream]
 //!                                          open the window, wait until it settles, save a PNG of it, exit
@@ -56,6 +58,12 @@ struct Cli {
     /// needing a camera, print what was found and exit.
     #[arg(long)]
     check_live: bool,
+    /// Start with a starter puppet of the Puppet Maker (classic, round-pal, square-bot, long-hair, bun) instead of a file.
+    #[arg(long, value_name = "ID", conflicts_with = "file")]
+    template: Option<String>,
+    /// Open a floating window at the start: warnings (the import warnings list) or maker (the Puppet Maker).
+    #[arg(long, value_name = "NAME")]
+    dialog: Option<String>,
     /// Light theme.
     #[arg(long)]
     light: bool,
@@ -90,8 +98,13 @@ fn parse_size(text: &str) -> Result<[f32; 2]> {
     Ok([f32::from(w.clamp(400, 8000)), f32::from(h.clamp(300, 8000))])
 }
 
-fn load(file: Option<&PathBuf>) -> Result<Opened> {
-    file.map_or_else(World::demo, |path| World::open(path)).map_err(|e| eyre!("{e}"))
+fn load(file: Option<&PathBuf>, template: Option<&str>) -> Result<Opened> {
+    match (file, template) {
+        (_, Some(id)) => World::from_template(id),
+        (Some(path), None) => World::open(path),
+        (None, None) => World::demo(),
+    }
+    .map_err(|e| eyre!("{e}"))
 }
 
 #[cfg(feature = "live")]
@@ -116,7 +129,7 @@ fn main() -> Result<ExitCode> {
     }
     let mode = Mode::parse(&cli.mode).ok_or_else(|| eyre!("--mode must be rig, record or stream, got {:?}", cli.mode))?;
     let size = parse_size(&cli.size)?;
-    let opened = load(cli.file.as_ref())?;
+    let opened = load(cli.file.as_ref(), cli.template.as_deref())?;
     for warning in opened.world.warnings.iter().take(5) {
         eprintln!("charcraft: {warning}");
     }
@@ -136,7 +149,7 @@ fn main() -> Result<ExitCode> {
         .as_deref()
         .map(|text| charcraft_stream::Kind::parse(text).ok_or_else(|| eyre!("--stream must be ndi, virtual-camera or web, got {text:?}")))
         .transpose()?;
-    let demo = cli.file.is_none();
+    let demo = cli.file.is_none() && cli.template.is_none();
     let shooting = cli.screenshot.is_some();
     let options = Options {
         start: if cli.start {
@@ -157,6 +170,7 @@ fn main() -> Result<ExitCode> {
         stream,
         transparent: cli.transparent,
         open: cli.open,
+        dialog: cli.dialog,
         control: cli.control,
     };
     let (done_tx, done_rx) = crossbeam_channel::unbounded();

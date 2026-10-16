@@ -27,8 +27,8 @@ use crate::live::{LiveEvent, LiveHandle, MicAction, behavior_face};
 use crate::render::{RenderHandle, RenderRequest};
 use crate::session::{AppDoc, Links, registry};
 use crate::state::{Mode, UiSet};
-use crate::view::{Action, ActiveTake, Ctx, PreviewTexture, View};
-use crate::world::Opened;
+use crate::view::{Action, ActiveTake, Ctx, Dialog, PreviewTexture, View};
+use crate::world::{Opened, World};
 
 mod workspace_ops;
 use workspace_ops::WorkspaceState;
@@ -59,6 +59,8 @@ pub struct Options {
     pub transparent: bool,
     /// A window to open at the start: `export` or `queue` (for screenshots).
     pub open: Option<String>,
+    /// A floating window to open at the start (`warnings` or `maker`).
+    pub dialog: Option<String>,
     /// The agent doors.
     pub control: ControlArgs,
 }
@@ -222,7 +224,11 @@ impl CharCraftApp {
             export_tx,
             export_rx,
             done,
-            view: opened_view(View { mode: options.mode, dark, ..View::default() }, options.open.as_deref(), &doc.rec.scene.name),
+            view: opened_view(
+                View { mode: options.mode, dark, dialog: options.dialog.as_deref().and_then(Dialog::parse), ..View::default() },
+                options.open.as_deref(),
+                &doc.rec.scene.name,
+            ),
             doc,
             doc_rev: 1,
             rev: 1,
@@ -322,6 +328,7 @@ impl CharCraftApp {
         if now.duration_since(self.last_status) > Duration::from_millis(400) {
             self.last_status = now;
             self.refresh_live_status();
+            self.watch_artwork();
         }
         self.pump_render_results(ctx);
         self.pump_workspace();
@@ -421,6 +428,33 @@ impl CharCraftApp {
         }
         if let Some(on) = set.green_screen {
             self.view.chroma = on;
+        }
+        if let Some(name) = &set.dialog {
+            self.view.dialog = Dialog::parse(name);
+        }
+    }
+
+    /// Looks at the artwork file twice a second; reads it again at once when the person asked for that.
+    fn watch_artwork(&mut self) {
+        let hooks = self.host.hooks_mut();
+        let was_stale = hooks.world.stale;
+        if !hooks.world.check_source() || was_stale {
+            return;
+        }
+        if self.view.auto_reimport {
+            self.run("puppet.reimport", &json!({}), None);
+            self.host.hooks_mut().world.acknowledge_source();
+        }
+    }
+
+    fn new_made(&mut self, spec: charcraft_maker::Spec) {
+        match World::from_spec(spec) {
+            Ok(opened) => {
+                let doc = self.host.hooks_mut().adopt(opened);
+                self.host.session_mut().replace_document(doc, None);
+                self.rev = self.rev.saturating_add(1);
+            }
+            Err(e) => self.view.status = format!("New puppet failed: {e}"),
         }
     }
 
@@ -867,6 +901,7 @@ impl CharCraftApp {
                         self.view.status = format!("New failed: {e}");
                     }
                 }
+                Action::NewMade(spec) => self.new_made(*spec),
                 Action::Export(format, path, options) => {
                     if self.view.exporting.is_some() {
                         // One export at a time: this one waits its turn in the queue.

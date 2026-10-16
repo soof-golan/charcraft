@@ -19,12 +19,9 @@ charcraft-puppet = { path = "crates/puppet" }
 charcraft-behaviors = { path = "crates/behaviors" }
 charcraft-tracking = { path = "crates/tracking" }
 charcraft-record = { path = "crates/record" }
-<<<<<<< HEAD
 charcraft-ndi = { path = "crates/ndi" }
 charcraft-stream = { path = "crates/stream" }
-=======
 charcraft-maker = { path = "crates/maker" }
->>>>>>> 4208989 (feat(charcraft-maker): parametric puppet generator with starter templates; the demo puppet is its classic character)
 
 # Shared engine crates from anicraft-libs, pinned to the v0.1.0 commit. To move to newer engine work, change every
 # rev below to the new commit and run `cargo update`.
@@ -75,6 +72,8 @@ flate2 = { version = "1.1", default-features = false, features = ["rust_backend"
 sha1 = "0.11"
 sha2 = "0.11"
 base64 = "0.22"
+# Edit Original: open the artwork file in the system's default application (no shelling out to platform tools).
+opener = { version = "0.7", default-features = false }
 dirs = "7"
 ureq = "3"
 # Live input (charcraft-tracking). ONNX Runtime is a release candidate: pin it exactly. The crate picks the linking

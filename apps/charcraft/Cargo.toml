@@ -38,6 +38,7 @@ anim-ui = { workspace = true }
 anim-video = { workspace = true }
 base64 = { workspace = true }
 charcraft-behaviors = { workspace = true }
+charcraft-maker = { workspace = true }
 charcraft-project = { workspace = true }
 charcraft-puppet = { workspace = true }
 charcraft-record = { workspace = true }
@@ -49,6 +50,7 @@ crossbeam-channel = { workspace = true }
 eframe = { workspace = true }
 egui = { workspace = true }
 gif = { workspace = true }
+opener = { workspace = true }
 png = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

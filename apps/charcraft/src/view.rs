@@ -85,6 +85,8 @@ pub enum Action {
     Save(PathBuf),
     /// Start a fresh demo document.
     New,
+    /// Start a fresh document holding one Puppet Maker puppet.
+    NewMade(Box<charcraft_maker::Spec>),
     /// Export the scene now (after the running export when there is one).
     Export(Format, PathBuf, Options),
     /// Add an export to the queue.
@@ -194,6 +196,42 @@ pub struct StartInfo {
     pub recoverable: Vec<(PathBuf, u64)>,
     /// The gallery.
     pub starters: Vec<Starter>,
+}
+
+/// A window that floats over the mode view.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Dialog {
+    /// The import warnings list.
+    Warnings,
+    /// The Puppet Maker.
+    Maker,
+}
+
+impl Dialog {
+    /// Parses `warnings` or `maker` (any case).
+    #[must_use]
+    pub fn parse(text: &str) -> Option<Self> {
+        match text.trim().to_lowercase().as_str() {
+            "warnings" => Some(Self::Warnings),
+            "maker" => Some(Self::Maker),
+            _ => None,
+        }
+    }
+}
+
+/// The Puppet Maker window's own state: the character being designed and the picture of it.
+#[derive(Default)]
+pub struct MakerState {
+    /// The character being designed.
+    pub spec: charcraft_maker::Spec,
+    /// The picture of a character, with the spec it was drawn from.
+    pub preview: Option<(charcraft_maker::Spec, egui::TextureHandle)>,
+}
+
+impl std::fmt::Debug for MakerState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("MakerState").field("spec", &self.spec).field("has_preview", &self.preview.is_some()).finish()
+    }
 }
 
 /// A take being recorded.
@@ -420,6 +458,12 @@ pub struct View {
     pub new_workspace: String,
     /// What the Save prompt writes.
     pub save_kind: SaveKind,
+    /// The floating window that is open.
+    pub dialog: Option<Dialog>,
+    /// The Puppet Maker window's state.
+    pub maker: MakerState,
+    /// Read the artwork again as soon as its file changes.
+    pub auto_reimport: bool,
 }
 
 impl Default for View {
@@ -467,6 +511,9 @@ impl Default for View {
             capturing: None,
             new_workspace: String::new(),
             save_kind: SaveKind::Document,
+            dialog: None,
+            maker: MakerState::default(),
+            auto_reimport: false,
         }
     }
 }

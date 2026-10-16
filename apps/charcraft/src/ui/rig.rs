@@ -273,11 +273,15 @@ pub fn show(ui: &mut Ui, view: &mut View, ctx: &Ctx<'_>, actions: &mut Vec<Actio
                     rigtools::behaviors(ui, puppet, view, ctx, actions);
                 }
             }
-            if !ctx.world.warnings.is_empty() {
+            let rows = ctx.world.warning_rows();
+            if !rows.is_empty() {
                 ui.separator();
                 ui.label(RichText::new("Warnings").strong());
-                for w in ctx.world.warnings.iter().take(8) {
-                    ui.label(RichText::new(visual(w).into_owned()).weak().size(11.0));
+                for row in rows.iter().take(8) {
+                    ui.label(RichText::new(visual(&row.message).into_owned()).weak().size(11.0));
+                }
+                if ui.link(format!("All {} warnings...", rows.len())).clicked() {
+                    view.dialog = Some(crate::view::Dialog::Warnings);
                 }
             }
         });

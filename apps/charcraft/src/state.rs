@@ -66,6 +66,8 @@ pub struct UiSet {
     pub transparent: Option<bool>,
     /// Show a chroma key green backdrop in the stream view.
     pub green_screen: Option<bool>,
+    /// Open a floating window (`warnings` or `maker`) or close it (`none`).
+    pub dialog: Option<String>,
 }
 
 #[cfg(test)]

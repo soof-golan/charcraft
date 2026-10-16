@@ -12,14 +12,18 @@
 //! * `tracking.*` and `mic.*` for the live input actor (transient: live input is not document state),
 //! * `ui.set` to drive the window (mode, selection, playhead).
 
+use std::collections::BTreeMap;
+use std::path::PathBuf;
+
 use anim_audio::PcmBuffer;
 use anim_core::Tick;
 use anim_session::command::RunFn;
 use anim_session::{CommandError, CommandRegistry, CommandSpec, RegistryError, SizeHint, param_opt};
 use charcraft_behaviors::Inputs;
+use charcraft_maker::Spec;
 use charcraft_puppet::{Puppet, PuppetOp};
 use charcraft_record::RecordDoc;
-use charcraft_record::{AudioClip, AudioTrack, ParamGroup, Recorder};
+use charcraft_record::{AudioClip, AudioTrack, Cast, CastMember, ParamGroup, Recorder};
 use crossbeam_channel::{Receiver, Sender};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -157,9 +161,16 @@ pub struct RigEdit {
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct RigLog {
     /// Layer names by cast key.
-    pub skeletons: std::collections::BTreeMap<String, Skeleton>,
+    pub skeletons: BTreeMap<String, Skeleton>,
     /// The edits, oldest first.
     pub edits: Vec<RigEdit>,
+    /// The file the artwork came from (what a re-import reads and Edit Original opens).
+    pub source: Option<PathBuf>,
+    /// How many times the artwork was re-imported. The world keeps the puppets of each version, so undoing a
+    /// re-import brings the old artwork back.
+    pub revision: u32,
+    /// The puppets made with the Puppet Maker, by cast key.
+    pub made: BTreeMap<String, Spec>,
 }
 
 /// Names given to puppets in the project, and the puppets that came from other files. Part of the undoable document.
@@ -252,18 +263,52 @@ pub struct Links {
     pub sounds_in: Receiver<Sound>,
     /// The stream output thread (NDI, virtual camera, web source).
     pub output: OutputLink,
+    /// Puppets commands have built: the hooks move them into the world's cast (which is not part of the undoable
+    /// document either).
+    pub puppets: Sender<Delivery>,
+    /// The other end of [`Self::puppets`], drained by the hooks.
+    pub puppets_in: Receiver<Delivery>,
+    /// Files to open with the system's default application (Edit Original), opened by the hooks.
+    pub opens: Sender<PathBuf>,
+    /// The other end of [`Self::opens`], drained by the hooks.
+    pub opens_in: Receiver<PathBuf>,
 }
 
 /// A sound read from a file, under the media name clips use.
 pub type Sound = (String, PcmBuffer);
 
+/// Puppets a command built, on their way to the world.
+#[derive(Debug, Clone)]
+pub enum Delivery {
+    /// The artwork was read again.
+    Reimport {
+        /// The revision this replaces puppets of.
+        from: u32,
+        /// The new revision.
+        revision: u32,
+        /// The puppets read from the file, under their cast keys.
+        cast: Cast,
+        /// What the reading reported.
+        warnings: Vec<String>,
+    },
+    /// A puppet from the Puppet Maker.
+    Made {
+        /// Its cast key.
+        key: String,
+        /// The puppet with its behaviors.
+        member: Box<CastMember>,
+    },
+}
+
 impl Links {
-    /// Links to the actors; the sound channel is made here.
+    /// Links to the actors; the channels are made here.
     #[must_use]
     pub fn new(live: LiveLink, ui: Sender<UiSet>) -> Self {
         let (sounds, sounds_in) = crossbeam_channel::unbounded();
         let (jobs, jobs_in) = crossbeam_channel::unbounded();
-        Self { live, jobs, jobs_in, ui, sounds, sounds_in, output: OutputLink::disconnected() }
+        let (puppets, puppets_in) = crossbeam_channel::unbounded();
+        let (opens, opens_in) = crossbeam_channel::unbounded();
+        Self { live, jobs, jobs_in, ui, sounds, sounds_in, output: OutputLink::disconnected(), puppets, puppets_in, opens, opens_in }
     }
 
     /// These links with the stream output thread attached.
@@ -852,8 +897,8 @@ fn app_commands() -> Vec<CommandSpec<AppDoc>> {
             .with_schema(r#"{"type":"object","properties":{"on":{"type":"boolean"}}}"#),
         CommandSpec::new("ui.set", "Change the view", ui_set)
             .transient()
-            .describe("Drive the window: mode (rig|record|stream), track (index), layer (path), seek_seconds, playing, mirror, dark, demo_voice; in the stream view triggers (keys held down, [] lets go), swaps (swap set to layer label), stream_panels, transparent and green_screen. Only the given fields change.")
-            .with_schema(r#"{"type":"object","properties":{"mode":{"enum":["rig","record","stream"]},"track":{"type":"integer","minimum":0},"layer":{"type":"string"},"seek_seconds":{"type":"number"},"playing":{"type":"boolean"},"mirror":{"type":"boolean"},"dark":{"type":"boolean"},"demo_voice":{"type":"boolean"},"triggers":{"type":"array","items":{"type":"string"}},"swaps":{"type":"object","additionalProperties":{"type":"string"}},"stream_panels":{"type":"boolean"},"transparent":{"type":"boolean"},"green_screen":{"type":"boolean"}}}"#),
+            .describe("Drive the window: mode (rig|record|stream), track (index), layer (path), seek_seconds, playing, mirror, dark, demo_voice; in the stream view triggers (keys held down, [] lets go), swaps (swap set to layer label), stream_panels, transparent and green_screen; dialog (warnings|maker|none: the import warnings list or the Puppet Maker). Only the given fields change.")
+            .with_schema(r#"{"type":"object","properties":{"mode":{"enum":["rig","record","stream"]},"track":{"type":"integer","minimum":0},"layer":{"type":"string"},"seek_seconds":{"type":"number"},"playing":{"type":"boolean"},"mirror":{"type":"boolean"},"dark":{"type":"boolean"},"demo_voice":{"type":"boolean"},"triggers":{"type":"array","items":{"type":"string"}},"swaps":{"type":"object","additionalProperties":{"type":"string"}},"stream_panels":{"type":"boolean"},"transparent":{"type":"boolean"},"green_screen":{"type":"boolean"},"dialog":{"enum":["warnings","maker","none"]}}}"#),
     ]
 }
 
@@ -877,7 +922,9 @@ fn place(spec: CommandSpec<AppDoc>) -> CommandSpec<AppDoc> {
 /// [`RegistryError`] for a duplicate id (a bug; the tests build the registry).
 pub fn registry() -> Result<CommandRegistry<AppDoc>, RegistryError> {
     let mut registry = CommandRegistry::with_history_commands();
-    registry.register_all(wrapped().into_iter().chain(app_commands()).chain(crate::project_cmds::commands()).map(place))?;
+    registry.register_all(
+        wrapped().into_iter().chain(app_commands()).chain(crate::project_cmds::commands()).chain(crate::puppet_cmds::commands()).map(place),
+    )?;
     Ok(registry)
 }
 

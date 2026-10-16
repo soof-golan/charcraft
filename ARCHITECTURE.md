@@ -49,6 +49,7 @@ commit; to pick up newer engine work, change the revs and run `cargo update`.
 | `charcraft-record` | Takes (recorded in the app, or decoded from a project's `.arf` recordings), the scene timeline, playback and recording | charcraft-project, charcraft-arf, anim-timeline |
 | `charcraft-stream` | Stream output as an actor: the picture fitted to a canvas and repeated at the frame rate into NDI, a v4l2loopback virtual camera or a loopback MJPEG and PNG web source | charcraft-ndi, v4l, image |
 | `charcraft-ndi` | Loads the NDI runtime at run time and sends RGBA frames through its C interface. The only crate with `unsafe` (all in `ffi.rs`); it repeats the workspace lint table with that one lint relaxed | libloading |
+| `charcraft-maker` | Puppet Maker: original characters drawn in code from a parametric spec, rigged by naming, and the starter puppets | charcraft-puppet, anim-artwork |
 
 Apps live in `apps/*`: `charcraft-app` (eframe app, binary `charcraft`) and `charcraft-cli` (headless convert,
 render, export and inspect, used by tests).

@@ -6,21 +6,26 @@
 //! rig log onto the puppets whenever it changed (an edit, an undo, a redo), keeping a pristine copy of each edited
 //! puppet to start over from.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
+use std::time::SystemTime;
 
 use anim_artwork::Limits;
 use anim_audio::PcmBuffer;
 use anim_core::{FrameRate, Size, Tick, Vec2};
 use base64::Engine as _;
 use charcraft_behaviors::Rig;
+use charcraft_maker::Spec;
 use charcraft_project::Project;
-use charcraft_puppet::Puppet;
+use charcraft_puppet::{ImportIssue, Puppet};
 use charcraft_record::{Cast, CastMember, ImportOptions, MediaStore, PuppetTrack, RecordDoc, Scene, TakePolicy, import_scene_with, load_sounds, wav_bytes};
 use serde::{Deserialize, Serialize};
 
 use crate::demo;
-use crate::session::{ProjectMeta, RigEdit, RigLog, Skeleton};
+use crate::session::{Delivery, ProjectMeta, RigEdit, RigLog, Skeleton};
+
+/// Most artwork versions (one per re-import) the world keeps for undo.
+const MAX_REVISIONS: usize = 8;
 
 /// The cast key of the demo puppet.
 pub const DEMO_KEY: &str = "demo";
@@ -54,6 +59,21 @@ pub enum SourceKind {
     Artwork,
     /// A new project with no puppets yet.
     Empty,
+    /// Puppets from the Puppet Maker only.
+    Made,
+}
+
+/// One line of the import warnings list.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct WarningRow {
+    /// The puppet it is about (`None` for the document).
+    pub puppet: Option<String>,
+    /// A short label for the kind of problem.
+    pub kind: String,
+    /// The layer path it points at, when it points at one.
+    pub layer: Option<String>,
+    /// What is wrong.
+    pub message: String,
 }
 
 /// The puppets, the sound and the origin of the open document.
@@ -73,8 +93,20 @@ pub struct World {
     pub warnings: Vec<String>,
     /// Counts up whenever the puppets change, so the renderer knows to take a new copy.
     pub generation: u64,
+    /// The artwork file changed on disk since it was read (see [`Self::check_source`]).
+    pub stale: bool,
     pristine: BTreeMap<String, CastMember>,
     applied: Vec<RigEdit>,
+    /// The artwork version the cast was built from (see [`RigLog::revision`]).
+    revision: u32,
+    /// The puppets read from the artwork at each version, so undoing a re-import can bring them back.
+    snapshots: BTreeMap<u32, BTreeMap<String, CastMember>>,
+    /// Every Puppet Maker puppet delivered, whether or not the document has it right now (undo and redo).
+    made_members: BTreeMap<String, CastMember>,
+    /// The Puppet Maker puppets that are in the cast.
+    present_made: BTreeSet<String>,
+    source_mtime: Option<SystemTime>,
+    issues: Vec<(String, ImportIssue)>,
 }
 
 /// A freshly opened document.
@@ -96,6 +128,15 @@ struct Saved {
     format: String,
     version: u32,
     source: Option<String>,
+    /// What the document was made from (`None` in documents saved before Puppet Maker existed).
+    #[serde(default)]
+    kind: Option<SourceKind>,
+    /// Puppet Maker puppets by cast key: the specs, not the pictures.
+    #[serde(default)]
+    made: BTreeMap<String, Spec>,
+    /// How many times the artwork was re-imported.
+    #[serde(default)]
+    revision: u32,
     /// The first scene of the project.
     scene: Scene,
     /// The scenes after the first, in order.
@@ -148,30 +189,111 @@ fn empty_scene(name: &str) -> Scene {
 /// A track for a puppet, standing in the middle of the stage and scaled down to fit when it is taller than it.
 #[must_use]
 pub fn placed_track(scene: &Scene, name: &str, key: &str, member: &CastMember) -> PuppetTrack {
+    placement_track(name, key, member, scene.size, 0)
+}
+
+/// How far apart puppets stand on a stage, in stage pixels.
+const TRACK_SPACING: f64 = 330.0;
+
+/// A track with a puppet standing on the stage, scaled down to fit when it is taller than the stage. The first
+/// track is in the middle; further ones stand to the right and left of it in turn.
+#[must_use]
+pub fn placement_track(name: &str, key: &str, member: &CastMember, stage: Size, index: usize) -> PuppetTrack {
     let mut track = PuppetTrack::new(name, key);
     let size = member.puppet.size;
-    let fit = if size.height > 0.0 { (scene.size.height * 0.94 / size.height).min(1.0) } else { 1.0 };
+    let fit = if size.height > 0.0 { (stage.height * 0.94 / size.height).min(1.0) } else { 1.0 };
+    let steps = u32::try_from(index.div_ceil(2)).map_or(0.0, f64::from);
+    let offset = if index.is_multiple_of(2) { -steps * TRACK_SPACING } else { steps * TRACK_SPACING };
     track.placement.scale = Vec2::new(fit, fit);
     track.placement.anchor = Vec2::new(size.width / 2.0, size.height / 2.0) + member.skin - member.handle;
-    track.placement.position = Vec2::new(-member.handle.x, -member.handle.y);
+    track.placement.position = Vec2::new(-member.handle.x + offset, -member.handle.y);
     track
 }
 
 impl World {
     fn new(cast: Cast, kind: SourceKind, source: Option<PathBuf>, title: String) -> Self {
-        Self { cast, media: MediaStore::new(), source, kind, title, warnings: Vec::new(), generation: 1, pristine: BTreeMap::new(), applied: Vec::new() }
+        Self {
+            cast,
+            media: MediaStore::new(),
+            source,
+            kind,
+            title,
+            warnings: Vec::new(),
+            generation: 1,
+            stale: false,
+            pristine: BTreeMap::new(),
+            applied: Vec::new(),
+            revision: 0,
+            snapshots: BTreeMap::new(),
+            made_members: BTreeMap::new(),
+            present_made: BTreeSet::new(),
+            source_mtime: None,
+            issues: Vec::new(),
+        }
     }
 
-    fn finish(self, scene: Scene) -> Opened {
+    fn finish(mut self, scene: Scene) -> Opened {
         let mut rig = RigLog::default();
+        let mut base = BTreeMap::new();
         for key in self.cast.keys() {
             if let Some(member) = self.cast.get(key) {
                 rig.skeletons.insert(key.to_owned(), Skeleton::of(&member.puppet));
+                base.insert(key.to_owned(), member.clone());
             }
         }
+        self.snapshots.insert(0, base);
+        rig.source = self.source.clone().filter(|_| !matches!(self.kind, SourceKind::Demo | SourceKind::Made));
+        self.source_mtime = rig.source.as_deref().and_then(modified);
+        self.refresh_issues();
         let mut rec = RecordDoc::new(scene);
         rec.templates = self.cast.templates();
         Opened { world: self, rec, rig, meta: ProjectMeta::default() }
+    }
+
+    /// A document with no puppets yet (Puppet Maker puppets are added to it).
+    fn blank(title: &str) -> Opened {
+        Self::new(Cast::new(), SourceKind::Made, None, title.to_owned()).finish(empty_scene(title))
+    }
+
+    /// Adds a Puppet Maker puppet to the cast, the rig log and the templates, and (when asked) to a new track.
+    fn include_made(&mut self, rig: &mut RigLog, rec: &mut RecordDoc, key: &str, spec: Spec, add_track: bool) -> Result<(), WorldError> {
+        let puppet = charcraft_maker::puppet(&spec).map_err(|e| WorldError::of("building the puppet", e))?;
+        let member = CastMember::new(puppet);
+        rig.skeletons.insert(key.to_owned(), Skeleton::of(&member.puppet));
+        if add_track {
+            let track = placement_track(&spec.name, key, &member, rec.scene.size, rec.scene.tracks.len());
+            rec.scene.add_track(track).map_err(|e| WorldError::of("adding a track", e))?;
+        }
+        rec.templates.insert(key.to_owned(), member.template.clone());
+        self.cast.insert(key, member.clone());
+        self.made_members.insert(key.to_owned(), member);
+        self.present_made.insert(key.to_owned());
+        rig.made.insert(key.to_owned(), spec);
+        self.generation = self.generation.saturating_add(1);
+        self.refresh_issues();
+        Ok(())
+    }
+
+    /// A new document holding one starter puppet of the Puppet Maker.
+    ///
+    /// # Errors
+    /// [`WorldError`] for an unknown template.
+    pub fn from_template(id: &str) -> Result<Opened, WorldError> {
+        let template = charcraft_maker::template(id).ok_or_else(|| {
+            WorldError(format!("no starter puppet {id:?}; the starter puppets are {:?}", charcraft_maker::templates().iter().map(|t| t.id).collect::<Vec<_>>()))
+        })?;
+        Self::from_spec(template.spec)
+    }
+
+    /// A new document holding one Puppet Maker puppet.
+    ///
+    /// # Errors
+    /// [`WorldError`] if the puppet cannot be built.
+    pub fn from_spec(spec: Spec) -> Result<Opened, WorldError> {
+        let mut opened = Self::blank(&spec.name);
+        let key = spec.name.clone();
+        opened.world.include_made(&mut opened.rig, &mut opened.rec, &key, spec, true)?;
+        Ok(opened)
     }
 
     /// The built-in demo document.
@@ -361,6 +483,7 @@ impl World {
         }
         let mut opened = match saved.source.as_deref().map(Path::new).filter(|p| p.exists()) {
             Some(source) => Self::open(source)?,
+            None if saved.kind == Some(SourceKind::Made) => Self::blank("Puppet Maker"),
             None => Self::demo()?,
         };
         let mut all = vec![saved.scene];
@@ -371,6 +494,18 @@ impl World {
         let templates = std::mem::take(&mut opened.rec.templates);
         opened.rec = RecordDoc::with_scenes(all, saved.active_scene).map_err(|e| WorldError::of("checking the scenes", e))?;
         opened.rec.templates = templates;
+        let Opened { world, rec, rig } = &mut opened;
+        for (key, spec) in saved.made {
+            world.include_made(rig, rec, &key, spec, false)?;
+        }
+        if saved.revision != 0 {
+            // The artwork file read just now is the version the document was saved with.
+            if let Some(base) = world.snapshots.remove(&0) {
+                world.snapshots.insert(saved.revision, base);
+            }
+            world.revision = saved.revision;
+            rig.revision = saved.revision;
+        }
         opened.rec.arming.groups = saved.arming.into_iter().collect();
         for (name, data) in saved.media {
             let decoded = base64::engine::general_purpose::STANDARD
@@ -425,6 +560,9 @@ impl World {
             format: FORMAT.to_owned(),
             version: 1,
             source: self.source.as_ref().map(|p| p.to_string_lossy().into_owned()),
+            kind: Some(self.kind),
+            made: rig.made.clone(),
+            revision: rig.revision,
             scene: first,
             more_scenes: scenes.collect(),
             active_scene: rec.active_scene(),
@@ -449,11 +587,124 @@ impl World {
         }
     }
 
+    /// Takes in a puppet a command built.
+    pub fn deliver(&mut self, delivery: Delivery) {
+        match delivery {
+            Delivery::Made { key, member } => {
+                self.made_members.insert(key, *member);
+            }
+            Delivery::Reimport { from, revision, cast, warnings } => {
+                let mut base = self.snapshots.get(&from).cloned().unwrap_or_else(|| {
+                    self.cast.keys().filter(|k| !self.present_made.contains(*k)).filter_map(|k| self.cast.get(k).map(|m| (k.to_owned(), m.clone()))).collect()
+                });
+                for key in cast.keys() {
+                    if let Some(member) = cast.get(key) {
+                        base.insert(key.to_owned(), member.clone());
+                    }
+                }
+                self.snapshots.insert(revision, base);
+                while self.snapshots.len() > MAX_REVISIONS {
+                    // Undo reaches back this far and no further.
+                    let oldest = self.snapshots.keys().copied().find(|v| *v != revision && *v != self.revision);
+                    match oldest {
+                        Some(v) => self.snapshots.remove(&v),
+                        None => break,
+                    };
+                }
+                self.warnings.extend(warnings);
+                self.source_mtime = self.source.as_deref().and_then(modified);
+                self.stale = false;
+            }
+        }
+    }
+
+    /// Looks at the artwork file's modification time. True when it changed since the artwork was read.
+    pub fn check_source(&mut self) -> bool {
+        if matches!(self.kind, SourceKind::Demo | SourceKind::Made) {
+            return false;
+        }
+        let now = self.source.as_deref().and_then(modified);
+        if now.is_some() && now != self.source_mtime {
+            self.stale = true;
+        }
+        self.stale
+    }
+
+    /// Records that the artwork file as it is now has been read.
+    pub fn acknowledge_source(&mut self) {
+        self.source_mtime = self.source.as_deref().and_then(modified);
+        self.stale = false;
+    }
+
+    fn refresh_issues(&mut self) {
+        self.issues = self
+            .cast
+            .keys()
+            .filter_map(|k| self.cast.get(k).map(|m| (k, m)))
+            .flat_map(|(k, m)| m.puppet.import_report().into_iter().map(move |i| (k.to_owned(), i)))
+            .collect();
+    }
+
+    /// The import warnings: what the loaders reported and what the layer names and structure of each puppet give
+    /// away (duplicate names, a face without eyes, handle tags on plain groups, ...).
+    #[must_use]
+    pub fn warning_rows(&self) -> Vec<WarningRow> {
+        let mut rows: Vec<WarningRow> = self
+            .warnings
+            .iter()
+            .filter(|w| !self.issues.iter().any(|(_, i)| &i.message == *w))
+            .map(|w| WarningRow { puppet: None, kind: "Document".to_owned(), layer: None, message: w.clone() })
+            .collect();
+        rows.extend(self.issues.iter().map(|(k, i)| WarningRow {
+            puppet: Some(k.clone()),
+            kind: i.kind.label().to_owned(),
+            layer: i.layer.clone(),
+            message: i.message.clone(),
+        }));
+        rows
+    }
+
+    /// Rebuilds the cast when the document moved to another artwork version or has other Puppet Maker puppets.
+    fn reconcile(&mut self, rig: &RigLog) -> bool {
+        let wanted: BTreeSet<String> = rig.made.keys().cloned().collect();
+        if rig.revision == self.revision && wanted == self.present_made {
+            return false;
+        }
+        let base = if let Some(base) = self.snapshots.get(&rig.revision) {
+            base.clone()
+        } else {
+            self.warnings.push(format!("artwork version {} is no longer kept; the puppets stay as they are", rig.revision));
+            self.cast.keys().filter(|k| !self.present_made.contains(*k)).filter_map(|k| self.cast.get(k).map(|m| (k.to_owned(), m.clone()))).collect()
+        };
+        let mut cast = Cast::new();
+        for (key, member) in base {
+            if !wanted.contains(&key) {
+                cast.insert(&key, member);
+            }
+        }
+        for key in &wanted {
+            if let Some(member) = self.made_members.get(key) {
+                cast.insert(key, member.clone());
+            }
+        }
+        self.cast = cast;
+        self.present_made = wanted.into_iter().filter(|k| self.cast.get(k).is_some()).collect();
+        self.revision = rig.revision;
+        self.pristine.clear();
+        self.applied.clear();
+        true
+    }
+
     /// Brings the puppets in line with the rig log. Returns whether anything changed.
     pub fn sync(&mut self, rig: &RigLog) -> bool {
+        let rebuilt = self.reconcile(rig);
         let extends = rig.edits.len() >= self.applied.len() && rig.edits.iter().zip(&self.applied).all(|(a, b)| a == b);
         if extends && rig.edits.len() == self.applied.len() {
-            return false;
+            if rebuilt {
+                self.generation = self.generation.saturating_add(1);
+                self.refresh_issues();
+            }
+            return rebuilt;
         }
         if !extends {
             let touched: Vec<String> = self.applied.iter().map(|e| e.puppet.clone()).collect();
@@ -482,8 +733,14 @@ impl World {
             self.applied.push(edit);
         }
         self.generation = self.generation.saturating_add(1);
+        self.refresh_issues();
         true
     }
+}
+
+/// When a file or folder was last changed.
+fn modified(path: &Path) -> Option<SystemTime> {
+    std::fs::metadata(path).and_then(|m| m.modified()).ok()
 }
 
 #[cfg(test)]

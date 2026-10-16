@@ -46,6 +46,12 @@ Commands:
   swap sets, layer visibility.
 * `record_arm`, `record_punch`, `record_script`, `record_inputs`, `take_*`, `playback_poses`, `playback_inputs`:
   record a scripted or explicit performance into takes, list, rename, enable, move and delete them, read back poses.
+* `puppet_reimport`: reads the artwork file again (or `path`, a new version of it) and rebuilds the puppets, keeping the
+  rig: tags, handles, origins, triggers and swap sets follow their layers by path or, when a layer moved, by name;
+  edits whose layers are gone are dropped and listed. `puppet_edit_original` opens the artwork in the system's
+  application for it. `puppet_make` builds a rigged puppet with the Puppet Maker (`template` and/or a partial `spec`:
+  head, skin, hair_style, hair, eyes, iris, lashes, ears, cheeks, lips, shirt, body) and puts it on a new track;
+  `puppet_templates` lists the starter puppets. Each is one undo step.
 * `lipsync_record`: reads a sound file (WAV, MP3, FLAC, Ogg, AAC), finds the mouth shapes, records them as a voice
   take and places the sound on an audio track. One undo step.
 * `puppet_rename`, `puppet_duplicate`, `puppet_remove`, `puppet_import`: the project panel. Names, copies and
@@ -74,7 +80,7 @@ Commands:
   `stream_panels` shows the Controls, Triggers and Scenes panels).
 
 Queries: `query_puppet_summary` (layers, groups, tags, handles, mouth shapes, swap sets), `query_puppet_outline`,
-`query_puppet_layer`, `query_behaviors_catalog` and `query_behaviors_stack` (behaviors with parameters, as the track
+`query_puppet_layer`, `query_import_warnings` (the import warnings list), `query_behaviors_catalog` and `query_behaviors_stack` (behaviors with parameters, as the track
 plays them), `query_world_info`, `query_project_info` (puppets with names, folders, sizes, tracks and import sources; the scene;
 audio; the document's file and whether it has unsaved changes), `query_view_state`. Scenes and takes come from
 `scene_info` and `take_list`.
