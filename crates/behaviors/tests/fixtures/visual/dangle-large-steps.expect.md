@@ -26,4 +26,13 @@ explode, the tip fly out of reach, tear the mesh or leave the strand stuck displ
 
 ## Verdicts
 
-(filled in after rendering)
+Rendered to `dangle-large-steps.png` (scenario S: 0 s, 0.1 s, 0.4 s, settled after the swing) and
+`dangle-large-steps-L.png` (scenario L, same frames).
+
+- Points 1 and 2: every pose finite, tip never further than reach + 0.5 from its anchor, also across the 1 s step;
+  one connected component in every frame: CONFIRMED. The sheets show the strand lagging a few degrees behind the
+  swing and then lying straight.
+- Point 3: settled drag < 0.5 px in S and L and the two settled renders match: CONFIRMED.
+- Point 4 (prediction corrected before judging): the head origin is the bottom centre of the head INCLUDING the
+  hanging hair, (120,170), not (120,120), so the turned strand lies on x 120..190, y 162..178; the probes in the
+  test use that geometry (hair over the face at (180,170), tip at (124,170), nothing at (116,170)): CONFIRMED.

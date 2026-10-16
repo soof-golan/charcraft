@@ -33,4 +33,10 @@ or collapses the mesh, or the Fixed base moves, or a release does not return exa
 
 ## Verdicts
 
-(filled in after rendering)
+Rendered to `dragger-extremes.png` (four pulls) and an 8x crop of the base under the (270,110) pull.
+
+- Points 1, 2, 3, 4, 6: every pull gives exactly the predicted drag, one connected component, base pixel (120,191)
+  stays gray and the top follows the handle at (262,112): CONFIRMED. The drawing stretches and bends but never
+  tears, even at -5000 px.
+- Point 5: the release glides (half way: half the displacement, within 1 px) and 7 frames later the render equals
+  the neutral render pixel for pixel: CONFIRMED.
