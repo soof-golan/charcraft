@@ -823,6 +823,7 @@ impl CharCraftApp {
         }
     }
 
+    #[expect(clippy::too_many_lines, reason = "one arm per action")]
     fn apply(&mut self, ctx: &Context, actions: Vec<Action>) {
         for action in actions {
             match action {
