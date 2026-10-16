@@ -56,6 +56,9 @@ const DOCS: &[ParamDoc] = docs! {
     "range", "%", "Largest pull as a percentage of the handle's reach, when limited.";
 };
 
+/// The pointer id of a drag that a recorded [`HandleTarget`](crate::HandleTarget) holds (no real pointer has it).
+const TARGET_POINTER: u32 = u32::MAX;
+
 #[derive(Debug, Clone, PartialEq)]
 struct Drag {
     pointer: Option<u32>,
@@ -93,12 +96,28 @@ impl Behavior for Dragger {
         let p = self.params.clone();
         let duration = p.handle_release_duration.max(0.0);
 
+        // Recorded drags name their handle (the group's name may be spelled with other capitals in the recording): a
+        // handle that is held takes the position as its target, one that is not held any more is let go.
+        let held_target = |key: &str| {
+            cx.inputs.handle_targets.iter().find(|h| h.held && h.position.x.is_finite() && h.position.y.is_finite() && h.handle.eq_ignore_ascii_case(key))
+        };
+        for h in cx.rig.handles_of(HandleKind::Draggable).filter(|h| held_target(&h.key).is_some()) {
+            let drag = self.drags.entry(h.key.clone()).or_insert(Drag {
+                pointer: None,
+                grab_offset: Vec2::ZERO,
+                delta: Vec2::ZERO,
+                released_at: t,
+                release_from: Vec2::ZERO,
+            });
+            drag.pointer = Some(TARGET_POINTER);
+            drag.grab_offset = Vec2::ZERO;
+        }
+
         // Pointers that went away or came up release what they held.
         let now_down: BTreeSet<u32> = cx.inputs.pointers.iter().filter(|q| q.down).map(|q| q.id).collect();
-        for d in self.drags.values_mut() {
-            if let Some(id) = d.pointer
-                && !now_down.contains(&id)
-            {
+        for (key, d) in &mut self.drags {
+            let gone = d.pointer.is_some_and(|id| if id == TARGET_POINTER { held_target(key).is_none() } else { !now_down.contains(&id) });
+            if gone {
                 d.pointer = None;
                 if p.on_mouse_up >= 0.5 {
                     d.released_at = t;
@@ -133,8 +152,13 @@ impl Behavior for Dragger {
                 continue;
             };
             if let Some(id) = d.pointer {
-                if let Some(ptr) = cx.inputs.pointers.iter().find(|q| q.id == id) {
-                    let mut delta = ptr.position - d.grab_offset - h.driven_position(pose);
+                let at = if id == TARGET_POINTER {
+                    held_target(key).map(|h| h.position)
+                } else {
+                    cx.inputs.pointers.iter().find(|q| q.id == id).map(|q| q.position)
+                };
+                if let Some(at) = at {
+                    let mut delta = at - d.grab_offset - h.driven_position(pose);
                     if p.limit_range_cb {
                         let max = (h.reach * percent(p.range)).max(0.0);
                         if delta.hypot() > max {

@@ -48,6 +48,15 @@ pub struct Take {
     pub time: Option<TimeItem>,
     /// The `.arf` event graph the data comes from.
     pub source: Option<String>,
+    /// The behavior instance that plays it (`TIB47`), the one the recording's channel names carry.
+    pub bound_instance: Option<String>,
+    /// Which part of the recording this take is, for a recording that holds several (a Dragger take names the handle:
+    /// `HandleTarget/../B2/B8/B4:/Draggable/`).
+    pub group_id: Option<String>,
+    /// Seconds the take fades in over.
+    pub fade_in: f64,
+    /// Seconds the take fades out over.
+    pub fade_out: f64,
 }
 
 /// A behavior on a track item with the values this scene gives its parameters.
@@ -329,6 +338,10 @@ fn behavior_instance(key: &str, value: &LValue) -> BehaviorInstance {
                         solo: boolean(t, "_bSolo"),
                         time: time_item(t.get("_timeItem")),
                         source: ppath(t, "_sourceEventGraphPPath"),
+                        bound_instance: string(t, "_boundInstanceID"),
+                        group_id: string(t, "_takeGroupID"),
+                        fade_in: t.get("_blendEnvelope").map_or(0.0, |e| number(e, "_fadeInDuration")),
+                        fade_out: t.get("_blendEnvelope").map_or(0.0, |e| number(e, "_fadeOutDuration")),
                     })
                     .collect()
             })

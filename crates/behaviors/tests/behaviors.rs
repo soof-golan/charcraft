@@ -359,6 +359,33 @@ fn only_a_press_near_a_handle_grabs_it() {
 }
 
 #[test]
+fn a_recorded_drag_holds_the_named_handle_at_its_target_and_lets_go() {
+    let rig = hand_rig().with_handle(RigHandle::new("other/Drag", HandleKind::Draggable, Point::new(700.0, 300.0)));
+    let mut s = stack_of(rig, &[("Adobe.Dragger3.js", json!({}))]);
+    let at = |i: i64, targets: Vec<charcraft_behaviors::HandleTarget>| {
+        let mut inputs = charcraft_behaviors::Inputs::at(Tick::from_seconds_f64(i as f64 * 0.01));
+        inputs.handle_targets = targets;
+        inputs
+    };
+    let held = |x: f64, y: f64| vec![charcraft_behaviors::HandleTarget { handle: "hand/Drag".into(), position: Point::new(x, y), held: true }];
+    // Far from the handle, and no press: the target alone takes the handle (a pointer would have missed it).
+    assert!(s.step(&at(0, vec![])).drag.is_empty());
+    let pose = s.step(&at(1, held(500.0, 340.0)));
+    assert_eq!(pose.drag_of("hand/Drag"), Vec2::new(300.0, 40.0));
+    assert!(pose.drag_of("other/Drag") == Vec2::ZERO, "only the named handle moves");
+    let pose = s.step(&at(2, held(260.0, 300.0)));
+    assert_eq!(pose.drag_of("hand/Drag"), Vec2::new(60.0, 0.0));
+    // Not held any more: glides home in 0.2 s.
+    assert_eq!(s.step(&at(12, vec![])).drag_of("hand/Drag"), Vec2::new(60.0, 0.0), "the glide starts where it was held");
+    let mid = s.step(&at(22, vec![])).drag_of("hand/Drag");
+    assert!(mid.x > 5.0 && mid.x < 55.0, "{mid:?}");
+    assert!(s.step(&at(40, vec![])).drag.is_empty());
+    // A target naming no handle is ignored.
+    let ghost = vec![charcraft_behaviors::HandleTarget { handle: "nobody/Drag".into(), position: Point::new(1.0, 1.0), held: true }];
+    assert!(s.step(&at(50, ghost)).drag.is_empty());
+}
+
+#[test]
 fn two_fingers_pull_two_handles() {
     let rig = hand_rig().with_handle(RigHandle::new("other/Drag", HandleKind::Draggable, Point::new(700.0, 300.0)));
     let mut s = stack_of(rig, &[("Adobe.Dragger3.js", json!({}))]);

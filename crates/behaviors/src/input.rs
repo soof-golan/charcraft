@@ -98,6 +98,20 @@ pub struct Pointer {
     pub down: bool,
 }
 
+/// A draggable handle held at a position.
+///
+/// This is what Character Animator records for a drag: the handle's target, not the mouse that pulled it, so a
+/// recorded drag moves the same handle however the puppet is placed.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct HandleTarget {
+    /// The handle's key, `<group label>/<handle name>` (`Arm Right/Draggable`).
+    pub handle: String,
+    /// Where the handle is held, in stage pixels (the puppet's artwork space, y down).
+    pub position: Point,
+    /// True while it is held; false lets go of it.
+    pub held: bool,
+}
+
 /// Everything the world tells the behaviors at one tick.
 ///
 /// Inputs are plain data: a behavior stack fed the same inputs, seed and starting state produces the same poses.
@@ -112,6 +126,8 @@ pub struct Inputs {
     pub viseme: Option<VoiceViseme>,
     /// Mice and fingers.
     pub pointers: Vec<Pointer>,
+    /// Draggable handles held directly (recorded drags).
+    pub handle_targets: Vec<HandleTarget>,
     /// Keys held down, lower case (`a`, `space`, `left`, `up`, `1`).
     pub keys: BTreeSet<String>,
 }

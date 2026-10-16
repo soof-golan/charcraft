@@ -159,7 +159,14 @@ impl Script {
                     }
                 }
             }
-            out.push(Inputs { time: rate.tick_of(i64::from(frame)), face, viseme, pointers: pointers.values().copied().collect(), keys: keys.clone() });
+            out.push(Inputs {
+                time: rate.tick_of(i64::from(frame)),
+                face,
+                viseme,
+                pointers: pointers.values().copied().collect(),
+                keys: keys.clone(),
+                ..Inputs::default()
+            });
         }
         Ok(out)
     }

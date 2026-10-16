@@ -184,6 +184,14 @@ impl Model {
         self.scenes.iter().find(|s| s.name == name)
     }
 
+    /// The recording a take points to (`/.Recordings/Recordings/2024-07-10/take 01_44_11 pm.arf`; the leading `/` is
+    /// optional).
+    #[must_use]
+    pub fn recording(&self, path: &str) -> Option<&RecordingFile> {
+        let path = path.trim_start_matches('/');
+        self.recordings.iter().find(|r| r.path == path)
+    }
+
     /// A behavior definition by id (`Adobe.Blinker.js`).
     #[must_use]
     pub fn behavior(&self, id: &str) -> Option<&BehaviorDef> {

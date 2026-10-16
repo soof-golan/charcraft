@@ -1,4 +1,7 @@
 //! Lip Sync (`Adobe.LipSync2.js`): picks the mouth shape from the voice.
+//!
+//! A puppet without mouth-shape layers shows no visemes: it only gets the jaw (a layer tagged Flappy Chin drops with
+//! the opening of the voice). This is how Character Animator behaves too, not a gap.
 
 use std::collections::BTreeMap;
 

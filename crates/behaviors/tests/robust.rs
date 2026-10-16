@@ -13,7 +13,7 @@
 
 use anim_core::{Point, Size, Tick, Vec2};
 use anim_lipsync::Viseme as Voice;
-use charcraft_behaviors::{BehaviorStack, ChainLink, FaceInput, Inputs, Pointer, Rig, RigHandle, behaviors};
+use charcraft_behaviors::{BehaviorStack, ChainLink, FaceInput, HandleTarget, Inputs, Pointer, Rig, RigHandle, behaviors};
 use charcraft_puppet::{HandleKind, PuppetPose};
 use proptest::prelude::*;
 use serde_json::Value;
@@ -56,12 +56,17 @@ fn any_inputs() -> impl Strategy<Value = Inputs> {
     let time = prop_oneof![4 => (0_i64..10_000_000_000_000).prop_map(Tick), 1 => Just(Tick(i64::MIN)), 1 => Just(Tick(i64::MAX)), 1 => Just(Tick::ZERO)];
     let pointers = prop::collection::vec((0_u32..3, any_f64(), any_f64(), any::<bool>()), 0..3);
     let keys = prop::collection::btree_set(prop::sample::select(vec!["left", "right", "up", "down", "a", "1"]), 0..3);
-    (time, prop::option::of(any_face()), prop::option::of(prop::sample::select(Voice::ALL.to_vec())), pointers, keys).prop_map(
-        |(time, face, viseme, pointers, keys)| Inputs {
+    let targets = prop::collection::vec((prop::sample::select(vec!["a/Drag", "a/Dangle", "nobody"]), any_f64(), any_f64(), any::<bool>()), 0..3);
+    (time, prop::option::of(any_face()), prop::option::of(prop::sample::select(Voice::ALL.to_vec())), pointers, keys, targets).prop_map(
+        |(time, face, viseme, pointers, keys, targets)| Inputs {
             time,
             face,
             viseme,
             pointers: pointers.into_iter().map(|(id, x, y, down)| Pointer { id, position: Point::new(x, y), down }).collect(),
+            handle_targets: targets
+                .into_iter()
+                .map(|(handle, x, y, held)| HandleTarget { handle: handle.to_owned(), position: Point::new(x, y), held })
+                .collect(),
             keys: keys.into_iter().map(str::to_owned).collect(),
         },
     )

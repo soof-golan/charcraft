@@ -57,7 +57,7 @@ pub mod util;
 pub use behavior::{Behavior, Cx, ParamDoc};
 pub use behaviors::{ArmIk, Blinker, Breathe, Dragger, Dynamics, EyeGaze, Face, LipSync, Transform, Triggers, Walk};
 pub use error::{Error, Result};
-pub use input::{FaceInput, Inputs, Pointer};
+pub use input::{FaceInput, HandleTarget, Inputs, Pointer};
 pub use rig::{ChainLink, Rig, RigHandle};
 pub use script::{Script, ScriptEvent, SimFrame, simulate};
 pub use stack::{BehaviorStack, Slot};
