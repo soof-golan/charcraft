@@ -56,7 +56,8 @@ predictions above shift accordingly, e.g. neutral (80,80) blue, (120,120) green)
   red hidden): CONFIRMED, including draw order unchanged by moving red.
 - The border case is kept as `a_welded_group_collapses_with_zero_scale`: BUG FOUND, not fixed (weld logic is
   another agent's): with blue welded to red, scale (0,0) leaves a speck of blue at about (93..100, 94..100),
-  because the ring near the attach point follows the parent mesh and ignores the group's own scale.
+  because the ring near the attach point follows the parent mesh and ignores the group's own scale. FIXED
+  meanwhile by the weld rework on main (73791fc); the test is un-ignored and passes.
 
 ### nested warps (`overlap-and-nested-arm.png`: neutral, N1, N2, N3, N4)
 

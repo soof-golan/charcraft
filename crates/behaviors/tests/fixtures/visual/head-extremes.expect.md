@@ -55,4 +55,6 @@ judged by `eye_gaze_limits` (turn90 probes).
   some bridge is expected, but its shape is not a clean stretch.
 - BUG FOUND (point 8, again): with the weld a head scale of (0,0) still leaves a skin sliver at (104..152, 140..143):
   the ring near the attach point follows the body mesh and ignores the head's scale. Not fixed (weld code is
-  another agent's); `a_zero_scale_head_collapses` is `#[ignore]`d with the reason.
+  another agent's); `a_zero_scale_head_collapses` was `#[ignore]`d with the reason.
+- UPDATE after main gained "keep the welded head rigid" (73791fc): the zero-scale head now collapses completely
+  (test un-ignored and passing) and the goldens still match, so the rigid-transform predictions hold again.

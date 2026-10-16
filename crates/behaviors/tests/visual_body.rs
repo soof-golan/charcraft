@@ -288,7 +288,6 @@ fn overlapping_groups_keep_their_draw_order() {
 /// The origin of `+ Blue` lies on the border of `+ Red`, so Weld attaches it to red's mesh: red moving drags blue's
 /// attach corner along (design of the weld, see `plan_welds`), but a zero scale still has to collapse the group.
 #[test]
-#[ignore = "known bug: the weld ring near the attach point follows the parent mesh and ignores the group's zero scale (eval.rs/warp.rs weld logic, owned by another agent)"]
 fn a_welded_group_collapses_with_zero_scale() {
     let g = |name: &str, x: f64, rgb| ArtNode::group(name, vec![rect("sq", x, x, 60, 60, rgb)]);
     let p = Puppet::from_artwork(&tree(240, 240, vec![g("+ Red", 40.0, RED), g("+ Blue", 70.0, BLUE)])).unwrap();

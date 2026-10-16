@@ -261,9 +261,9 @@ fn head_extremes() {
 }
 
 /// A scale of zero collapses the head instead of meaning "no scale" (the sanitizer bug is fixed). With the weld the
-/// blend ring around the neck still follows the body mesh and ignores the head's scale, so a patch of skin stays.
+/// blend ring around the neck followed the body mesh and ignored the head's scale (a skin sliver stayed); fixed by
+/// the weld rework on main (the head is now kept rigid).
 #[test]
-#[ignore = "known bug: the weld ring near the head's attach point ignores a zero scale (eval.rs/warp.rs weld logic, owned by another agent)"]
 fn a_zero_scale_head_collapses() {
     let p = puppet(false, true);
     let mut pose = PuppetPose::neutral();
