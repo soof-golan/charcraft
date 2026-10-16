@@ -478,3 +478,41 @@ fn pose_opacity_fades_layers_by_name() {
     let half = px(&render(&p, &pose), 100, 170);
     assert!(half[0] > GRAY[0] && half[0] < 255, "{half:?}");
 }
+
+/// Ears drawn on a layer of their own behind the face, and a badge group that overlaps the head, turn with the head;
+/// the floor and a group set to the Free attach style stay (`tests/fixtures/visual/head_parts.expect.md`, point 1).
+fn ears_tree() -> ArtworkTree {
+    let ears = rect("Ears", 40.0, 60.0, 120, 20, BLUE);
+    let head = ArtNode::group("Head", vec![rect("Face", 50.0, 20.0, 100, 100, SKIN)]);
+    let badge = ArtNode::group("+Badge", vec![rect("badge", 60.0, 30.0, 30, 20, BROW)]);
+    let stamp = ArtNode::group("+Stamp", vec![rect("stamp", 110.0, 30.0, 30, 20, BLACK)]);
+    let floor = rect("Floor", 0.0, 150.0, 200, 50, GRAY);
+    ArtworkTree { size: Size::new(f64::from(W), f64::from(W)), root: ArtNode::group("", vec![floor, ears, head, badge, stamp]), warnings: Vec::new() }
+}
+
+#[test]
+fn ears_and_overlapping_groups_turn_with_the_head() {
+    let mut p = Puppet::from_artwork(&ears_tree()).unwrap();
+    let head = id(&p, "Head");
+    assert!(p.set_attach(id(&p, "+Stamp"), charcraft_puppet::AttachStyle::Free));
+    let follows = |p: &Puppet, name: &str| p.layer(id(p, name)).unwrap().follows;
+    assert_eq!(follows(&p, "Ears"), Some(head));
+    assert_eq!(follows(&p, "+Badge"), Some(head));
+    assert_eq!(follows(&p, "+Stamp"), None, "a group that is not attached stays");
+    assert_eq!(follows(&p, "Floor"), None, "the floor is not under the head");
+    assert_eq!(follows(&p, "Head"), None);
+
+    let mut pose = PuppetPose::neutral();
+    pose.head = Xform { rotation: 15.0_f64.to_radians(), ..Xform::IDENTITY };
+    let posed = render(&p, &pose);
+    let matrix = p.group_matrix(head, &pose);
+    let near = |p: Point| (anim_core::num::round_f64_to_u32(p.x), anim_core::num::round_f64_to_u32(p.y));
+    let ear = near(matrix * Point::new(44.0, 70.0));
+    assert_eq!(px(&posed, ear.0, ear.1), BLUE, "the ear's tip is where the head's turn puts it");
+    let badge = near(matrix * Point::new(75.0, 40.0));
+    assert_eq!(px(&posed, badge.0, badge.1), BROW, "the badge turned with the head");
+    let stamp = near(Point::new(125.0, 40.0));
+    assert_eq!(px(&posed, stamp.0, stamp.1), BLACK, "the stamp stayed");
+    assert_eq!(px(&posed, 100, 170), GRAY);
+    assert_eq!(render(&p, &PuppetPose::neutral()), render(&Puppet::from_artwork(&ears_tree()).unwrap(), &PuppetPose::neutral()));
+}

@@ -567,3 +567,72 @@ fn news_anchor_psds_become_puppets_from_artwork_alone() {
         assert_eq!(differing(&render(&puppet, &PuppetPose::neutral()), &expected), 0, "{file}");
     }
 }
+
+fn anchor(root: &Path, display: &str) -> Puppet {
+    let project = Project::open(root.join("chproj_full/news anchors")).unwrap();
+    let item = project.model().unwrap().root_puppets().find(|i| i.display_name() == display).unwrap().clone();
+    Puppet::from_project(&project, Some(&item.path)).unwrap()
+}
+
+fn is_background(img: &Image, x: usize, y: usize) -> bool {
+    rgb_at(img, x, y).iter().all(|&c| c > 235)
+}
+
+/// The male anchor's ears are one layer drawn behind the face, next to the head group instead of inside it. They turn
+/// with the head (`tests/fixtures/visual/head_parts.expect.md`, point 1).
+#[test]
+fn male_anchor_ears_follow_the_head() {
+    let Some(root) = samples() else { return };
+    let puppet = anchor(&root, "male_anchor");
+    let head = puppet.with_tag(ids::HEAD)[0];
+    let ears = puppet.layers().iter().find(|l| l.name == "Layer 3").unwrap();
+    assert_eq!(ears.follows, Some(head), "the ear layer is not attached to the head");
+    let followers: Vec<&str> = puppet.layers().iter().filter(|l| l.follows.is_some()).map(|l| l.name.as_str()).collect();
+    assert_eq!(followers, ["Layer 3"], "only the ears follow the head, not the body or its arms");
+
+    let neutral = render(&puppet, &PuppetPose::neutral());
+    let y = 342_usize;
+    let tip = (300..500).find(|&x| !is_background(&neutral, x, y)).unwrap();
+    for degrees in [15.0, -15.0, 25.0] {
+        let pose = head_pose(0.0, degrees);
+        let posed = render(&puppet, &pose);
+        write_png(&format!("male_ears_{degrees}.png"), &[&neutral, &posed]);
+        let matrix = puppet.group_matrix(head, &pose);
+        // From just inside the ear's tip into the face: every pixel of the segment, turned with the head, is puppet.
+        let (from, to) = (Point::new(f64::from(u32::try_from(tip).unwrap()) + 4.0, 342.0), Point::new(470.0, 342.0));
+        for i in 0..=100_u32 {
+            let t = f64::from(i) / 100.0;
+            let at = matrix * Point::new(from.x + (to.x - from.x) * t, from.y);
+            let (x, y) = (num_usize(at.x.round()), num_usize(at.y.round()));
+            assert!(!is_background(&posed, x, y), "head tilted {degrees} degrees: a gap between the ear and the head at {at:?}");
+        }
+        // The ear's tip lands where the head's matrix puts it.
+        let moved = matrix * from;
+        assert!(!is_background(&posed, num_usize(moved.x.round()), num_usize(moved.y.round())));
+    }
+}
+
+/// The female anchor's jacket is ragged under the hair in the artwork itself; the head's turn only uncovers it. With
+/// the head hidden, the body renders the same for a tilted head as for a straight one outside the neck band
+/// (`tests/fixtures/visual/head_parts.expect.md`, point 2).
+#[test]
+fn female_anchor_jacket_is_not_torn_by_the_head() {
+    let Some(root) = samples() else { return };
+    let puppet = anchor(&root, "female_anchor");
+    let head = puppet.with_tag(ids::HEAD)[0];
+    let pivot = puppet.pivot(head);
+    let mut still = head_pose(0.0, 0.0);
+    still.opacity.insert("head".into(), 0.0);
+    let mut tilted = head_pose(15.0, 12.0);
+    tilted.opacity.insert("head".into(), 0.0);
+    let (a, b) = (render(&puppet, &still), render(&puppet, &tilted));
+    write_png("female_body_head_hidden.png", &[&a, &b]);
+    let (mut over, mut total) = (0_u32, 0_u32);
+    for y in 393..1000 {
+        for x in (0..usize::try_from(a.width).unwrap()).filter(|&x| (f64::from(u32::try_from(x).unwrap()) - pivot.x).abs() > 260.0) {
+            total += 1;
+            over += u32::from(rgb_at(&a, x, y).iter().zip(&rgb_at(&b, x, y)).any(|(p, q)| p.abs_diff(*q) > RESAMPLE));
+        }
+    }
+    assert!(over * 200 <= total, "the body mesh moved away from the neck: {over} of {total} pixels differ");
+}

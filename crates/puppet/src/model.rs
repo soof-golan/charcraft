@@ -261,6 +261,10 @@ pub struct Layer {
     /// Shows the children one after the other.
     #[serde(default)]
     pub cycle: Option<CycleDef>,
+    /// The head this layer moves with, when it sits next to the head instead of inside it (an ear drawn behind
+    /// the face on its own layer). Derived from the artwork by `Puppet::refresh_followers`, never stored.
+    #[serde(skip)]
+    pub follows: Option<LayerId>,
 }
 
 /// The default [`Layer::mesh_density`].

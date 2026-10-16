@@ -51,6 +51,7 @@ pub fn plan_welds(puppet: &Puppet) -> Vec<(Weld, LayerId)> {
     let mut out = Vec::new();
     for child in puppet.layers().iter().filter(|l| l.independent && l.id != LayerId::ROOT) {
         if child.attach != AttachStyle::Weld
+            || child.follows.is_some()
             || child.handles.iter().any(HandleDef::pins_mesh)
             || child.has_tag(ids::LEFT_EYEBROW)
             || child.has_tag(ids::RIGHT_EYEBROW)
@@ -337,7 +338,7 @@ pub fn own_nodes(puppet: &Puppet, group: LayerId) -> Vec<Node> {
     let mut stack: Vec<LayerId> = puppet.layer(group).map(|l| l.children.iter().rev().copied().collect()).unwrap_or_default();
     while let Some(id) = stack.pop() {
         let Some(layer) = puppet.layer(id) else { continue };
-        if !layer.visible || layer.independent {
+        if !layer.visible || layer.independent || layer.follows.is_some() {
             continue;
         }
         if let Some(content) = puppet.contents.get(id.index()) {

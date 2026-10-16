@@ -251,6 +251,12 @@ impl Puppet {
     /// The matrix applied to an independent group in the pose.
     #[must_use]
     pub fn group_matrix(&self, id: LayerId, pose: &PuppetPose) -> Affine {
+        // A layer next to the head moves with it, about the head's pivot, on top of any move of its own.
+        let own = self.own_matrix(id, pose);
+        self.layer(id).and_then(|l| l.follows).map_or(own, |head| self.own_matrix(head, pose) * own)
+    }
+
+    fn own_matrix(&self, id: LayerId, pose: &PuppetPose) -> Affine {
         let x = self.group_xform(id, pose);
         if x.is_identity() { Affine::IDENTITY } else { x.about(self.pivot(id)) }
     }
@@ -323,7 +329,7 @@ impl Frame<'_> {
         }
         group.mask.clone_from(&content.mask);
         group.children = if layer.kind == LayerKind::Group { self.emit_children(layer, depth.saturating_add(1)) } else { content.nodes.clone() };
-        if layer.independent {
+        if layer.independent || layer.follows.is_some() {
             group.transform = puppet.group_matrix(id, self.pose);
         }
         Some(Node::Group(group))
@@ -341,7 +347,8 @@ impl Frame<'_> {
                     clipped.push(next);
                 }
             }
-            let child = base.independent.then_some(base_id);
+            // A layer that follows the head is not part of the mesh it sits in: it moves as a whole.
+            let child = (base.independent || base.follows.is_some()).then_some(base_id);
             if clipped.is_empty() {
                 if let Some(node) = self.emit(base_id, false, depth) {
                     entries.push(Emitted { node, child });
@@ -418,7 +425,7 @@ impl Frame<'_> {
             match entry.child.and_then(|c| self.puppet.layer(c)) {
                 Some(child) => {
                     flush(&mut run, &mut out);
-                    let held = welded.iter().any(|w| w.child == child.id) || child.attach == AttachStyle::Free;
+                    let held = welded.iter().any(|w| w.child == child.id) || child.attach == AttachStyle::Free || child.follows.is_some();
                     let d = if held { Vec2::ZERO } else { warp::displacement(warp_mesh, positions, child.origin) };
                     // A displacement of a fraction of a pixel is the mesh's long triangles, not a move: resampling the
                     // child for it would blur it. The dead zone is soft, so a child never jumps.

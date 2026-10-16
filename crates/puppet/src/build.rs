@@ -12,6 +12,8 @@ use crate::tags::{self, TagKind, Viseme, ids};
 
 /// Layers accepted per puppet.
 pub const MAX_LAYERS: usize = 250_000;
+/// Share of a layer's artwork that must lie within a head's bounds for the layer to move with the head.
+const FOLLOW_OVERLAP: f64 = 0.6;
 /// Deepest nesting followed.
 const MAX_DEPTH: usize = 128;
 
@@ -88,6 +90,7 @@ impl Puppet {
                 warp_independent: false,
                 mesh_density: 1.0,
                 cycle: None,
+                follows: None,
             });
         }
 
@@ -124,8 +127,47 @@ impl Puppet {
         Ok(puppet)
     }
 
+    /// Finds the layers that move with a head without being inside it. Character Animator attaches the child groups
+    /// of a head and the groups that overlap it; artwork often draws an ear, a hat brim or a lock of hair on a
+    /// layer of its own next to the head (behind the face), which would stay behind when the head turns.
+    ///
+    /// A layer follows a head when it is a sibling of the head (not the head, not tagged as a head itself, not an
+    /// independent group set to the Free attach style) and at least [`FOLLOW_OVERLAP`] of its artwork lies within
+    /// the head's bounds. The one with the largest overlap wins when there are several heads.
+    pub(crate) fn refresh_followers(&mut self) {
+        let heads: Vec<(LayerId, Rect)> = self.layers.iter().filter(|l| l.is_head()).filter_map(|l| Some((l.id, l.bounds?))).collect();
+        let follows: Vec<Option<LayerId>> = self
+            .layers
+            .iter()
+            .map(|l| {
+                let own = l.bounds?;
+                let parent = l.parent?;
+                let free = l.independent && l.attach == AttachStyle::Free;
+                let area = own.width() * own.height();
+                if l.has_tag(ids::HEAD) || free || area.is_nan() || area <= 0.0 {
+                    return None;
+                }
+                heads
+                    .iter()
+                    .filter(|(head, _)| *head != l.id && self.layer(*head).and_then(|h| h.parent) == Some(parent))
+                    .map(|(head, b)| {
+                        let w = (own.x1.min(b.x1) - own.x0.max(b.x0)).max(0.0);
+                        let h = (own.y1.min(b.y1) - own.y0.max(b.y0)).max(0.0);
+                        (*head, w * h / area)
+                    })
+                    .filter(|(_, share)| *share >= FOLLOW_OVERLAP)
+                    .max_by(|a, b| a.1.total_cmp(&b.1))
+                    .map(|(head, _)| head)
+            })
+            .collect();
+        for (layer, head) in self.layers.iter_mut().zip(follows) {
+            layer.follows = head;
+        }
+    }
+
     /// Recomputes the meshes after handles changed.
     pub(crate) fn rebuild_warps(&mut self) {
+        self.refresh_followers();
         let (warps, warnings) = crate::warp::build_all(self);
         self.warps = warps;
         for w in warnings {
