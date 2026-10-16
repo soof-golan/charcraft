@@ -306,10 +306,7 @@ fn hit(puppet: &Puppet, at: Pos2, tolerance: f32, origins: bool, handles: bool) 
 
 /// A handle name the group does not use yet.
 fn fresh_name(group: &Layer, base: &str) -> String {
-    (1_u32..=u32::MAX)
-        .map(|n| format!("{base} {n}"))
-        .find(|name| !group.handles.iter().any(|h| h.name == *name))
-        .unwrap_or_else(|| base.to_owned())
+    (1_u32..=u32::MAX).map(|n| format!("{base} {n}")).find(|name| !group.handles.iter().any(|h| h.name == *name)).unwrap_or_else(|| base.to_owned())
 }
 
 fn pt(p: Pos2) -> [f64; 2] {
@@ -1024,7 +1021,8 @@ pub fn behaviors(ui: &mut Ui, puppet: &Puppet, view: &mut View, ctx: &Ctx<'_>, a
                 if ui.small_button("Reset parameters").clicked()
                     && let Some(entry) = catalog().into_iter().find(|c| c.id == info.id)
                 {
-                    actions.push(Action::Run("track.behavior", json!({ "track": track, "op": StackOp::SetParams { index: info.index, params: entry.params } })));
+                    actions
+                        .push(Action::Run("track.behavior", json!({ "track": track, "op": StackOp::SetParams { index: info.index, params: entry.params } })));
                 }
             });
     }
