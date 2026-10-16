@@ -109,9 +109,7 @@ fn tree(ui: &mut Ui, puppet: &Puppet, key: &str, view: &mut View, ctx: &Ctx<'_>,
                 }
                 ui.add_space(f32::from(u16::try_from(depth.saturating_mul(14)).unwrap_or(0)));
                 super::layers::thumbnail(ui, layer, puppet.size, ctx.texture.map(|(t, _)| t));
-                if !has_rows(puppet, layer) {
-                    ui.add_space(16.0);
-                } else {
+                if has_rows(puppet, layer) {
                     let open = !view.collapsed.contains(&layer.path);
                     if ui.small_button(if open { "\u{25BE}" } else { "\u{25B8}" }).clicked() {
                         if open {
@@ -120,6 +118,8 @@ fn tree(ui: &mut Ui, puppet: &Puppet, key: &str, view: &mut View, ctx: &Ctx<'_>,
                             view.collapsed.remove(&layer.path);
                         }
                     }
+                } else {
+                    ui.add_space(16.0);
                 }
                 let selected = view.layer.as_deref() == Some(layer.path.as_str());
                 let name = visual(&layer.name).into_owned();

@@ -236,8 +236,10 @@ pub fn row(ui: &mut Ui, track: usize, info: &charcraft_behaviors::api::BehaviorI
     });
 }
 
-/// One behavior as a collapsible group, as in Character Animator: a disclosure triangle, the red arm dot, the name
-/// (drag it onto another behavior to reorder), and on the right the on/off eye. Right-click for the menu with Remove.
+/// One behavior as a collapsible group, as in Character Animator.
+///
+/// A disclosure triangle, the red arm dot, the name (drag it onto another behavior to reorder), and on the right the
+/// on/off eye. Right-click for the menu with Remove.
 pub fn behavior_block(
     ui: &mut Ui,
     track: usize,

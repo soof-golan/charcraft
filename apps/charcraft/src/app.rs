@@ -212,6 +212,7 @@ impl CharCraftApp {
     ///
     /// # Errors
     /// A message when a door cannot start.
+    #[expect(clippy::too_many_lines, reason = "starting every actor and door in one place")]
     pub fn new(cc: &eframe::CreationContext<'_>, opened: Opened, options: &Options, done: Sender<Outcome>) -> Result<Self, String> {
         let ctx = cc.egui_ctx.clone();
         if crate::ui::theme::install_fonts(&ctx) == 0 {
@@ -826,11 +827,11 @@ impl CharCraftApp {
         self.thumbs.next = self.thumbs.next.saturating_add(1);
         let request = if let Some(key) = name.strip_prefix("puppet:") {
             let height = self.host.hooks_mut().world.cast.get(key).map_or(1.0, |m| m.puppet.size.height.max(1.0));
-            Some(RenderRequest::Puppet { id, key: key.to_owned(), pose: PuppetPose::neutral(), scale: (96.0 / height).min(1.0), background: None })
+            Some(RenderRequest::Puppet { id, key: key.to_owned(), pose: Box::new(PuppetPose::neutral()), scale: (96.0 / height).min(1.0), background: None })
         } else {
             name.strip_prefix("scene:").and_then(|i| i.parse::<usize>().ok()).and_then(|i| self.doc.rec.scenes().nth(i)).map(|scene| RenderRequest::Scene {
                 id,
-                scene: scene.clone(),
+                scene: Box::new(scene.clone()),
                 frame: 0,
                 live: Vec::new(),
                 scale: (128.0 / scene.size.width.max(1.0)).min(1.0),
