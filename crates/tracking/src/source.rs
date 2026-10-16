@@ -171,6 +171,16 @@ pub trait FrameSource {
     fn next_frame(&mut self) -> Result<Option<(Tick, Frame)>>;
 }
 
+impl FrameSource for Box<dyn FrameSource> {
+    fn name(&self) -> String {
+        (**self).name()
+    }
+
+    fn next_frame(&mut self) -> Result<Option<(Tick, Frame)>> {
+        (**self).next_frame()
+    }
+}
+
 /// A [`FrameSource`] that repeats one image `count` times at `fps`: a still photo standing in for a camera, for
 /// tests and demos of the whole pipeline.
 #[derive(Clone, Debug)]

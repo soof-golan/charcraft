@@ -39,6 +39,8 @@ pub mod actor;
 pub mod camera;
 mod cast;
 pub mod error;
+#[cfg(feature = "files")]
+pub mod files;
 pub mod frame;
 pub mod input;
 pub mod landmarks;
@@ -49,6 +51,8 @@ pub mod model;
 #[cfg(feature = "onnx-runtime")]
 pub mod onnx;
 pub mod pipeline;
+#[cfg(feature = "onnx-dynamic")]
+pub mod runtime_lib;
 pub mod solver;
 pub mod source;
 pub mod synthetic;

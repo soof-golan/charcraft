@@ -97,8 +97,10 @@ pub fn camera(ui: &mut Ui, view: &mut View, _ctx: &Ctx<'_>, actions: &mut Vec<Ac
         } else {
             chip(ui, "off", ui.visuals().widgets.inactive.weak_bg_fill);
         }
-        if cfg!(not(feature = "live")) {
-            ui.weak("demo face");
+        if let Some(source) = view.live.source.as_ref().filter(|_| view.live.tracking) {
+            ui.weak(visual(source).into_owned());
+        } else if cfg!(not(feature = "live")) {
+            ui.weak("this build has no camera support: demo face only");
         }
     });
     face_preview(ui, view.live.face.as_ref(), vec2(ui.available_width().min(260.0), 130.0));
@@ -107,8 +109,15 @@ pub fn camera(ui: &mut Ui, view: &mut View, _ctx: &Ctx<'_>, actions: &mut Vec<Ac
             if ui.button("Stop").clicked() {
                 actions.push(Action::Tracking("tracking_stop", json!({})));
             }
-        } else if ui.button("Start").clicked() {
-            actions.push(Action::Tracking("tracking_start", json!({})));
+        } else if cfg!(feature = "live") {
+            if ui.button("Start camera").clicked() {
+                actions.push(Action::Tracking("tracking_start", json!({})));
+            }
+            if view.live.problem.is_some() && ui.button("Use demo face").on_hover_text("Plays a scripted face instead of the camera.").clicked() {
+                actions.push(Action::Tracking("tracking_start", json!({ "demo": true })));
+            }
+        } else if ui.button("Start demo face").clicked() {
+            actions.push(Action::Tracking("tracking_start", json!({ "demo": true })));
         }
         let calibrating = view.live.calibrating.is_some();
         if ui

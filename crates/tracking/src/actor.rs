@@ -33,11 +33,19 @@ pub struct CameraSpec {
     pub height: u32,
     /// Requested frames per second.
     pub fps: u32,
+    /// Play the scripted demo face instead of opening a camera. Always an explicit request: a missing camera is
+    /// reported as an error, never papered over with the demo face.
+    #[serde(default)]
+    pub demo: bool,
+    /// Track the faces in this still image, animated GIF or folder of images instead of opening a camera (a
+    /// stand-in for a webcam on machines without one).
+    #[serde(default)]
+    pub file: Option<std::path::PathBuf>,
 }
 
 impl Default for CameraSpec {
     fn default() -> Self {
-        Self { index: 0, width: 640, height: 480, fps: 30 }
+        Self { index: 0, width: 640, height: 480, fps: 30, demo: false, file: None }
     }
 }
 
@@ -213,6 +221,20 @@ impl TrackingActor {
         let (event_tx, event_rx) = bounded(EVENT_QUEUE);
         let thread = std::thread::Builder::new().name("charcraft-tracking".into()).spawn(move || Worker::new(factory, command_rx, event_tx).run()).ok();
         TrackingHandle { commands: command_tx, events: event_rx, thread }
+    }
+
+    /// An actor for builds without camera support: it plays the demo face when [`CameraSpec::demo`] asks for it and
+    /// fails every other start with a message saying so (it never substitutes the demo face unasked).
+    #[must_use]
+    pub fn spawn_demo_only() -> TrackingHandle {
+        Self::spawn(Box::new(|spec| {
+            if spec.demo {
+                let source: Box<dyn FaceSource> = Box::new(ScriptedSource::demo(240, 30));
+                Ok(source)
+            } else {
+                Err(Error::Camera("this build has no camera or face-model support; start the demo face instead".into()))
+            }
+        }))
     }
 
     /// An actor whose every [`Command::Start`] replays a scripted source, for tests and for machines without a

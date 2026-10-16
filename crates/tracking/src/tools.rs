@@ -94,7 +94,9 @@ pub fn tools() -> Vec<ToolSpec> {
                 "index": { "type": "integer", "minimum": 0, "description": "Camera index (see tracking_list_cameras); 0 is the default camera." },
                 "width": { "type": "integer", "minimum": 1, "description": "Requested frame width in pixels (default 640)." },
                 "height": { "type": "integer", "minimum": 1, "description": "Requested frame height in pixels (default 480)." },
-                "fps": { "type": "integer", "minimum": 1, "description": "Requested frames per second (default 30)." }
+                "fps": { "type": "integer", "minimum": 1, "description": "Requested frames per second (default 30)." },
+                "file": { "type": "string", "description": "Track the faces in this photo, animated GIF or folder of images instead of opening a camera." },
+                "demo": { "type": "boolean", "description": "Play the scripted demo face instead of opening a camera. A missing camera is never replaced by the demo face unasked." }
             })),
         ),
         spec("tracking_stop", "Stop tracking and release the camera.", false, object(json!({}))),

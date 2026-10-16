@@ -27,8 +27,15 @@ fn hud(ui: &Ui, view: &mut View, actions: &mut Vec<Action>) {
                     if ui.button("Camera off").clicked() {
                         actions.push(Action::Tracking("tracking_stop", json!({})));
                     }
-                } else if ui.button("Camera on").clicked() {
-                    actions.push(Action::Tracking("tracking_start", json!({})));
+                } else if cfg!(feature = "live") {
+                    if ui.button("Camera on").clicked() {
+                        actions.push(Action::Tracking("tracking_start", json!({})));
+                    }
+                    if view.live.problem.is_some() && ui.button("Demo face").clicked() {
+                        actions.push(Action::Tracking("tracking_start", json!({ "demo": true })));
+                    }
+                } else if ui.button("Demo face on").clicked() {
+                    actions.push(Action::Tracking("tracking_start", json!({ "demo": true })));
                 }
                 if view.live.mic {
                     if ui.button("Mic off").clicked() {
@@ -53,8 +60,20 @@ fn hud(ui: &Ui, view: &mut View, actions: &mut Vec<Action>) {
             ui.horizontal(|ui| {
                 chip(
                     ui,
-                    if view.live.tracking { "face tracked" } else { "no camera" },
-                    if view.live.tracking { Color32::from_rgb(0x2e, 0x9e, 0x5b) } else { Color32::from_gray(0x55) },
+                    if view.live.tracking {
+                        "face tracked"
+                    } else if view.live.problem.is_some() {
+                        "camera unavailable"
+                    } else {
+                        "camera off"
+                    },
+                    if view.live.tracking {
+                        Color32::from_rgb(0x2e, 0x9e, 0x5b)
+                    } else if view.live.problem.is_some() {
+                        Color32::from_rgb(0xc2, 0x7a, 0x1c)
+                    } else {
+                        Color32::from_gray(0x55)
+                    },
                 );
                 chip(
                     ui,
@@ -65,6 +84,10 @@ fn hud(ui: &Ui, view: &mut View, actions: &mut Vec<Action>) {
                     chip(ui, &format!("{v:?}"), Color32::from_rgb(0x3a, 0x6f, 0xc4));
                 }
             });
+            if let Some(problem) = view.live.problem.as_ref().filter(|_| !view.live.tracking) {
+                ui.set_max_width(460.0);
+                ui.add(egui::Label::new(egui::RichText::new(anim_ui::theme::visual(problem).into_owned()).color(Color32::from_rgb(0xe8, 0xb0, 0x3c))).wrap());
+            }
         });
     });
 }

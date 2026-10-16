@@ -13,7 +13,9 @@ workspace = true
 [features]
 default = ["download"]
 # Webcam capture through nokhwa (V4L2, AVFoundation, Media Foundation).
-camera = ["dep:nokhwa", "dep:image"]
+camera = ["dep:nokhwa", "files"]
+# Pictures standing in for a camera: a photo, an animated GIF or a folder of images.
+files = ["dep:image"]
 # Face detection and landmarks through ONNX Runtime, linked from binaries ONNX Runtime's build downloads
 # (needs glibc 2.38+ and a recent libstdc++ on Linux: Ubuntu 24.04, Fedora 39, Debian 13).
 onnx = ["onnx-runtime", "ort/download-binaries", "ort/tls-rustls", "ort/copy-dylibs"]
@@ -29,7 +31,7 @@ download = ["dep:ureq"]
 anim-core = { workspace = true }
 crossbeam-channel = { workspace = true }
 dirs = { workspace = true }
-image = { workspace = true, features = ["jpeg"], optional = true }
+image = { workspace = true, features = ["jpeg", "gif"], optional = true }
 nokhwa = { workspace = true, optional = true }
 ort = { workspace = true, optional = true }
 serde = { workspace = true }
@@ -39,7 +41,7 @@ thiserror = { workspace = true }
 ureq = { workspace = true, optional = true }
 
 [dev-dependencies]
-image = { workspace = true, features = ["jpeg"] }
+image = { workspace = true, features = ["jpeg", "gif"] }
 proptest = { workspace = true }
 tempfile = { workspace = true }
 

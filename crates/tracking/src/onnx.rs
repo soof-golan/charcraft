@@ -20,6 +20,26 @@ fn inference(e: impl std::fmt::Display) -> Error {
 /// Threads ONNX Runtime may use per session: the models are small, so leave the other cores to the app.
 const THREADS: usize = 2;
 
+/// The environment builder. A runtime-loaded library is found by [`crate::runtime_lib`] and loaded here, so a missing
+/// or broken library is an error for the status line instead of a panic inside `ort`.
+#[cfg(feature = "onnx-dynamic")]
+fn builder() -> Result<ort::environment::EnvironmentBuilder> {
+    let located = crate::runtime_lib::locate();
+    ort::init_from(located.path()).map_err(|e| Error::Inference(crate::runtime_lib::explain(&located, &e.to_string())))
+}
+
+#[cfg(not(feature = "onnx-dynamic"))]
+#[allow(clippy::unnecessary_wraps, reason = "same signature as the runtime-loaded variant")]
+fn builder() -> Result<ort::environment::EnvironmentBuilder> {
+    Ok(ort::init())
+}
+
+/// The loaded runtime's own description of itself (version and build), for status lines.
+#[must_use]
+pub fn runtime_info() -> String {
+    ort::info().to_owned()
+}
+
 /// The ONNX Runtime environment and the store the models come from.
 #[derive(Debug)]
 pub struct OnnxRuntime {
@@ -34,8 +54,14 @@ impl OnnxRuntime {
     /// # Errors
     /// [`Error::Inference`] when the runtime cannot start or was already started in this process.
     pub fn new(store: ModelStore) -> Result<Self> {
-        let environment = ort::init().with_name("charcraft-tracking").build().map_err(inference)?;
+        let environment = builder()?.with_name("charcraft-tracking").build().map_err(inference)?;
         Ok(Self { environment, store })
+    }
+
+    /// The model store this runtime reads from.
+    #[must_use]
+    pub const fn store(&self) -> &ModelStore {
+        &self.store
     }
 
     /// Like [`OnnxRuntime::new`] with the default model store.

@@ -155,9 +155,7 @@ fn spawn_tracking() -> TrackingHandle {
 
 #[cfg(not(feature = "live"))]
 fn spawn_tracking() -> TrackingHandle {
-    use charcraft_tracking::actor::TrackingActor;
-    use charcraft_tracking::source::ScriptedSource;
-    TrackingActor::spawn_scripted(|| ScriptedSource::demo(240, 30).looping().paced(Duration::from_millis(33)))
+    charcraft_tracking::actor::TrackingActor::spawn_demo_only()
 }
 
 /// The mouth shapes the demo voice cycles through, each held for a moment.
@@ -391,7 +389,7 @@ mod tests {
         let link = handle.link();
         let status = link.tool("tracking_status", &Value::Null).unwrap();
         assert_eq!(status["running"], false);
-        link.tool("tracking_start", &json!({})).unwrap();
+        link.tool("tracking_start", &json!({ "demo": true })).unwrap();
         let mut faces = 0;
         for _ in 0..400 {
             while let Some(event) = handle.try_event() {

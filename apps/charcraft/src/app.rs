@@ -40,6 +40,8 @@ pub struct Options {
     pub demo_takes: bool,
     /// Start the demo face and the demo voice.
     pub live_demo: bool,
+    /// Track the faces in this photo, animated GIF or folder of images instead of a camera.
+    pub face_file: Option<PathBuf>,
     /// Dark theme.
     pub dark: bool,
     /// The agent doors.
@@ -211,10 +213,17 @@ impl CharCraftApp {
         }
         if options.live_demo {
             let link = app.live.link();
-            let _ = link.tool("tracking_start", &json!({}));
+            let _ = link.tool("tracking_start", &json!({ "demo": true }));
             let _ = link.mic(MicAction::DemoVoice(true));
             app.view.live.demo_voice = true;
             app.view.live.tracking = true;
+        }
+        if let Some(file) = &options.face_file {
+            let started = app.live.link().tool("tracking_start", &json!({ "file": file }));
+            app.view.status = match started {
+                Ok(_) => format!("tracking {}", file.display()),
+                Err(e) => format!("tracking_start: {e}"),
+            };
         }
         if !app.control.summary.is_empty() {
             app.view.status = app.control.summary.clone();
@@ -374,6 +383,7 @@ impl CharCraftApp {
             self.view.live.tracking = status.get("running").and_then(Value::as_bool).unwrap_or(false);
             self.view.live.calibrating = status.get("calibrating").and_then(|c| serde_json::from_value::<(usize, usize)>(c.clone()).ok());
             self.view.live.problem = status.get("last_error").and_then(Value::as_str).map(str::to_owned);
+            self.view.live.source = status.get("source").and_then(Value::as_str).map(str::to_owned);
         }
         if let Ok(mic) = link.mic(MicAction::Status) {
             self.view.live.mic = mic.get("running").and_then(Value::as_bool).unwrap_or(false);

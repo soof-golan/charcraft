@@ -112,6 +112,8 @@ pub struct LiveSnapshot {
     pub demo_voice: bool,
     /// A line about the last problem.
     pub problem: Option<String>,
+    /// What feeds the tracker while it runs: the camera's name, `file photo.jpg` or `demo face`.
+    pub source: Option<String>,
     /// Calibration progress `(done, wanted)`.
     pub calibrating: Option<(usize, usize)>,
 }

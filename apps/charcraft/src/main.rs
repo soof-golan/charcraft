@@ -5,6 +5,8 @@
 //! charcraft --smoke [FILE]                 render one frame offscreen and exit 0 (no window needed)
 //! charcraft --screenshot OUT.png [FILE] [--mode rig|record|stream]
 //!                                          open the window, wait until it settles, save a PNG of it, exit
+//! charcraft --check-live                   check live input (ONNX Runtime, face models) without a camera and exit
+//! charcraft --face-file PHOTO|GIF|DIR      track the faces in pictures instead of a camera
 //! charcraft --mcp-stdio [FILE]             also serve MCP on stdin and stdout (add --headless for no window)
 //! charcraft --control-port 0 --token-file T   serve the loopback control channel for the `anim-mcp` bridge
 //! ```
@@ -45,6 +47,13 @@ struct Cli {
     /// Start the demo face and the demo voice (the default for record and stream screenshots, never for rig).
     #[arg(long)]
     live_demo: bool,
+    /// Track the faces in this photo, animated GIF or folder of images instead of a camera (needs the live build).
+    #[arg(long, value_name = "FILE_OR_DIR")]
+    face_file: Option<PathBuf>,
+    /// Check that live input works (ONNX Runtime loads, the face models download and verify, both run) without
+    /// needing a camera, print what was found and exit.
+    #[arg(long)]
+    check_live: bool,
     /// Light theme.
     #[arg(long)]
     light: bool,
@@ -68,9 +77,26 @@ fn load(file: Option<&PathBuf>) -> Result<Opened> {
     file.map_or_else(World::demo, |path| World::open(path)).map_err(|e| eyre!("{e}"))
 }
 
+#[cfg(feature = "live")]
+fn check_live() -> Result<ExitCode> {
+    for line in charcraft_tracking::live::self_check().map_err(|e| eyre!("live input does not work: {e}"))? {
+        println!("{line}");
+    }
+    println!("live input ok");
+    Ok(ExitCode::SUCCESS)
+}
+
+#[cfg(not(feature = "live"))]
+fn check_live() -> Result<ExitCode> {
+    bail!("this build has no live input (it was built without the `live` feature); the demo face still works")
+}
+
 fn main() -> Result<ExitCode> {
     color_eyre::install()?;
     let cli = Cli::parse();
+    if cli.check_live {
+        return check_live();
+    }
     let mode = Mode::parse(&cli.mode).ok_or_else(|| eyre!("--mode must be rig, record or stream, got {:?}", cli.mode))?;
     let size = parse_size(&cli.size)?;
     let opened = load(cli.file.as_ref())?;
@@ -95,7 +121,8 @@ fn main() -> Result<ExitCode> {
         screenshot: cli.screenshot.clone(),
         demo_takes: cli.demo_takes || (shooting && demo),
         // The rig view starts neutral: a demo face would pose the head and neck and the artwork could not be judged.
-        live_demo: cli.live_demo || (shooting && !matches!(mode, Mode::Rig)),
+        live_demo: cli.live_demo || (shooting && cli.face_file.is_none() && !matches!(mode, Mode::Rig)),
+        face_file: cli.face_file.clone(),
         dark: !cli.light,
         control: cli.control,
     };
