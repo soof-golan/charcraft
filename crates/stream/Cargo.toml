@@ -1,0 +1,23 @@
+[package]
+name = "charcraft-stream"
+description = "Stream output for CharCraft: NDI, a v4l2loopback virtual camera, a local MJPEG and PNG web source, and the frame handling around them"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+anim-core = { workspace = true }
+charcraft-ndi = { workspace = true }
+crossbeam-channel = { workspace = true }
+image = { workspace = true, features = ["jpeg"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+v4l = { workspace = true }

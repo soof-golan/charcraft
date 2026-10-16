@@ -19,6 +19,8 @@ charcraft-puppet = { path = "crates/puppet" }
 charcraft-behaviors = { path = "crates/behaviors" }
 charcraft-tracking = { path = "crates/tracking" }
 charcraft-record = { path = "crates/record" }
+charcraft-ndi = { path = "crates/ndi" }
+charcraft-stream = { path = "crates/stream" }
 
 # Shared engine crates from anicraft-libs, pinned to the v0.1.0 commit. To move to newer engine work, change every
 # rev below to the new commit and run `cargo update`.
@@ -75,6 +77,10 @@ ureq = "3"
 # mode (downloaded static binaries or a runtime-loaded library) through its own features.
 ort = { version = "=2.0.0-rc.14", default-features = false, features = ["std"] }
 nokhwa = { version = "0.10", default-features = false, features = ["input-native"] }
+# Stream output: the NDI runtime is loaded at run time (charcraft-ndi), and the virtual camera on Linux writes to a
+# v4l2loopback device. nokhwa already pulls v4l in on Linux, so this adds no new code to the build.
+libloading = "0.8"
+v4l = { version = "0.14", default-features = false, features = ["v4l2"] }
 
 # anim-artwork reads Illustrator files through VectorCraft's PDF stack. Patches don't propagate through git
 # dependencies, so the pins VectorCraft needs are repeated here (same revs as its own root manifest).

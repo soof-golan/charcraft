@@ -1,0 +1,38 @@
+[package]
+name = "charcraft-ndi"
+description = "NDI video output: loads the NDI runtime at run time if it is installed and sends frames through its C interface"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+
+[dependencies]
+libloading = { workspace = true }
+thiserror = { workspace = true }
+
+# This is the one crate of the repository that may contain `unsafe`: calling a library that is loaded at run time
+# is unsafe by nature, and no safe wrapper that loads the runtime dynamically exists (the available NDI crates link
+# the SDK at build time, which would stop the app from starting on machines without it). The unsafe code is confined
+# to `ffi.rs`; every other lint of the workspace applies unchanged (a crate cannot both inherit the workspace lints
+# and relax one of them, so the table is repeated here).
+[lints.rust]
+unsafe_code = "deny"
+
+[lints.clippy]
+pedantic = { level = "deny", priority = -1 }
+nursery = { level = "deny", priority = -1 }
+unwrap_used = "deny"
+expect_used = "deny"
+indexing_slicing = "deny"
+arithmetic_side_effects = "deny"
+unreachable = "deny"
+unimplemented = "deny"
+unchecked_time_subtraction = "deny"
+todo = "deny"
+string_slice = "deny"
+panic_in_result_fn = "deny"
+panic = "deny"
+exit = "deny"
+as_conversions = "deny"
+dbg_macro = "deny"

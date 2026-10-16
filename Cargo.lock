@@ -1098,6 +1098,7 @@ dependencies = [
  "charcraft-project",
  "charcraft-puppet",
  "charcraft-record",
+ "charcraft-stream",
  "charcraft-tracking",
  "clap",
  "color-eyre",
@@ -1180,6 +1181,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "charcraft-ndi"
+version = "0.1.0"
+dependencies = [
+ "libloading 0.8.9",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "charcraft-project"
 version = "0.1.0"
 dependencies = [
@@ -1250,6 +1259,20 @@ dependencies = [
  "serde_json",
  "sha1",
  "thiserror 2.0.21",
+]
+
+[[package]]
+name = "charcraft-stream"
+version = "0.1.0"
+dependencies = [
+ "anim-core",
+ "charcraft-ndi",
+ "crossbeam-channel",
+ "image",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+ "v4l",
 ]
 
 [[package]]
