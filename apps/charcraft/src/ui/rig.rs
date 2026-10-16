@@ -141,18 +141,29 @@ fn tree(ui: &mut Ui, puppet: &Puppet, key: &str, view: &mut View, ctx: &Ctx<'_>,
                     actions.push(Action::SelectLayer(Some(layer.path.clone())));
                 }
                 // The tags have their own right-aligned column, so they never run off the edge of the panel.
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if let Some(key) = &layer.key_trigger {
-                        ui.label(RichText::new(format!("[{key}]")).size(10.0).color(HANDLE));
-                    }
-                    if layer.tags.len() > 2 {
-                        let rest = layer.tags.iter().skip(2).map(|t| short(t)).collect::<Vec<_>>().join(", ");
-                        ui.label(RichText::new(format!("+{}", layer.tags.len().saturating_sub(2))).size(10.0).weak()).on_hover_text(rest);
-                    }
-                    for tag in layer.tags.iter().take(2).rev() {
-                        ui.label(RichText::new(short(tag)).size(10.0).color(ACCENT)).on_hover_text(tag);
-                    }
-                });
+                // Only as many tags as the room left in the row allows; the rest are in the tooltip of the "+n".
+                let room = ui.available_width();
+                let shown = if room > 170.0 {
+                    2
+                } else if room > 90.0 {
+                    1
+                } else {
+                    0
+                };
+                if room > 40.0 {
+                    ui.allocate_ui_with_layout(vec2(room, 18.0), egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if let Some(key) = &layer.key_trigger {
+                            ui.label(RichText::new(format!("[{key}]")).size(10.0).color(HANDLE));
+                        }
+                        if layer.tags.len() > shown {
+                            let rest = layer.tags.iter().skip(shown).map(|t| short(t)).collect::<Vec<_>>().join(", ");
+                            ui.label(RichText::new(format!("+{}", layer.tags.len().saturating_sub(shown))).size(10.0).weak()).on_hover_text(rest);
+                        }
+                        for tag in layer.tags.iter().take(shown).rev() {
+                            ui.label(RichText::new(short(tag)).size(10.0).color(ACCENT)).on_hover_text(tag);
+                        }
+                    });
+                }
             });
         }
     });

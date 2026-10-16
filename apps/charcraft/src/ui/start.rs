@@ -162,7 +162,7 @@ fn gallery(ui: &mut Ui, view: &View, ctx: &Ctx<'_>, actions: &mut Vec<Action>) {
     ui.add_space(4.0);
     ui.horizontal_wrapped(|ui| {
         for (index, starter) in view.start_info.starters.iter().enumerate() {
-            let (rect, response) = ui.allocate_exact_size(vec2(190.0, 210.0), egui::Sense::click());
+            let (rect, response) = ui.allocate_exact_size(vec2(190.0, 244.0), egui::Sense::click());
             let visuals = ui.style().interact(&response);
             ui.painter().rect_filled(rect, 8.0, visuals.bg_fill);
             ui.painter().rect_stroke(rect, 8.0, visuals.bg_stroke, egui::StrokeKind::Inside);

@@ -223,18 +223,16 @@ pub fn camera_panel(ui: &mut Ui, view: &mut View, actions: &mut Vec<Action>) {
         preview(ui, view);
         ui.add_space(2.0);
         ui.horizontal(|ui| {
-            rest_pose(ui, view, actions);
-            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                let mic_on = view.live.mic || view.live.demo_voice;
-                if icon_button(ui, vec2(26.0, 24.0), Icon::Mic, mic_on, true, if mic_on { "Microphone on" } else { "Microphone off" }).clicked() {
-                    mic_toggle(view, actions);
-                }
-                let cam = if view.live.tracking { "Camera on: click to turn off" } else { "Camera off: click to turn on" };
-                if icon_button(ui, vec2(26.0, 24.0), Icon::Camera, view.live.tracking, true, cam).clicked() {
-                    camera_toggle(view, actions);
-                }
-            });
+            let mic_on = view.live.mic || view.live.demo_voice;
+            let cam = if view.live.tracking { "Camera on: click to turn off" } else { "Camera off: click to turn on" };
+            if icon_button(ui, vec2(26.0, 24.0), Icon::Camera, view.live.tracking, true, cam).clicked() {
+                camera_toggle(view, actions);
+            }
+            if icon_button(ui, vec2(26.0, 24.0), Icon::Mic, mic_on, true, if mic_on { "Microphone on" } else { "Microphone off" }).clicked() {
+                mic_toggle(view, actions);
+            }
         });
+        ui.horizontal_wrapped(|ui| rest_pose(ui, view, actions));
         if let Some((done, wanted)) = view.live.calibrating {
             ui.add(
                 egui::ProgressBar::new(f32::from(u16::try_from(done).unwrap_or(0)) / f32::from(u16::try_from(wanted.max(1)).unwrap_or(1))).desired_height(5.0),
