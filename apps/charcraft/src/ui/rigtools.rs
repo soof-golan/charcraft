@@ -1014,7 +1014,8 @@ pub fn behaviors(ui: &mut Ui, puppet: &Puppet, view: &mut View, ctx: &Ctx<'_>, a
                     for (name, value) in map {
                         ui.horizontal(|ui| {
                             ui.add_sized([130.0, 16.0], egui::Label::new(RichText::new(name).size(11.0)).truncate());
-                            super::rig::param_editor(ui, track, info.index, name, value, actions);
+                            let choices = info.docs.iter().find(|d| d.name == name.as_str()).map_or(&[][..], |d| d.choices);
+                            super::rig::param_editor(ui, track, info.index, name, value, choices, actions);
                         });
                     }
                 }

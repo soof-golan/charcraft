@@ -561,7 +561,7 @@ fn lipsync_record(doc: &mut AppDoc, params: &Value) -> Result<Value, CommandErro
     let inputs: Vec<Inputs> = (0..frames)
         .map(|f| {
             let within = Tick::from_seconds_f64(f64::from(f) / fps);
-            Inputs::at(Tick(offset.0.saturating_add(within.0))).with_viseme(anim_lipsync::viseme_at(&keys, within))
+            Inputs::at(Tick(offset.0.saturating_add(within.0))).with_scene_viseme(anim_lipsync::viseme_at(&keys, within))
         })
         .collect();
     let mut recorder = Recorder::new();

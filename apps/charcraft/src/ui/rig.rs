@@ -184,7 +184,7 @@ pub(super) fn rig_edit(key: &str, op: Value) -> Action {
     Action::Run("rig.edit", params)
 }
 
-pub(super) fn param_editor(ui: &mut Ui, track: usize, index: usize, name: &str, value: &Value, actions: &mut Vec<Action>) {
+pub(super) fn param_editor(ui: &mut Ui, track: usize, index: usize, name: &str, value: &Value, choices: &[&str], actions: &mut Vec<Action>) {
     let set = |value: Value| Action::Run("track.behavior", json!({ "track": track, "op": StackOp::SetParam { index, name: name.to_owned(), value } }));
     match value {
         Value::Bool(b) => {
@@ -209,8 +209,28 @@ pub(super) fn param_editor(ui: &mut Ui, track: usize, index: usize, name: &str, 
                 actions.push(set(if as_int { json!(anim_core::num::round_f64_to_i64(edited)) } else { json!(edited) }));
             }
         }
+        Value::String(s) if !choices.is_empty() => {
+            egui::ComboBox::from_id_salt(("param_choice", track, index, name)).selected_text(s.as_str()).width(110.0).show_ui(ui, |ui| {
+                for &choice in choices {
+                    if ui.selectable_label(s == choice, choice).clicked() && s != choice {
+                        actions.push(set(json!(choice)));
+                    }
+                }
+            });
+        }
         Value::String(s) => {
-            ui.label(RichText::new(visual(s).into_owned()).weak());
+            let id = ui.id().with(("param", track, index, name));
+            let mut edited: String = ui.data(|d| d.get_temp(id)).unwrap_or_else(|| s.clone());
+            let response = ui.add(egui::TextEdit::singleline(&mut edited).desired_width(110.0));
+            if response.changed() {
+                ui.data_mut(|d| d.insert_temp(id, edited.clone()));
+            }
+            if response.lost_focus() && ui.data(|d| d.get_temp::<String>(id)).is_some() {
+                ui.data_mut(|d| d.remove_temp::<String>(id));
+                if edited != *s {
+                    actions.push(set(json!(edited)));
+                }
+            }
         }
         other => {
             ui.label(RichText::new(other.to_string()).weak().size(10.0));
