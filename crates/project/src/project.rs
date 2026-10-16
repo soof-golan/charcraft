@@ -594,6 +594,73 @@ impl Project {
         Ok(())
     }
 
+    // ---- moving puppets between projects --------------------------------------------------------------------------
+
+    /// Copies the puppets, artwork records and media of `other` into this project, in one commit, and returns the
+    /// paths of the files it added. Paths keep their names, so a file that is already here with the same bytes is
+    /// skipped (importing twice changes nothing).
+    ///
+    /// # Errors
+    ///
+    /// [`Error::Malformed`] when a file of `other` is already here with different bytes (rename or remove one of
+    /// them first), plus store and media errors.
+    pub fn import_from(&mut self, other: &Self) -> Result<Vec<String>> {
+        let mine: std::collections::BTreeMap<String, Vec<u8>> = self.files()?.into_iter().map(|(k, v)| (k, v.to_vec())).collect();
+        let mut changes = Vec::new();
+        let mut added = Vec::new();
+        for (path, bytes) in other.files()? {
+            if path.starts_with(".project/") {
+                continue;
+            }
+            match mine.get(&path) {
+                Some(existing) if existing.as_slice() == bytes => {}
+                Some(_) => return Err(Error::malformed(&path, "this project already has a different file at that path")),
+                None => {
+                    added.push(path.clone());
+                    changes.push(Change::Put(path, bytes.to_vec()));
+                }
+            }
+        }
+        let mut media = Vec::new();
+        for entry in other.package.files() {
+            let name = entry.name();
+            if name.starts_with("Ch Media/") && !self.package.exists(name) {
+                media.push((name.to_owned(), other.package.read(name)?));
+            }
+        }
+        if !changes.is_empty() {
+            self.commit(changes, ".importPuppet")?;
+        }
+        for (name, bytes) in media {
+            self.package.set(&name, bytes);
+        }
+        Ok(added)
+    }
+
+    /// Makes this project a `.puppet` whose root is `root_ppath` (`ProjectItems/Boy`), so [`Project::save_puppet`]
+    /// writes a file Character Animator opens as that puppet.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::Missing`] when the project has no such puppet.
+    pub fn make_puppet(&mut self, root_ppath: &str) -> Result<()> {
+        let root = root_ppath.trim_start_matches('/');
+        if !self.files()?.contains_key(root) {
+            return Err(Error::Missing(root.to_owned()));
+        }
+        let ppath = format!("/{root}");
+        if let Some(manifest) = self.manifest.as_mut() {
+            manifest.set_root_puppet_ppath(&ppath)?;
+        } else {
+            self.manifest = Some(ArchiveInfo::new(&ppath, &scaffold::make_guid(&format!("{}/{root}/manifest", self.name))));
+            if self.package.get(crate::package::MANIFEST_FILE).is_none() {
+                self.package.add_owned(crate::package::MANIFEST_FILE, true);
+            }
+        }
+        self.kind = ProjectKind::Puppet;
+        Ok(())
+    }
+
     // ---- saving ---------------------------------------------------------------------------------------------------
 
     /// Moves `main` to `HEAD` when this session committed, then appends the session's records to the rope bytes.
