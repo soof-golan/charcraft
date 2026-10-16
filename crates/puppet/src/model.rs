@@ -146,13 +146,13 @@ impl CycleDef {
         }
         let step = u64::from(self.step_millis.clamp(Self::MIN_STEP, Self::MAX_STEP));
         let n = u64::try_from(count).unwrap_or(u64::MAX);
-        let tick = time_millis / step;
+        let tick = time_millis.checked_div(step).unwrap_or(0);
         let at = match self.mode {
-            CycleMode::Loop => tick % n,
+            CycleMode::Loop => tick.checked_rem(n).unwrap_or(0),
             CycleMode::Once => tick.min(n.saturating_sub(1)),
             CycleMode::PingPong => {
                 let period = n.saturating_mul(2).saturating_sub(2).max(1);
-                let p = tick % period;
+                let p = tick.checked_rem(period).unwrap_or(0);
                 if p < n { p } else { period.saturating_sub(p) }
             }
         };
@@ -209,6 +209,7 @@ impl HandleDef {
 }
 
 /// One layer of the artwork with the roles its name and the project data give it.
+#[expect(clippy::struct_excessive_bools, reason = "independent role flags")]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Layer {
     /// Index in the arena.
@@ -541,7 +542,7 @@ impl Puppet {
         }
         match self.swap_sets.iter_mut().find(|s| s.name == name) {
             Some(s) => {
-                s.name = new_name.to_owned();
+                new_name.clone_into(&mut s.name);
                 true
             }
             None => false,

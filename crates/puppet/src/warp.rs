@@ -177,6 +177,31 @@ fn mesh_of(puppet: &Puppet, group: LayerId, edge: f64) -> Result<Mesh, String> {
         .map_err(|e| e.to_string())
 }
 
+impl Puppet {
+    /// The edges of the mesh an independent group is (or would be) cut into, in artwork pixels, each once. The
+    /// mesh tool draws them; they follow the group's mesh density. Empty when the group draws nothing of its own.
+    #[must_use]
+    pub fn mesh_wire(&self, group: LayerId) -> Vec<[Point; 2]> {
+        let Some(layer) = self.layer(group).filter(|l| l.independent) else { return Vec::new() };
+        let welded = plan_welds(self).into_iter().filter(|(_, owner)| *owner == group).count();
+        let edge = if welded == 0 { 1.0 / 9.0 } else { WELD_EDGE };
+        let Ok(mesh) = mesh_of(self, layer.id, edge) else { return Vec::new() };
+        let mut seen = std::collections::BTreeSet::new();
+        let mut out = Vec::new();
+        for &[t0, t1, t2] in &mesh.triangles {
+            for (a, b) in [(t0, t1), (t1, t2), (t2, t0)] {
+                let key = (a.min(b), a.max(b));
+                if seen.insert(key)
+                    && let (Some(p), Some(q)) = (mesh.vertex(a), mesh.vertex(b))
+                {
+                    out.push([p, q]);
+                }
+            }
+        }
+        out
+    }
+}
+
 /// Builds the warp of one group: its pinning handles, the vertices under the artwork of each group welded to it
 /// (which follow that group) and the vertices far from those (which stay).
 pub fn build_one(puppet: &Puppet, group: LayerId, welded: Vec<Weld>) -> Result<Warp, String> {

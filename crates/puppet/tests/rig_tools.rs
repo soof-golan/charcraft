@@ -23,10 +23,10 @@ const BLUE: [u8; 3] = [30, 60, 220];
 const RED: [u8; 3] = [220, 30, 30];
 const GREEN: [u8; 3] = [30, 200, 60];
 
-fn rect(name: &str, x: f64, y: f64, w: u32, h: u32, rgb: [u8; 3]) -> ArtNode {
-    let n = usize::try_from(w * h).unwrap();
-    let px: Vec<u8> = [rgb[0], rgb[1], rgb[2], 255].iter().copied().cycle().take(n * 4).collect();
-    ArtNode::raster(name, Image::new(w, h, px).unwrap(), Point::new(x, y))
+fn rect(name: &str, left: f64, top: f64, width: u32, height: u32, rgb: [u8; 3]) -> ArtNode {
+    let count = usize::try_from(width * height).unwrap();
+    let px: Vec<u8> = [rgb[0], rgb[1], rgb[2], 255].iter().copied().cycle().take(count * 4).collect();
+    ArtNode::raster(name, Image::new(width, height, px).unwrap(), Point::new(left, top))
 }
 
 fn tree(children: Vec<ArtNode>) -> ArtworkTree {
@@ -252,7 +252,7 @@ fn cycle_frames_follow_the_mode() {
     assert_eq!(seq(CycleMode::PingPong, 3), [0, 1, 2, 1, 0, 1, 2, 1]);
     assert_eq!(seq(CycleMode::Once, 3), [0, 1, 2, 2, 2, 2, 2, 2]);
     assert_eq!(c(CycleMode::Loop).frame(12345, 1), 0);
-    assert_eq!(c(CycleMode::PingPong).frame(u64::MAX, 2) < 2, true);
+    assert!(c(CycleMode::PingPong).frame(u64::MAX, 2) < 2);
 }
 
 #[test]

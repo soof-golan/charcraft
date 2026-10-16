@@ -176,6 +176,7 @@ impl Puppet {
     /// [`Error::NoLayer`] for an unknown layer, [`Error::NotIndependent`] when a handle or origin is set on a
     /// layer that is not an independent group, [`Error::Rejected`] for values that cannot be used (non-finite
     /// positions, swap sets of fewer than two layers).
+    #[expect(clippy::too_many_lines, reason = "one arm per edit")]
     pub fn apply(&mut self, op: &PuppetOp) -> Result<OpOutcome> {
         let finite = |p: &[f64; 2]| p.iter().all(|v| v.is_finite());
         match op {
