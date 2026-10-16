@@ -43,7 +43,11 @@ Commands:
 * `track_add`, `track_set`, `track_remove`, `track_behavior`: puppets on the stage and per-track behavior edits
   (`set_param` with the parameter name as Character Animator shows it, `set_enabled`, `add`, `remove`, `move`).
 * `rig_edit`, `rig_layers`: tags, handles (Fixed, Draggable, Dangle, Attach, Stick, Walk), origins, key triggers,
-  swap sets, layer visibility.
+  swap sets, layer visibility. `op` is one of add_tag, remove_tag, add_handle, move_handle, remove_handle, set_origin,
+  set_independent, set_attach_style (weld, hinge, free), set_warp_independent, set_mesh_density, set_hide_others,
+  set_cycle, set_key_trigger, add_swap_set, remove_swap_set, rename_swap_set, set_visible.
+* `marker_list`, `marker_add`, `marker_set`, `marker_remove`: named markers on the scene timeline (Timeline > Add
+  Marker at Playhead and Markers in the window).
 * `record_arm`, `record_punch`, `record_script`, `record_inputs`, `take_*`, `playback_poses`, `playback_inputs`:
   record a scripted or explicit performance into takes, list, rename, enable, move and delete them, read back poses.
 * `puppet_reimport`: reads the artwork file again (or `path`, a new version of it) and rebuilds the puppets, keeping the

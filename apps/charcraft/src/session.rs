@@ -830,8 +830,8 @@ const NO_PARAMS: &str = r#"{"type":"object","properties":{},"additionalPropertie
 fn app_commands() -> Vec<CommandSpec<AppDoc>> {
     let mut all = vec![
         CommandSpec::new("rig.edit", "Edit puppet rig", rig_edit)
-            .describe("Edit a puppet's rigging. Pick the edit with 'op': add_tag/remove_tag (layer, tag), add_handle (group, name, kind Fixed|Draggable|Dangle|Attach|Stick|Walk, position [x,y] in artwork pixels; the answer names the handle key), remove_handle (group, key), set_origin (group, origin), set_key_trigger (layer, key or null), add_swap_set (name, members), set_visible (layer, visible). Layers are paths (Head/Left Eye) or labels; use rig_layers to list them. 'puppet' picks the puppet (default: the first).")
-            .with_schema(r#"{"type":"object","required":["op"],"properties":{"puppet":{"type":"string"},"op":{"enum":["add_tag","remove_tag","add_handle","remove_handle","set_origin","set_key_trigger","add_swap_set","set_visible"]},"layer":{"type":"string"},"tag":{"type":"string"},"group":{"type":"string"},"name":{"type":"string"},"kind":{"enum":["Fixed","Draggable","Dangle","Attach","Stick","Walk"]},"position":{"type":"array","items":{"type":"number"},"minItems":2,"maxItems":2},"origin":{"type":"array","items":{"type":"number"},"minItems":2,"maxItems":2},"key":{"type":["string","null"]},"members":{"type":"array","items":{"type":"string"},"minItems":2},"visible":{"type":"boolean"}}}"#),
+            .describe("Edit a puppet's rigging. Pick the edit with 'op': add_tag/remove_tag (layer, tag), add_handle (group, name, kind Fixed|Draggable|Dangle|Attach|Stick|Walk, position [x,y] in artwork pixels; the answer names the handle key), move_handle (group, key, position, optional end for sticks), remove_handle (group, key), set_origin (group, origin), set_independent (layer, independent), set_attach_style (group, style weld|hinge|free), set_warp_independent (group, on), set_mesh_density (group, density 0.5 to 4), set_hide_others (layer, on), set_cycle (layer, cycle {step_millis, mode loop|ping_pong|once} or null), set_key_trigger (layer, key or null), add_swap_set (name, members), remove_swap_set (name), rename_swap_set (name, new_name), set_visible (layer, visible). Layers are paths (Head/Left Eye) or labels; use rig_layers to list them. 'puppet' picks the puppet (default: the first).")
+            .with_schema(r#"{"type":"object","required":["op"],"properties":{"puppet":{"type":"string"},"op":{"enum":["add_tag","remove_tag","add_handle","move_handle","remove_handle","set_origin","set_independent","set_attach_style","set_warp_independent","set_mesh_density","set_hide_others","set_cycle","set_key_trigger","add_swap_set","remove_swap_set","rename_swap_set","set_visible"]},"layer":{"type":"string"},"end":{"type":"array","items":{"type":"number"},"minItems":2,"maxItems":2},"independent":{"type":"boolean"},"style":{"enum":["weld","hinge","free"]},"on":{"type":"boolean"},"density":{"type":"number","exclusiveMinimum":0},"new_name":{"type":"string"},"cycle":{"type":["object","null"],"properties":{"step_millis":{"type":"integer","minimum":10,"maximum":60000},"mode":{"enum":["loop","ping_pong","once"]}},"required":["step_millis"]},"tag":{"type":"string"},"group":{"type":"string"},"name":{"type":"string"},"kind":{"enum":["Fixed","Draggable","Dangle","Attach","Stick","Walk"]},"position":{"type":"array","items":{"type":"number"},"minItems":2,"maxItems":2},"origin":{"type":"array","items":{"type":"number"},"minItems":2,"maxItems":2},"key":{"type":["string","null"]},"members":{"type":"array","items":{"type":"string"},"minItems":2},"visible":{"type":"boolean"}}}"#),
         CommandSpec::new("rig.layers", "List puppet layers", rig_layers)
             .transient()
             .describe("The layers of a puppet (path, label, independent group) and the cast keys of the loaded puppets.")
@@ -1102,6 +1102,20 @@ mod tests {
         run(&mut session, json!({ "op": "remove_swap_set", "name": "Do" })).unwrap();
         let layers = session.execute("rig.layers", &json!({})).unwrap();
         assert_eq!(layers["swap_sets"], json!([]));
+    }
+
+    #[test]
+    fn rig_edit_schema_offers_every_op_the_puppet_understands() {
+        let registry = registry().unwrap();
+        let schema = registry.get("rig.edit").unwrap().schema_value();
+        let offered: Vec<&str> = schema["properties"]["op"]["enum"].as_array().unwrap().iter().filter_map(Value::as_str).collect();
+        for op in [
+            "add_tag", "remove_tag", "add_handle", "move_handle", "remove_handle", "set_origin", "set_independent", "set_attach_style",
+            "set_warp_independent", "set_mesh_density", "set_hide_others", "set_cycle", "set_key_trigger", "add_swap_set",
+            "remove_swap_set", "rename_swap_set", "set_visible",
+        ] {
+            assert!(offered.contains(&op), "{op} is missing from the rig.edit schema");
+        }
     }
 
     #[test]
