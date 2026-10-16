@@ -64,6 +64,19 @@ engine side. This repository holds the Character Animator side: `charcraft-*` cr
   byte-exact re-serialization, skipped when `ANICRAFT_SAMPLES` is unset.
 - Run builds through the queue (see below) in the dev profile. Use release only for benchmarks.
 
+## Visual verification: predict, render, inspect
+
+Every component that draws, deforms or animates a puppet follows the predict → render → inspect loop described in
+anicraft-libs' AGENTS.md ("Visual verification"):
+- Hand-written, original synthetic puppets in `tests/fixtures/visual/`, each targeting a failure mode. For this repo:
+  head turned and moved to the limits while welded to the body, limbs with IK at full stretch, draggers pulled far
+  away, dangles, blinks and visemes swapped mid-motion, overlapping independent groups, nested warps.
+- A written prediction in `<name>.expect.md` before rendering, for example "the neck stays connected: no transparent
+  pixel along the neck line".
+- Close inspection of every PNG with the Read tool, using crops.
+- Fix the code, not the prediction.
+- Assertions plus goldens at the end.
+
 ## Building: always through the job queue
 
 Never run `cargo` directly for builds, checks, clippy or tests. Use the queue so parallel agents share the machine:
