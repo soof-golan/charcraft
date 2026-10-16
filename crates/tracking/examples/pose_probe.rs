@@ -74,11 +74,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let mut dot = |x: f64, y: f64, colour: [u8; 3]| {
             for dy in -3_i32..=3 {
                 for dx in -3_i32..=3 {
-                    let (px, py) = (round_f64_to_u32(x) as i64 + i64::from(dx), round_f64_to_u32(y) as i64 + i64::from(dy));
-                    if let (Ok(px), Ok(py)) = (u32::try_from(px), u32::try_from(py)) {
-                        if px < canvas.width() && py < canvas.height() {
-                            canvas.put_pixel(px, py, Rgb(colour));
-                        }
+                    let (px, py) = (i64::from(round_f64_to_u32(x)).saturating_add(i64::from(dx)), i64::from(round_f64_to_u32(y)).saturating_add(i64::from(dy)));
+                    if let (Ok(px), Ok(py)) = (u32::try_from(px), u32::try_from(py))
+                        && px < canvas.width()
+                        && py < canvas.height()
+                    {
+                        canvas.put_pixel(px, py, Rgb(colour));
                     }
                 }
             }
@@ -87,7 +88,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             if let (Some((x0, y0)), Some((x1, y1))) = (at(a), at(b)) {
                 for i in 0..=40 {
                     let t = f64::from(i) / 40.0;
-                    dot(x0 + (x1 - x0) * t, y0 + (y1 - y0) * t, [255, 220, 0]);
+                    dot((x1 - x0).mul_add(t, x0), (y1 - y0).mul_add(t, y0), [255, 220, 0]);
                 }
             }
         }
