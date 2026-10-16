@@ -494,7 +494,7 @@ impl World {
         let templates = std::mem::take(&mut opened.rec.templates);
         opened.rec = RecordDoc::with_scenes(all, saved.active_scene).map_err(|e| WorldError::of("checking the scenes", e))?;
         opened.rec.templates = templates;
-        let Opened { world, rec, rig } = &mut opened;
+        let Opened { world, rec, rig, .. } = &mut opened;
         for (key, spec) in saved.made {
             world.include_made(rig, rec, &key, spec, false)?;
         }
