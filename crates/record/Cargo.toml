@@ -1,0 +1,32 @@
+[package]
+name = "charcraft-record"
+description = "CharCraft takes and scenes: record timestamped inputs into takes, stack them on puppet tracks, play them back through the behaviors and export frames and sound"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+anim-audio = { workspace = true }
+anim-core = { workspace = true }
+anim-display = { workspace = true }
+anim-export = { workspace = true }
+anim-lipsync = { workspace = true }
+anim-session = { workspace = true }
+anim-video = { workspace = true }
+charcraft-behaviors = { workspace = true }
+charcraft-ltab = { workspace = true }
+charcraft-project = { workspace = true }
+charcraft-puppet = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+anim-render = { workspace = true }
+proptest = { workspace = true }
+tempfile = { workspace = true }

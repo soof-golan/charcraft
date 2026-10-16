@@ -83,7 +83,7 @@ dependencies = [
 [[package]]
 name = "anim-archive"
 version = "0.1.0"
-source = "git+https://github.com/soof-golan/anicraft-libs?branch=main#429760be20de1e386a47c1aef9b9b783848a11b9"
+source = "git+https://github.com/soof-golan/anicraft-libs?branch=main#d213a8a286907da9d990814b892cdc8f3249ab18"
 dependencies = [
  "crc32fast",
  "encoding_rs",
@@ -96,7 +96,7 @@ dependencies = [
 [[package]]
 name = "anim-artwork"
 version = "0.1.0"
-source = "git+https://github.com/soof-golan/anicraft-libs?branch=main#429760be20de1e386a47c1aef9b9b783848a11b9"
+source = "git+https://github.com/soof-golan/anicraft-libs?branch=main#d213a8a286907da9d990814b892cdc8f3249ab18"
 dependencies = [
  "anim-core",
  "anim-display",
@@ -116,7 +116,7 @@ dependencies = [
 [[package]]
 name = "anim-audio"
 version = "0.1.0"
-source = "git+https://github.com/soof-golan/anicraft-libs?branch=main#429760be20de1e386a47c1aef9b9b783848a11b9"
+source = "git+https://github.com/soof-golan/anicraft-libs?branch=main#d213a8a286907da9d990814b892cdc8f3249ab18"
 dependencies = [
  "anim-core",
  "cpal",
@@ -128,7 +128,7 @@ dependencies = [
 [[package]]
 name = "anim-core"
 version = "0.1.0"
-source = "git+https://github.com/soof-golan/anicraft-libs?branch=main#429760be20de1e386a47c1aef9b9b783848a11b9"
+source = "git+https://github.com/soof-golan/anicraft-libs?branch=main#d213a8a286907da9d990814b892cdc8f3249ab18"
 dependencies = [
  "filmcraft-time",
  "kurbo",
@@ -139,7 +139,7 @@ dependencies = [
 [[package]]
 name = "anim-display"
 version = "0.1.0"
-source = "git+https://github.com/soof-golan/anicraft-libs?branch=main#429760be20de1e386a47c1aef9b9b783848a11b9"
+source = "git+https://github.com/soof-golan/anicraft-libs?branch=main#d213a8a286907da9d990814b892cdc8f3249ab18"
 dependencies = [
  "anim-core",
  "kurbo",
@@ -150,7 +150,7 @@ dependencies = [
 [[package]]
 name = "anim-export"
 version = "0.1.0"
-source = "git+https://github.com/soof-golan/anicraft-libs?branch=main#429760be20de1e386a47c1aef9b9b783848a11b9"
+source = "git+https://github.com/soof-golan/anicraft-libs?branch=main#d213a8a286907da9d990814b892cdc8f3249ab18"
 dependencies = [
  "anim-core",
  "anim-display",
@@ -166,7 +166,7 @@ dependencies = [
 [[package]]
 name = "anim-lipsync"
 version = "0.1.0"
-source = "git+https://github.com/soof-golan/anicraft-libs?branch=main#429760be20de1e386a47c1aef9b9b783848a11b9"
+source = "git+https://github.com/soof-golan/anicraft-libs?branch=main#d213a8a286907da9d990814b892cdc8f3249ab18"
 dependencies = [
  "anim-core",
  "rustfft",
@@ -176,7 +176,7 @@ dependencies = [
 [[package]]
 name = "anim-render"
 version = "0.1.0"
-source = "git+https://github.com/soof-golan/anicraft-libs?branch=main#429760be20de1e386a47c1aef9b9b783848a11b9"
+source = "git+https://github.com/soof-golan/anicraft-libs?branch=main#d213a8a286907da9d990814b892cdc8f3249ab18"
 dependencies = [
  "anim-core",
  "anim-display",
@@ -189,7 +189,7 @@ dependencies = [
 [[package]]
 name = "anim-rig"
 version = "0.1.0"
-source = "git+https://github.com/soof-golan/anicraft-libs?branch=main#429760be20de1e386a47c1aef9b9b783848a11b9"
+source = "git+https://github.com/soof-golan/anicraft-libs?branch=main#d213a8a286907da9d990814b892cdc8f3249ab18"
 dependencies = [
  "anim-core",
  "serde",
@@ -198,9 +198,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "anim-session"
+version = "0.1.0"
+source = "git+https://github.com/soof-golan/anicraft-libs?branch=main#d213a8a286907da9d990814b892cdc8f3249ab18"
+dependencies = [
+ "craft-atomic",
+ "craft-settings",
+ "crossbeam-channel",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "anim-video"
 version = "0.1.0"
-source = "git+https://github.com/soof-golan/anicraft-libs?branch=main#429760be20de1e386a47c1aef9b9b783848a11b9"
+source = "git+https://github.com/soof-golan/anicraft-libs?branch=main#d213a8a286907da9d990814b892cdc8f3249ab18"
 dependencies = [
  "anim-core",
  "anim-display",
@@ -617,6 +630,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "charcraft-record"
+version = "0.1.0"
+dependencies = [
+ "anim-audio",
+ "anim-core",
+ "anim-display",
+ "anim-export",
+ "anim-lipsync",
+ "anim-render",
+ "anim-session",
+ "anim-video",
+ "charcraft-behaviors",
+ "charcraft-ltab",
+ "charcraft-project",
+ "charcraft-puppet",
+ "proptest",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "charcraft-rope"
 version = "0.1.0"
 dependencies = [
@@ -956,6 +992,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "craft-atomic"
+version = "0.1.0"
+source = "git+https://github.com/storytold/craft-libs?rev=8f5a2831614e632f91ad367f7af2a6e5b61b9529#8f5a2831614e632f91ad367f7af2a6e5b61b9529"
+dependencies = [
+ "rustix 1.1.5",
+]
+
+[[package]]
 name = "craft-pdf"
 version = "0.1.0"
 source = "git+https://github.com/storytold/craft-libs?rev=ca50d63b773c99f96e75c77ce5a1d21e7c9cda0d#ca50d63b773c99f96e75c77ce5a1d21e7c9cda0d"
@@ -964,6 +1008,17 @@ dependencies = [
  "hayro-syntax",
  "krilla",
  "thiserror 2.0.21",
+]
+
+[[package]]
+name = "craft-settings"
+version = "0.1.0"
+source = "git+https://github.com/storytold/craft-libs?rev=8f5a2831614e632f91ad367f7af2a6e5b61b9529#8f5a2831614e632f91ad367f7af2a6e5b61b9529"
+dependencies = [
+ "craft-atomic",
+ "dirs",
+ "serde",
+ "toml_edit",
 ]
 
 [[package]]
@@ -1085,7 +1140,7 @@ dependencies = [
  "libc",
  "option-ext",
  "redox_users",
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -1142,7 +1197,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -2967,7 +3022,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys 0.12.1",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -3091,6 +3146,15 @@ dependencies = [
  "serde",
  "serde_core",
  "zmij",
+]
+
+[[package]]
+name = "serde_spanned"
+version = "1.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4e7523beb55eece201a2356bee0bbca0d1ab466c14c07703b2e0ee6d42cb0c2c"
+dependencies = [
+ "serde_core",
 ]
 
 [[package]]
@@ -3526,7 +3590,7 @@ dependencies = [
  "getrandom 0.4.3",
  "once_cell",
  "rustix 1.1.5",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -3659,8 +3723,11 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e3641d5bbb5349a79e1020a242d251efbc546ad8048d133958323ce9c40a9c9c"
 dependencies = [
  "indexmap",
+ "serde_core",
+ "serde_spanned",
  "toml_datetime",
  "toml_parser",
+ "toml_writer",
  "winnow",
 ]
 
@@ -3672,6 +3739,12 @@ checksum = "baa693a8032d7e1cada7d0041e96126df243179ff061456783ac7f12bda4744c"
 dependencies = [
  "winnow",
 ]
+
+[[package]]
+name = "toml_writer"
+version = "1.1.3+spec-1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "06bdbd8cfc056b8d2e2e85f29b56a3bdbecb527cef81eb39e3e7b98af4652770"
 
 [[package]]
 name = "tracing"
@@ -4334,7 +4407,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
