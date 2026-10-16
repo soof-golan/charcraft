@@ -6,6 +6,6 @@ Comment=Live character animation with face tracking and lip sync
 Exec=charcraft %F
 Icon=charcraft
 Terminal=false
-Categories=Graphics;2DGraphics;AudioVideo;
+Categories=Graphics;2DGraphics;
 MimeType=application/x-charcraft-puppet;application/x-charcraft-project;
 StartupWMClass=charcraft

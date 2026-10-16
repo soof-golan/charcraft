@@ -1,4 +1,4 @@
-; CharCraft installer (NSIS). Build: makensis -DVERSION=0.1.0 -DSTAGE=stage/charcraft-0.1.0-windows-x86_64 -DOUTFILE=dist/charcraft-0.1.0-windows-x86_64-setup.exe packaging/windows/charcraft.nsi
+; CharCraft installer (NSIS). Build: makensis -DVERSION=0.1.0 -DSTAGE=C:\src\stage\charcraft-0.1.0-windows-x86_64 -DOUTFILE=C:\src\dist\charcraft-0.1.0-windows-x86_64-setup.exe packaging/windows/charcraft.nsi
 ; Installs everything in STAGE (including onnxruntime.dll) under Program Files, adds Start-menu shortcuts, registers
 ; .puppet and .chproj and an uninstaller.
 Unicode true
@@ -27,7 +27,8 @@ SetCompressor /SOLID lzma
 Section "Install"
   SetRegView 64
   SetOutPath "$INSTDIR"
-  File /r "${STAGE}/*"
+  ; STAGE must be an absolute path: makensis resolves relative paths from this file's directory.
+  File /r "${STAGE}\*"
   WriteUninstaller "$INSTDIR\uninstall.exe"
 
   CreateDirectory "$SMPROGRAMS\${APP}"
