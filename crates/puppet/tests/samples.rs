@@ -173,33 +173,85 @@ fn boy_puppet_file_builds_with_project_data() {
     assert!(json.contains("Adobe.Face.Head"));
 }
 
+const WHITE: [u8; 3] = [255, 255, 255];
+const SHIRT: [u8; 3] = [45, 171, 183];
+const COLLAR: [u8; 3] = [24, 101, 127];
+
 #[test]
 fn boy_head_stays_welded_to_the_body() {
     let Some(root) = samples() else { return };
     let puppet = Puppet::from_project(&Project::open(root.join("Boy.puppet")).unwrap(), None).unwrap();
-    let head = puppet.with_tag(ids::HEAD)[0];
     let body = puppet.layers().iter().find(|l| l.label == "Body" && l.independent).unwrap().id;
-    let origin = puppet.layer(head).unwrap().origin;
+    let up = |dy: f64| {
+        let mut pose = PuppetPose::neutral();
+        pose.head = Xform::moved(0.0, -dy);
+        pose
+    };
+    let rgb = |img: &Image, x: usize, y: usize| {
+        let at = (y * usize::try_from(img.width).unwrap() + x) * 4;
+        [img.premultiplied_rgba[at], img.premultiplied_rgba[at + 1], img.premultiplied_rgba[at + 2]]
+    };
+    // The first row of collar colour going down column x.
+    let collar_top = |img: &Image, x: usize| (380..620).find(|&y| rgb(img, x, y) == COLLAR).unwrap();
 
+    // 1. Neutral: no weld is at work (no mesh node), and it is stable.
+    let mut has_mesh = false;
+    puppet.evaluate(&PuppetPose::neutral()).visit(&mut |n| has_mesh |= matches!(n, anim_display::Node::Mesh(_)));
+    assert!(!has_mesh, "the neutral pose draws the artwork unchanged");
     let neutral = render(&puppet, &PuppetPose::neutral());
-    let mut pose = PuppetPose::neutral();
-    pose.head = Xform { translation: Vec2::new(0.0, -30.0), rotation: 15.0_f64.to_radians(), ..Xform::IDENTITY };
-    let moved = puppet.group_matrix(head, &pose) * origin;
+    let (up10, up30, down20) = (render(&puppet, &up(10.0)), render(&puppet, &up(30.0)), render(&puppet, &up(-20.0)));
+    assert_eq!(render(&puppet, &up(30.0)), up30, "evaluation is deterministic");
+    write_png("boy_weld_neutral_up10_up30_down20.png", &[&neutral, &up10, &up30, &down20]);
 
-    // The body's mesh follows the attach point: the vertex nearest to it moves with it, within 1 px.
-    let (rest, solved) = puppet.warp_solution(body, &pose).expect("the body is welded to the head");
-    let (r, s) = rest.iter().zip(&solved).min_by(|a, b| a.0.distance(origin).total_cmp(&b.0.distance(origin))).unwrap();
-    let shift = *s - *r;
-    assert!((shift - (moved - origin)).hypot() < 1.0, "neck vertex moved {shift:?}, attach point {:?}", moved - origin);
-    // Where it is far from the head the body stays put.
-    let (r, s) = rest.iter().zip(&solved).max_by(|a, b| a.0.distance(origin).total_cmp(&b.0.distance(origin))).unwrap();
-    assert!((*s - *r).hypot() < 1.0, "the feet moved");
+    // 2. The face is rigid: eyes and mouth equal the neutral ones shifted 30 px up.
+    let mut off = 0;
+    for y in 330..470 {
+        for x in 400..680 {
+            let (a, b) = (rgb(&neutral, x, y), rgb(&up30, x, y - 30));
+            off += usize::from(a.iter().zip(&b).any(|(p, q)| p.abs_diff(*q) > 8));
+        }
+    }
+    assert!(off < 280 * 140 / 200, "{off} pixels of the face differ from the shifted neutral");
 
-    let posed = render(&puppet, &pose);
-    assert!(differing(&posed, &neutral) > 5000);
-    assert_eq!(render(&puppet, &pose), posed, "evaluation is deterministic");
-    assert_eq!(render(&puppet, &PuppetPose::neutral()), neutral);
-    write_png("boy_weld_neutral_vs_moved_head.png", &[&neutral, &posed]);
+    // 3. The neck is a continuous strip from the chin to the collar.
+    for (img, from) in [(&up30, 455), (&up10, 475)] {
+        let bottom = collar_top(img, 560).min(520);
+        for x in [520, 535, 550] {
+            for y in from..bottom.saturating_sub(1) {
+                assert_ne!(rgb(img, x, y), WHITE, "gap in the neck at ({x},{y})");
+            }
+        }
+    }
+
+    // 4. The collar and the logo barely move for a 10 px head move.
+    let moved = collar_top(&neutral, 560).abs_diff(collar_top(&up10, 560));
+    assert!(moved < 3, "the collar moved {moved} px");
+    let logo_y = |img: &Image| {
+        let (mut sum, mut n) = (0.0, 0.0);
+        for y in 530..680 {
+            for x in 480..600 {
+                let c = rgb(img, x, y);
+                if c[0] > 225 && (90..130).contains(&c[1]) {
+                    sum += f64::from(u32::try_from(y).unwrap());
+                    n += 1.0;
+                }
+            }
+        }
+        sum / n
+    };
+    assert!((logo_y(&neutral) - logo_y(&up10)).abs() < 3.0, "the logo moved");
+    assert!((logo_y(&neutral) - logo_y(&up30)).abs() < 3.0, "the logo moved for a big head move");
+
+    // 5. The mouth never touches the shirt: no shirt or collar pixel anywhere in the mouth's rows.
+    for img in [&up10, &up30] {
+        for y in 380..440 {
+            for x in 440..640 {
+                let c = rgb(img, x, y);
+                assert!(c != SHIRT && c != COLLAR, "shirt colour in the mouth rows at ({x},{y})");
+            }
+        }
+    }
+    assert!(puppet.warp_solution(body, &up(30.0)).is_some());
 }
 
 #[test]

@@ -426,12 +426,17 @@ fn the_body_mesh_follows_the_moved_attach_point() {
     let body = id(&p, "Body");
     let head = id(&p, "Head");
     assert!(p.warped_groups().is_empty(), "a weld alone does not count as a handle warp");
-    let origin = p.layer(head).unwrap().origin;
     let pose = head_moved_up_and_turned();
-    let moved = p.group_matrix(head, &pose) * origin;
+    let matrix = p.group_matrix(head, &pose);
     let (mesh, positions) = p.warp_solution(body, &pose).expect("the body is welded to the head");
-    let nearest = mesh.iter().zip(&positions).min_by(|a, b| a.0.distance(origin).total_cmp(&b.0.distance(origin))).unwrap();
-    // The mesh point at the attach point travels with it (the nearest vertex moves by the same amount, within 1 px).
-    let shift = *nearest.1 - *nearest.0;
-    assert!(shift.hypot() > 20.0 && (shift - (moved - origin)).hypot() < 1.0, "vertex moved by {shift:?}, the attach point by {:?}", moved - origin);
+    // Every body vertex under the head's artwork (the face covers y 20 to 120, x 50 to 150) follows the head rigidly.
+    let under: Vec<_> = mesh.iter().zip(&positions).filter(|(r, _)| r.y < 119.0 && r.x > 51.0 && r.x < 149.0).collect();
+    assert!(!under.is_empty(), "the neck overlaps the head");
+    for (rest, now) in under {
+        assert!(now.distance(matrix * *rest) < 1.0, "{rest:?} went to {now:?}, the head's matrix gives {:?}", matrix * *rest);
+    }
+    // The torso, far from the head, stays where it was.
+    for (rest, now) in mesh.iter().zip(&positions).filter(|(r, _)| r.y > 185.0) {
+        assert!(now.distance(*rest) < 1.0, "{rest:?} moved to {now:?}");
+    }
 }
