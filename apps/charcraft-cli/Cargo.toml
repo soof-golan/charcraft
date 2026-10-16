@@ -25,6 +25,7 @@ anim-mcp = { workspace = true }
 anim-render = { workspace = true }
 anim-video = { workspace = true }
 charcraft-app = { path = "../charcraft" }
+charcraft-behaviors = { workspace = true }
 charcraft-ltab = { workspace = true }
 charcraft-project = { workspace = true }
 charcraft-puppet = { workspace = true }

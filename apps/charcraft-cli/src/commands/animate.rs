@@ -29,7 +29,7 @@ pub fn run(args: &AnimateArgs) -> Result<()> {
 
     let (w, h) = scaled_size(&puppet, args.scale)?;
     let plan = Plan::new(&args.output, w, h, args.fps, length)?;
-    let performance = Performance::new(keys, length, Options { seed: args.seed, blink: !args.no_blink, breathe: !args.no_breathe });
+    let performance = Performance::new(keys, length, Options::for_puppet(&puppet, args.seed, !args.no_blink, !args.no_breathe));
 
     let background = if plan.format.transparent() { Background::Transparent } else { Background::Solid(anim_core::Rgba8::WHITE) };
     let options = RenderOptions::fit_stage(puppet.size, plan.width, plan.height).with_background(background);

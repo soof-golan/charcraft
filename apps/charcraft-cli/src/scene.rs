@@ -263,7 +263,7 @@ impl<'a> StageRenderer<'a> {
         };
         let performances = (0_u64..)
             .zip(&stage.layers)
-            .map(|(i, _)| Performance::new(keys.to_vec(), length, Options { seed: seed.wrapping_add(i), blink: true, breathe: true }))
+            .map(|(i, layer)| Performance::new(keys.to_vec(), length, Options::for_puppet(&layer.puppet, seed.wrapping_add(i), true, true)))
             .collect();
         Self {
             stage,

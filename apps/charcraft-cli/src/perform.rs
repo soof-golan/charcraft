@@ -5,7 +5,9 @@
 
 use anim_core::{Tick, TimeRange};
 use anim_lipsync::{VisemeKey, viseme_at};
-use charcraft_puppet::{PuppetPose, Viseme};
+use charcraft_behaviors::behaviors::lipsync::{JAW_TRAVEL, openness};
+use charcraft_puppet::tags::ids;
+use charcraft_puppet::{Puppet, PuppetPose, Viseme, Xform};
 
 /// How long one blink lasts.
 const BLINK_LENGTH_SECONDS: f64 = 0.2;
@@ -21,6 +23,17 @@ pub struct Options {
     pub seed: u64,
     pub blink: bool,
     pub breathe: bool,
+    /// How far a layer tagged `Jaw` drops at a fully open mouth, in stage pixels (0 when the puppet has none).
+    pub jaw_drop: f64,
+}
+
+impl Options {
+    /// The options for performing `puppet`: blinks and breathing on, the jaw drop as Lip Sync would give it.
+    #[must_use]
+    pub fn for_puppet(puppet: &Puppet, seed: u64, blink: bool, breathe: bool) -> Self {
+        let jaw_drop = if puppet.with_tag(ids::JAW).is_empty() { 0.0 } else { JAW_TRAVEL * puppet.size.width.min(puppet.size.height).max(1.0) };
+        Self { seed, blink, breathe, jaw_drop }
+    }
 }
 
 /// A performance: everything needed to pose a puppet at a time.
@@ -29,6 +42,7 @@ pub struct Performance {
     keys: Vec<VisemeKey>,
     blinks: Vec<TimeRange>,
     breathe: bool,
+    jaw_drop: f64,
 }
 
 /// A small deterministic generator (xorshift64*), enough for blink timing.
@@ -66,7 +80,7 @@ impl Performance {
                 at = Tick(at.0.saturating_add(duration.0).saturating_add(Tick::from_seconds_f64(gap).0));
             }
         }
-        Self { keys, blinks, breathe: options.breathe }
+        Self { keys, blinks, breathe: options.breathe, jaw_drop: options.jaw_drop }
     }
 
     /// The pose at time `t` (a puppet's neutral pose with the performance applied).
@@ -75,6 +89,10 @@ impl Performance {
         let mut pose = PuppetPose::neutral();
         if !self.keys.is_empty() {
             pose.viseme = Viseme::from_label(viseme_at(&self.keys, t).ca_layer_name());
+            let drop = self.jaw_drop * pose.viseme.map_or(0.0, openness);
+            if drop > 1e-6 {
+                pose.groups.insert(ids::JAW.to_owned(), Xform::moved(0.0, drop));
+            }
         }
         let blink = self.blink_at(t);
         pose.blink_left = blink;
@@ -111,7 +129,7 @@ mod tests {
     use super::*;
 
     fn opts(seed: u64) -> Options {
-        Options { seed, blink: true, breathe: true }
+        Options { seed, blink: true, breathe: true, jaw_drop: 0.0 }
     }
 
     #[test]
@@ -138,7 +156,7 @@ mod tests {
 
     #[test]
     fn blinking_can_be_switched_off() {
-        let p = Performance::new(Vec::new(), Tick::from_seconds_f64(30.0), Options { seed: 1, blink: false, breathe: false });
+        let p = Performance::new(Vec::new(), Tick::from_seconds_f64(30.0), Options { seed: 1, blink: false, breathe: false, jaw_drop: 0.0 });
         assert_eq!(p.blinks(), []);
         assert!(p.pose_at(Tick::from_seconds_f64(3.0)).is_neutral());
     }
@@ -149,9 +167,23 @@ mod tests {
             VisemeKey { start: Tick::ZERO, viseme: anim_lipsync::Viseme::Neutral },
             VisemeKey { start: Tick::from_seconds_f64(1.0), viseme: anim_lipsync::Viseme::Oh },
         ];
-        let p = Performance::new(keys, Tick::from_seconds_f64(3.0), Options { seed: 1, blink: false, breathe: false });
+        let p = Performance::new(keys, Tick::from_seconds_f64(3.0), Options { seed: 1, blink: false, breathe: false, jaw_drop: 0.0 });
         assert_eq!(p.pose_at(Tick::from_seconds_f64(0.5)).viseme, Some(Viseme::Neutral));
         assert_eq!(p.pose_at(Tick::from_seconds_f64(1.5)).viseme, Some(Viseme::Oh));
+        assert!(p.pose_at(Tick::from_seconds_f64(1.5)).groups.is_empty(), "no jaw drop asked for, none given");
+    }
+
+    #[test]
+    fn the_jaw_drops_with_an_open_mouth() {
+        let keys = vec![
+            VisemeKey { start: Tick::ZERO, viseme: anim_lipsync::Viseme::Neutral },
+            VisemeKey { start: Tick::from_seconds_f64(1.0), viseme: anim_lipsync::Viseme::Ah },
+        ];
+        let p = Performance::new(keys, Tick::from_seconds_f64(3.0), Options { seed: 1, blink: false, breathe: false, jaw_drop: 20.0 });
+        assert!(p.pose_at(Tick::from_seconds_f64(0.5)).groups.is_empty());
+        let open = p.pose_at(Tick::from_seconds_f64(1.5));
+        let jaw = open.groups.get(ids::JAW).map(|x| x.translation.y);
+        assert!(jaw.is_some_and(|y| (y - 20.0).abs() < 1e-9), "{jaw:?}");
     }
 
     #[test]

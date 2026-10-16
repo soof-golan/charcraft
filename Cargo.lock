@@ -1146,6 +1146,7 @@ dependencies = [
  "anim-video",
  "base64 0.22.1",
  "charcraft-app",
+ "charcraft-behaviors",
  "charcraft-ltab",
  "charcraft-project",
  "charcraft-puppet",
