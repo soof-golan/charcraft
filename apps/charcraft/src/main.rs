@@ -42,7 +42,7 @@ struct Cli {
     /// Record a scripted performance into the scene before showing it (the default for demo screenshots).
     #[arg(long)]
     demo_takes: bool,
-    /// Start the demo face and the demo voice (the default for screenshots).
+    /// Start the demo face and the demo voice (the default for record and stream screenshots, never for rig).
     #[arg(long)]
     live_demo: bool,
     /// Light theme.
@@ -94,7 +94,8 @@ fn main() -> Result<ExitCode> {
         mode,
         screenshot: cli.screenshot.clone(),
         demo_takes: cli.demo_takes || (shooting && demo),
-        live_demo: cli.live_demo || shooting,
+        // The rig view starts neutral: a demo face would pose the head and neck and the artwork could not be judged.
+        live_demo: cli.live_demo || (shooting && !matches!(mode, Mode::Rig)),
         dark: !cli.light,
         control: cli.control,
     };
