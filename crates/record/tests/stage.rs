@@ -117,8 +117,10 @@ fn the_frames_follow_the_recorded_performance() {
     let before = render_frame(&frames, 3, &options).unwrap();
     let after = render_frame(&frames, 15, &options).unwrap();
     assert_eq!((before.width, before.height), (200, 200));
-    // The mouth rectangle sits at (85..115, 90..105) of the puppet, which is centred on the stage.
-    assert_ne!(pixel(&before, 100, 97), pixel(&after, 100, 97), "the mouth shape changed");
+    // The mouth rectangle sits near (85..115, 90..105) of the puppet, which is centred on the stage; the head tilt
+    // shifts it, so compare the whole lower-face region rather than one pixel.
+    let changed = (80..125).flat_map(|y| (70..130).map(move |x| (x, y))).filter(|&(x, y)| pixel(&before, x, y) != pixel(&after, x, y)).count();
+    assert!(changed > 100, "the mouth shape changed ({changed} pixels)");
     assert_eq!(pixel(&before, 100, 97)[3], 255);
     // The face is drawn at the right place, on the white background.
     assert_eq!(pixel(&before, 2, 2), [255, 255, 255, 255]);
