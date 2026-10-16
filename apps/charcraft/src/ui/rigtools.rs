@@ -452,61 +452,70 @@ pub fn keys(ui: &Ui, puppet: &Puppet, key: &str, view: &mut View, actions: &mut 
 
 /// The toolbar: one button per tool and the options of the active one.
 pub fn toolbar(ui: &mut Ui, puppet: &Puppet, key: &str, view: &mut View, actions: &mut Vec<Action>) {
-    egui::Panel::left("rig_tools").exact_size(96.0).resizable(false).show(ui, |ui| {
-        ui.add_space(4.0);
-        for tool in Tool::ALL {
-            let label = RichText::new(tool.label()).strong();
-            let button = egui::Button::selectable(view.rig.tool == tool, label).min_size(egui::vec2(84.0, 26.0));
-            if ui.add(button).on_hover_text(format!("{} ({})", tool.help(), tool.key().name())).clicked() {
-                view.rig.tool = tool;
-            }
-        }
-        ui.separator();
-        ui.toggle_value(&mut view.rig.show_handles, "Handles").on_hover_text("Show the handles and origins");
-        ui.toggle_value(&mut view.rig.show_mesh, "Mesh").on_hover_text("Show the mesh of the selected group");
-        ui.separator();
-        ui.label(RichText::new("Options").weak().size(11.0));
-        match view.rig.tool {
-            Tool::Handle => {
-                egui::ComboBox::from_id_salt("handle_kind").selected_text(kind_label(view.rig.kind)).width(84.0).show_ui(ui, |ui| {
-                    for kind in [HandleKind::Draggable, HandleKind::Fixed, HandleKind::Dangle, HandleKind::Attach, HandleKind::Walk] {
-                        ui.selectable_value(&mut view.rig.kind, kind, kind_label(kind));
-                    }
-                });
-            }
-            Tool::Mesh => {
-                let group = find_layer(puppet, view.layer.as_deref()).and_then(|l| group_of(puppet, l));
-                if let Some(g) = group {
-                    let mut density = g.mesh_density;
-                    ui.label(RichText::new("Density").size(11.0));
-                    if ui.add(egui::Slider::new(&mut density, 0.5..=4.0).fixed_decimals(1)).changed() {
-                        actions.push(Action::RunMerged(
-                            "rig.edit",
-                            json!({ "op": "set_mesh_density", "group": g.path, "density": density, "puppet": key }),
-                            "rig-density",
-                        ));
-                    }
-                } else {
-                    ui.weak("Select a group");
+    // The tools sit along the bottom edge of the canvas, as in Character Animator.
+    egui::Panel::bottom("rig_tools").resizable(false).show(ui, |ui| {
+        ui.horizontal_wrapped(|ui| {
+            for tool in Tool::ALL {
+                // Compact icon buttons (painted, so crisp at any scale); the name and the key are in the tooltip.
+                let icon = match tool {
+                    Tool::Select => anim_ui::icons::Icon::Select,
+                    Tool::Handle => anim_ui::icons::Icon::Pen,
+                    Tool::Stick => anim_ui::icons::Icon::Bone,
+                    Tool::Pin => anim_ui::icons::Icon::Pin,
+                    Tool::Origin => anim_ui::icons::Icon::FreeTransform,
+                    Tool::Mesh => anim_ui::icons::Icon::Outline,
+                };
+                let tip = format!("{} ({}): {}", tool.label(), tool.key().name(), tool.help());
+                if anim_ui::widgets::icon_button(ui, egui::vec2(28.0, 26.0), icon, view.rig.tool == tool, true, &tip).clicked() {
+                    view.rig.tool = tool;
                 }
             }
-            Tool::Stick | Tool::Pin | Tool::Origin | Tool::Select => {
-                ui.weak(match view.rig.tool {
-                    Tool::Stick => "Drag a link",
-                    Tool::Pin => "Click to pin",
-                    Tool::Origin => "Drag the origin",
-                    _ => "Click a layer",
-                });
-            }
-        }
-        if let Some((group, k)) = view.rig.selected_handle.clone() {
             ui.separator();
-            ui.label(RichText::new(visual(k.rsplit('/').next().unwrap_or(&k)).into_owned()).size(11.0).color(HANDLE));
-            if ui.button("Delete").on_hover_text("Delete the selected handle (Delete)").clicked() {
-                actions.push(rig_edit(key, json!({ "op": "remove_handle", "group": group, "key": k })));
-                view.rig.selected_handle = None;
+            ui.toggle_value(&mut view.rig.show_handles, "Handles").on_hover_text("Show the handles and origins");
+            ui.toggle_value(&mut view.rig.show_mesh, "Mesh").on_hover_text("Show the mesh of the selected group");
+            ui.separator();
+            match view.rig.tool {
+                Tool::Handle => {
+                    egui::ComboBox::from_id_salt("handle_kind").selected_text(kind_label(view.rig.kind)).width(84.0).show_ui(ui, |ui| {
+                        for kind in [HandleKind::Draggable, HandleKind::Fixed, HandleKind::Dangle, HandleKind::Attach, HandleKind::Walk] {
+                            ui.selectable_value(&mut view.rig.kind, kind, kind_label(kind));
+                        }
+                    });
+                }
+                Tool::Mesh => {
+                    let group = find_layer(puppet, view.layer.as_deref()).and_then(|l| group_of(puppet, l));
+                    if let Some(g) = group {
+                        let mut density = g.mesh_density;
+                        ui.label(RichText::new("Density").size(11.0));
+                        if ui.add(egui::Slider::new(&mut density, 0.5..=4.0).fixed_decimals(1)).changed() {
+                            actions.push(Action::RunMerged(
+                                "rig.edit",
+                                json!({ "op": "set_mesh_density", "group": g.path, "density": density, "puppet": key }),
+                                "rig-density",
+                            ));
+                        }
+                    } else {
+                        ui.weak("Select a group");
+                    }
+                }
+                Tool::Stick | Tool::Pin | Tool::Origin | Tool::Select => {
+                    ui.weak(match view.rig.tool {
+                        Tool::Stick => "Drag a link",
+                        Tool::Pin => "Click to pin",
+                        Tool::Origin => "Drag the origin",
+                        _ => "Click a layer",
+                    });
+                }
             }
-        }
+            if let Some((group, k)) = view.rig.selected_handle.clone() {
+                ui.separator();
+                ui.label(RichText::new(visual(k.rsplit('/').next().unwrap_or(&k)).into_owned()).size(11.0).color(HANDLE));
+                if ui.button("Delete").on_hover_text("Delete the selected handle (Delete)").clicked() {
+                    actions.push(rig_edit(key, json!({ "op": "remove_handle", "group": group, "key": k })));
+                    view.rig.selected_handle = None;
+                }
+            }
+        });
     });
 }
 
@@ -987,45 +996,7 @@ pub fn behaviors(ui: &mut Ui, puppet: &Puppet, view: &mut View, ctx: &Ctx<'_>, a
         if view.rig.only_layer && !layer.is_some_and(|l| uses_layer(&info.id, l)) {
             continue;
         }
-        let id = ui.make_persistent_id(("behavior", info.index));
-        egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), id, false)
-            .show_header(ui, |ui| {
-                let mut enabled = info.enabled;
-                if ui.checkbox(&mut enabled, "").changed() {
-                    actions.push(Action::Run("track.behavior", json!({ "track": track, "op": StackOp::SetEnabled { index: info.index, enabled } })));
-                }
-                ui.label(RichText::new(&info.name).strong());
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if ui.small_button("\u{00D7}").on_hover_text("Remove").clicked() {
-                        actions.push(Action::Run("track.behavior", json!({ "track": track, "op": StackOp::Remove { index: info.index } })));
-                    }
-                    if ui.add_enabled(info.index.saturating_add(1) < count, egui::Button::new("\u{25BE}").small()).on_hover_text("Move down").clicked() {
-                        let to = info.index.saturating_add(1);
-                        actions.push(Action::Run("track.behavior", json!({ "track": track, "op": StackOp::Move { from: info.index, to } })));
-                    }
-                    if ui.add_enabled(info.index > 0, egui::Button::new("\u{25B4}").small()).on_hover_text("Move up").clicked() {
-                        let to = info.index.saturating_sub(1);
-                        actions.push(Action::Run("track.behavior", json!({ "track": track, "op": StackOp::Move { from: info.index, to } })));
-                    }
-                });
-            })
-            .body(|ui| {
-                if let Some(map) = info.params.as_object() {
-                    for (name, value) in map {
-                        ui.horizontal(|ui| {
-                            ui.add_sized([130.0, 16.0], egui::Label::new(RichText::new(name).size(11.0)).truncate());
-                            let choices = info.docs.iter().find(|d| d.name == name.as_str()).map_or(&[][..], |d| d.choices);
-                            super::rig::param_editor(ui, track, info.index, name, value, choices, actions);
-                        });
-                    }
-                }
-                if ui.small_button("Reset parameters").clicked()
-                    && let Some(entry) = catalog().into_iter().find(|c| c.id == info.id)
-                {
-                    actions
-                        .push(Action::Run("track.behavior", json!({ "track": track, "op": StackOp::SetParams { index: info.index, params: entry.params } })));
-                }
-            });
+        super::params::behavior_block(ui, track, info, count, &ctx.doc.rec.arming.groups, false, actions);
     }
 }
 

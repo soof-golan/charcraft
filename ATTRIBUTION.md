@@ -6,6 +6,7 @@ licenses and are not listed here.
 | Path | What | Source | License |
 |---|---|---|---|
 | `crates/tracking/src/pipeline.rs` | Face detector anchors, weighted NMS and the rotated-crop sampling, ported to our lints | EffectCraft `crates/segment/src/{mediapipe,face}.rs` (storytold/effectcraft), itself following MediaPipe's published face landmarker graph | MIT OR Apache-2.0 |
+| `apps/charcraft/assets/fonts/Inter-Regular.ttf`, `Inter-SemiBold.ttf` | The UI typeface, bundled unmodified; licence text in `Inter-LICENSE.txt` | Inter 4.0, The Inter Project Authors (github.com/rsms/inter) | SIL OFL 1.1 |
 
 ## Models (downloaded on first use, never committed)
 

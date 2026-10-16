@@ -483,6 +483,16 @@ pub struct View {
     pub maker: MakerState,
     /// Read the artwork again as soon as its file changes.
     pub auto_reimport: bool,
+    /// The docked layouts of the workspaces.
+    pub docks: crate::ui::dock::Docks,
+    /// Go back to the saved layout after this frame (asked from a panel menu while the dock is drawn).
+    pub reset_layout: bool,
+    /// Close this panel after this frame (asked from a panel menu while the dock is drawn).
+    pub panel_close: Option<anim_ui::dock::PanelId>,
+    /// The Keyboard Shortcuts window is open.
+    pub show_shortcuts: bool,
+    /// The About window is open.
+    pub show_about: bool,
 }
 
 impl Default for View {
@@ -533,6 +543,11 @@ impl Default for View {
             dialog: None,
             maker: MakerState::default(),
             auto_reimport: false,
+            docks: crate::ui::dock::Docks::new(false),
+            reset_layout: false,
+            panel_close: None,
+            show_shortcuts: false,
+            show_about: false,
         }
     }
 }
@@ -568,4 +583,6 @@ pub struct Ctx<'a> {
     pub rows: &'a [PuppetRow],
     /// The `.charcraft` file the document is saved to, when it has one.
     pub doc_path: Option<&'a std::path::Path>,
+    /// Small pictures for the Project panel, by `puppet:<cast key>` and `scene:<index>`.
+    pub thumbs: &'a BTreeMap<String, (egui::TextureHandle, [usize; 2])>,
 }

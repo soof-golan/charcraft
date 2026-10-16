@@ -2,10 +2,12 @@
 
 use serde::{Deserialize, Serialize};
 
-/// The three ways of working with a puppet.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+/// The workspaces of the window.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Mode {
+    /// The home screen: new and recent projects and starter puppets.
+    Start,
     /// Look at the puppet tree, tags, handles and behaviors.
     #[default]
     Rig,
@@ -17,19 +19,20 @@ pub enum Mode {
 
 impl Mode {
     /// All modes in tab order.
-    pub const ALL: [Self; 3] = [Self::Rig, Self::Record, Self::Stream];
+    pub const ALL: [Self; 4] = [Self::Start, Self::Rig, Self::Record, Self::Stream];
 
     /// The tab label.
     #[must_use]
     pub const fn label(self) -> &'static str {
         match self {
+            Self::Start => "Start",
             Self::Rig => "Rig",
             Self::Record => "Record",
             Self::Stream => "Stream",
         }
     }
 
-    /// Parses `rig`, `record` or `stream` (any case).
+    /// Parses `start`, `rig`, `record` or `stream` (any case).
     #[must_use]
     pub fn parse(text: &str) -> Option<Self> {
         Self::ALL.into_iter().find(|m| m.label().eq_ignore_ascii_case(text.trim()))

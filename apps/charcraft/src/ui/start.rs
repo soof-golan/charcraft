@@ -32,9 +32,10 @@ pub fn show(ui: &mut Ui, view: &mut View, ctx: &Ctx<'_>, actions: &mut Vec<Actio
                     ui.columns(2, |cols| {
                         if let [left, right] = cols {
                             begin(left, view, actions);
-                            recent(left, view, actions);
+                            open_now(left, ctx, actions);
+                            recent(left, view, ctx, actions);
                             recovery(left, view, actions);
-                            gallery(right, view, actions);
+                            gallery(right, view, ctx, actions);
                         }
                     });
                 });
@@ -71,7 +72,41 @@ fn begin(ui: &mut Ui, view: &mut View, actions: &mut Vec<Action>) {
     ui.add_space(12.0);
 }
 
-fn recent(ui: &mut Ui, view: &View, actions: &mut Vec<Action>) {
+type Picture<'a> = Option<(&'a egui::TextureHandle, [usize; 2])>;
+
+/// A picture fitted into `rect` (the art fills the rect's height or width, whichever is the limit) on a dark well.
+fn picture(ui: &Ui, rect: egui::Rect, tex: Picture<'_>) {
+    ui.painter().rect_filled(rect, 4.0, Color32::from_rgb(0x1b, 0x1b, 0x1b));
+    let Some((texture, size)) = tex else { return };
+    let w = anim_core::num::f64_to_f32(anim_core::num::usize_to_f64(size[0].max(1)));
+    let h = anim_core::num::f64_to_f32(anim_core::num::usize_to_f64(size[1].max(1)));
+    let scale = (rect.width() / w).min(rect.height() / h);
+    let fitted = egui::Rect::from_center_size(rect.center(), vec2(w * scale, h * scale));
+    ui.painter().image(texture.id(), fitted, egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)), Color32::WHITE);
+}
+
+/// The document that is open now, as a card whose picture fills it.
+fn open_now(ui: &mut Ui, ctx: &Ctx<'_>, actions: &mut Vec<Action>) {
+    ui.label(RichText::new("Open now").strong().size(16.0));
+    let (rect, response) = ui.allocate_exact_size(vec2(220.0, 200.0), egui::Sense::click());
+    let visuals = ui.style().interact(&response);
+    ui.painter().rect_filled(rect, 8.0, visuals.bg_fill);
+    ui.painter().rect_stroke(rect, 8.0, visuals.bg_stroke, egui::StrokeKind::Inside);
+    picture(ui, egui::Rect::from_min_size(rect.min + vec2(6.0, 6.0), vec2(rect.width() - 12.0, 160.0)), ctx.texture);
+    ui.painter().text(
+        rect.left_bottom() + vec2(10.0, -26.0),
+        egui::Align2::LEFT_TOP,
+        visual(&ctx.world.title).into_owned(),
+        egui::FontId::proportional(13.0),
+        Color32::WHITE,
+    );
+    if response.on_hover_text("Continue with this document").clicked() {
+        actions.push(Action::Workspace(WorkspaceAction::Start(false)));
+    }
+    ui.add_space(12.0);
+}
+
+fn recent(ui: &mut Ui, view: &View, ctx: &Ctx<'_>, actions: &mut Vec<Action>) {
     ui.horizontal(|ui| {
         ui.label(RichText::new("Recent").strong().size(16.0));
         if !view.prefs.common.recent.is_empty() && ui.small_button("Clear").clicked() {
@@ -83,15 +118,21 @@ fn recent(ui: &mut Ui, view: &View, actions: &mut Vec<Action>) {
     }
     for path in view.prefs.common.recent.iter().take(8) {
         let missing = !path.exists();
-        let text = RichText::new(file_label(path)).color(if missing { Color32::GRAY } else { ACCENT });
-        let response = ui.add_enabled(!missing, egui::Button::new(text).frame(false)).on_hover_text(path.display().to_string());
-        if response.clicked() {
-            actions.push(Action::Open(path.to_path_buf()));
-            actions.push(Action::Workspace(WorkspaceAction::Start(false)));
-        }
-        if let Some(dir) = path.parent() {
-            ui.label(RichText::new(visual(&dir.display().to_string()).into_owned()).size(10.0).weak());
-        }
+        ui.horizontal(|ui| {
+            let (rect, _) = ui.allocate_exact_size(vec2(52.0, 40.0), egui::Sense::hover());
+            picture(ui, rect, ctx.thumbs.get(&format!("recent:{}", path.display())).map(|(t, s)| (t, *s)));
+            ui.vertical(|ui| {
+                let text = RichText::new(file_label(path)).color(if missing { Color32::GRAY } else { ACCENT });
+                let response = ui.add_enabled(!missing, egui::Button::new(text).frame(false)).on_hover_text(path.display().to_string());
+                if response.clicked() {
+                    actions.push(Action::Open(path.to_path_buf()));
+                    actions.push(Action::Workspace(WorkspaceAction::Start(false)));
+                }
+                if let Some(dir) = path.parent() {
+                    ui.label(RichText::new(visual(&dir.display().to_string()).into_owned()).size(10.0).weak());
+                }
+            });
+        });
     }
     ui.add_space(12.0);
 }
@@ -115,17 +156,20 @@ fn recovery(ui: &mut Ui, view: &View, actions: &mut Vec<Action>) {
     }
 }
 
-fn gallery(ui: &mut Ui, view: &View, actions: &mut Vec<Action>) {
+fn gallery(ui: &mut Ui, view: &View, ctx: &Ctx<'_>, actions: &mut Vec<Action>) {
     ui.label(RichText::new("Starter puppets").strong().size(16.0));
     ui.weak("Put .puppet files in the starters folder to find them here.");
     ui.add_space(4.0);
     ui.horizontal_wrapped(|ui| {
         for (index, starter) in view.start_info.starters.iter().enumerate() {
-            let (rect, response) = ui.allocate_exact_size(vec2(190.0, 140.0), egui::Sense::click());
+            let (rect, response) = ui.allocate_exact_size(vec2(190.0, 210.0), egui::Sense::click());
             let visuals = ui.style().interact(&response);
             ui.painter().rect_filled(rect, 8.0, visuals.bg_fill);
             ui.painter().rect_stroke(rect, 8.0, visuals.bg_stroke, egui::StrokeKind::Inside);
-            let mut inner = ui.new_child(egui::UiBuilder::new().max_rect(rect.shrink(10.0)));
+            // The neutral pose of the puppet, drawn by the Start thumbnail thread, fills the top of the card.
+            let art = egui::Rect::from_min_size(rect.min + vec2(6.0, 6.0), vec2(rect.width() - 12.0, 140.0));
+            picture(ui, art, ctx.thumbs.get(&format!("starter:{index}")).map(|(t, s)| (t, *s)));
+            let mut inner = ui.new_child(egui::UiBuilder::new().max_rect(egui::Rect::from_min_max(rect.min + vec2(10.0, 152.0), rect.max - vec2(10.0, 6.0))));
             inner.label(RichText::new(visual(&starter.name).into_owned()).strong());
             inner.label(RichText::new(visual(&starter.about).into_owned()).size(11.0).weak());
             if let StarterSource::File(path) = &starter.source {

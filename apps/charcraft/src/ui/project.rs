@@ -5,7 +5,7 @@
 //! agent can do the same.
 
 use anim_ui::theme::visual;
-use egui::{Color32, RichText, Ui};
+use egui::{Color32, RichText, Ui, vec2};
 use serde_json::json;
 
 use crate::projectio::PuppetRow;
@@ -23,41 +23,32 @@ pub fn matches(row: &PuppetRow, filter: &str) -> bool {
         || row.folders.join("/").to_lowercase().contains(&filter)
 }
 
-/// The panel, on the side the panels say.
-pub fn show(ui: &mut Ui, view: &mut View, ctx: &Ctx<'_>, actions: &mut Vec<Action>) {
-    let panel = if view.panels.project_right { egui::Panel::right("project_panel") } else { egui::Panel::left("project_panel") };
-    let shown = panel.resizable(true).default_size(view.panels.project_width).min_size(210.0).max_size(520.0).show(ui, |ui| {
-        header(ui, view, ctx, actions);
-        ui.separator();
-        egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
-            puppets(ui, view, ctx, actions);
-            scenes(ui, view, ctx, actions);
-            audio(ui, ctx);
-            properties(ui, view, ctx, actions);
-        });
+/// The Project panel's contents, for a docked panel.
+pub fn panel(ui: &mut Ui, view: &mut View, ctx: &Ctx<'_>, actions: &mut Vec<Action>) {
+    header(ui, view, actions);
+    ui.separator();
+    egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
+        puppets(ui, view, ctx, actions);
+        scenes(ui, view, ctx, actions);
+        audio(ui, ctx);
+        properties(ui, view, ctx, actions);
     });
-    let width = shown.response.rect.width();
-    if (width - view.panels.project_width).abs() > 3.0 {
-        view.panels.project_width = width;
-        actions.push(Action::Workspace(WorkspaceAction::Panels(view.panels.clone())));
+}
+
+/// A small picture of a puppet or scene (the neutral pose, drawn by the render actor), or an empty tile.
+fn thumb(ui: &mut Ui, ctx: &Ctx<'_>, name: &str, size: egui::Vec2) {
+    let (rect, _) = ui.allocate_exact_size(size, egui::Sense::hover());
+    ui.painter().rect_filled(rect, 2.0, super::theme::WELL);
+    if let Some((texture, pixels)) = ctx.thumbs.get(name) {
+        let w = anim_core::num::f64_to_f32(anim_core::num::usize_to_f64(pixels[0].max(1)));
+        let h = anim_core::num::f64_to_f32(anim_core::num::usize_to_f64(pixels[1].max(1)));
+        let scale = (rect.width() / w).min(rect.height() / h);
+        let fitted = egui::Rect::from_center_size(rect.center(), vec2(w * scale, h * scale));
+        ui.painter().image(texture.id(), fitted, egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)), Color32::WHITE);
     }
 }
 
-fn header(ui: &mut Ui, view: &mut View, ctx: &Ctx<'_>, actions: &mut Vec<Action>) {
-    ui.horizontal(|ui| {
-        ui.label(RichText::new("Project").strong().size(14.0));
-        ui.weak(visual(&ctx.world.title).into_owned());
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            if ui.small_button("\u{00D7}").on_hover_text("Close the panel (Window > Project)").clicked() {
-                view.panels.project = false;
-                actions.push(Action::Workspace(WorkspaceAction::Panels(view.panels.clone())));
-            }
-            if ui.small_button("<>").on_hover_text("Move to the other side").clicked() {
-                view.panels.project_right = !view.panels.project_right;
-                actions.push(Action::Workspace(WorkspaceAction::Panels(view.panels.clone())));
-            }
-        });
-    });
+fn header(ui: &mut Ui, view: &mut View, actions: &mut Vec<Action>) {
     ui.horizontal(|ui| {
         if ui.button("Import puppet...").on_hover_text("Add a .puppet or the puppets of a project").clicked() {
             view.prompt = Some((Prompt::ImportPuppet, super::default_dir()));
@@ -85,12 +76,12 @@ fn puppets(ui: &mut Ui, view: &mut View, ctx: &Ctx<'_>, actions: &mut Vec<Action
                     ui.label(RichText::new(format!("\u{25BE} {}", visual(&folder.join(" / ")))).weak());
                 }
             }
-            puppet_row(ui, view, row, actions);
+            puppet_row(ui, view, ctx, row, actions);
         }
     });
 }
 
-fn puppet_row(ui: &mut Ui, view: &mut View, row: &PuppetRow, actions: &mut Vec<Action>) {
+fn puppet_row(ui: &mut Ui, view: &mut View, ctx: &Ctx<'_>, row: &PuppetRow, actions: &mut Vec<Action>) {
     let selected = view.project.selected.as_deref() == Some(row.key.as_str());
     if view.project.renaming.as_ref().is_some_and(|(k, _)| *k == row.key) {
         let mut done = None;
@@ -113,6 +104,7 @@ fn puppet_row(ui: &mut Ui, view: &mut View, row: &PuppetRow, actions: &mut Vec<A
     let response = ui
         .horizontal(|ui| {
             ui.add_space(indent);
+            thumb(ui, ctx, &format!("puppet:{}", row.key), vec2(36.0, 28.0));
             let mut text = RichText::new(visual(&row.name).into_owned());
             if !row.tracks.is_empty() {
                 text = text.strong();
@@ -173,7 +165,18 @@ fn row_menu(ui: &mut Ui, view: &mut View, row: &PuppetRow, actions: &mut Vec<Act
 
 fn scenes(ui: &mut Ui, view: &View, ctx: &Ctx<'_>, actions: &mut Vec<Action>) {
     let scene = &ctx.doc.rec.scene;
-    egui::CollapsingHeader::new(RichText::new("Scenes (1)").strong()).default_open(true).show(ui, |ui| {
+    egui::CollapsingHeader::new(RichText::new(format!("Scenes ({})", ctx.doc.rec.scene_count())).strong()).default_open(true).show(ui, |ui| {
+        let active = ctx.doc.rec.active_scene();
+        for (i, s) in ctx.doc.rec.scenes().enumerate() {
+            ui.horizontal(|ui| {
+                thumb(ui, ctx, &format!("scene:{i}"), vec2(48.0, 28.0));
+                let label = format!("{}  {:.1} s", visual(&s.name), s.duration.seconds());
+                if ui.selectable_label(i == active, label).clicked() && i != active {
+                    actions.push(Action::Run("scene.select", json!({ "index": i })));
+                }
+            });
+        }
+        ui.separator();
         ui.label(RichText::new(visual(&scene.name).into_owned()));
         ui.weak(format!("{} x {} px, {:.0} fps, {:.1} s", scene.size.width, scene.size.height, scene.fps_f64(), scene.duration.seconds()));
         let mut name = scene.name.clone();

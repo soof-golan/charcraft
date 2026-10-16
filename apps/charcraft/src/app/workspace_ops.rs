@@ -85,7 +85,13 @@ impl CharCraftApp {
         }
         self.apply_history_budget();
         self.refresh_start_info();
-        self.view.start = start.unwrap_or(prefs.start_screen || !self.view.start_info.recoverable.is_empty());
+        self.view.start = start.unwrap_or(prefs.start_screen || !self.view.start_info.recoverable.is_empty()) || self.view.mode == Mode::Start;
+        // The Start tab and the start screen are one thing.
+        if self.view.start {
+            self.view.mode = Mode::Start;
+        } else if self.view.mode == Mode::Start {
+            self.view.mode = Mode::Rig;
+        }
     }
 
     fn apply_history_budget(&mut self) {
@@ -93,10 +99,11 @@ impl CharCraftApp {
         self.host.session_mut().history_mut().set_budget(budget);
     }
 
-    fn refresh_start_info(&mut self) {
+    pub(super) fn refresh_start_info(&mut self) {
         let dir = self.ws.starters_dir();
         self.view.start_info.starters = workspace::starters(Some(&dir));
         self.view.start_info.recoverable = workspace::recoverable(&self.ws.autosave_dir());
+        self.spawn_start_thumbs();
     }
 
     /// Once per frame: file events from the hooks, stored preferences, the project panel's rows and autosave.
@@ -221,7 +228,9 @@ impl CharCraftApp {
             WorkspaceAction::Revert => self.run("project.revert", &json!({}), None),
             WorkspaceAction::Start(on) => {
                 if on {
-                    self.refresh_start_info();
+                    self.set_mode(Mode::Start);
+                } else if self.view.mode == Mode::Start {
+                    self.set_mode(Mode::Rig);
                 }
                 self.view.start = on;
             }
@@ -316,7 +325,7 @@ impl CharCraftApp {
         ctx.input_mut(|i| {
             for (id, modifiers, key) in &chords {
                 let applies = match *id {
-                    "transport.play" | "transport.record" => mode == Mode::Record,
+                    id if id.starts_with("transport.") => mode == Mode::Record,
                     "stream.hud" => mode == Mode::Stream,
                     _ => true,
                 };
@@ -339,6 +348,7 @@ impl CharCraftApp {
                 "file.revert" => actions.push(Action::Workspace(WorkspaceAction::Revert)),
                 "edit.undo" => actions.push(Action::Undo),
                 "edit.redo" => actions.push(Action::Redo),
+                "mode.start" => actions.push(Action::Mode(Mode::Start)),
                 "mode.rig" => actions.push(Action::Mode(Mode::Rig)),
                 "mode.record" => actions.push(Action::Mode(Mode::Record)),
                 "mode.stream" => actions.push(Action::Mode(Mode::Stream)),
@@ -352,6 +362,21 @@ impl CharCraftApp {
                 "transport.play" => actions.push(Action::Play(!playing)),
                 "transport.record" => actions.push(if recording { Action::StopRecord } else { Action::StartRecord }),
                 "stream.hud" => self.view.hud = !self.view.hud,
+                "transport.home" | "transport.end" | "transport.back" | "transport.forward" | "transport.back10" | "transport.forward10" => {
+                    let scene = &self.doc.rec.scene;
+                    let fps = scene.fps_f64().max(1.0);
+                    let last = f64::from(scene.frame_count().max(1).saturating_sub(1)) / fps;
+                    let at = self.view.playhead;
+                    let to = match id {
+                        "transport.home" => 0.0,
+                        "transport.end" => last,
+                        "transport.back" => at - 1.0 / fps,
+                        "transport.forward" => at + 1.0 / fps,
+                        "transport.back10" => at - 10.0 / fps,
+                        _ => at + 10.0 / fps,
+                    };
+                    actions.push(Action::Seek(to.clamp(0.0, last)));
+                }
                 _ => {}
             }
         }

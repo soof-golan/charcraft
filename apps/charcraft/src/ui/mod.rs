@@ -15,10 +15,13 @@ use crate::view::{Action, Ctx, Dialog, Prompt, SaveKind, View, WorkspaceAction};
 use crate::workspace::{builtin_workspaces, chord_text};
 
 pub mod body;
+pub mod chrome;
+pub mod dock;
 pub mod edit;
 pub mod export;
 pub mod layers;
 pub mod panels;
+pub mod params;
 pub mod prefs;
 pub mod project;
 pub mod puppets;
@@ -27,41 +30,34 @@ pub mod rig;
 pub mod rigtools;
 pub mod start;
 pub mod stream;
+pub mod theme;
 pub mod timeline;
+pub mod widgets;
+pub mod workspace;
 
 /// Draws the whole window and returns what the user asked for.
 pub fn draw(ui: &mut Ui, view: &mut View, ctx: &Ctx<'_>) -> Vec<Action> {
     let mut actions = Vec::new();
-    if view.mode != Mode::Stream || view.hud || view.start {
-        top_bar(ui, view, ctx, &mut actions);
+    let chrome = view.mode != Mode::Stream || view.hud;
+    if chrome {
+        chrome::top_bar(ui, view, ctx, &mut actions);
         status_bar(ui, view, ctx, &mut actions);
     }
-    if view.start {
-        start::show(ui, view, ctx, &mut actions);
-    } else {
-        if view.mode != Mode::Stream && view.panels.project {
-            project::show(ui, view, ctx, &mut actions);
-        }
-        match view.mode {
-            Mode::Rig => rig::show(ui, view, ctx, &mut actions),
-            Mode::Record => record::show(ui, view, ctx, &mut actions),
-            Mode::Stream => stream::show(ui, view, ctx, &mut actions),
+    match view.mode {
+        Mode::Start => start::show(ui, view, ctx, &mut actions),
+        Mode::Stream if !chrome => stream::show(ui, view, ctx, &mut actions),
+        Mode::Rig | Mode::Record | Mode::Stream => {
+            egui::CentralPanel::default()
+                .frame(egui::Frame::central_panel(ui.style()).inner_margin(0))
+                .show(ui, |ui| workspace::show(ui, view, ctx, &mut actions));
         }
     }
+    chrome::windows(ui, view);
     prompt(ui, view, ctx, &mut actions);
     export::show(ui, view, ctx, &mut actions);
     prefs::show(ui, view, &mut actions);
     puppets::show(ui, view, ctx, &mut actions);
     actions
-}
-
-/// The keyboard shortcut that switches to a mode, shown as the tab's tooltip.
-const fn mode_shortcut(mode: Mode) -> &'static str {
-    match mode {
-        Mode::Rig => "Ctrl/Cmd+1",
-        Mode::Record => "Ctrl/Cmd+2",
-        Mode::Stream => "Ctrl/Cmd+3",
-    }
 }
 
 /// A menu item with its shortcut written on it.
@@ -164,19 +160,9 @@ pub fn default_dir_text() -> String {
     default_dir()
 }
 
-fn window_menu(ui: &mut Ui, view: &mut View, actions: &mut Vec<Action>) {
-    let mut panels = view.panels.clone();
-    if ui.checkbox(&mut panels.project, "Project panel").on_hover_text(chord_text(&view.prefs, "window.project")).changed() {
-        actions.push(Action::Workspace(WorkspaceAction::Panels(panels)));
-    }
-    if ui.button(if view.panels.project_right { "Project panel on the left" } else { "Project panel on the right" }).clicked() {
-        let mut panels = view.panels.clone();
-        panels.project_right = !panels.project_right;
-        actions.push(Action::Workspace(WorkspaceAction::Panels(panels)));
-        ui.close();
-    }
-    ui.separator();
-    ui.menu_button("Workspace", |ui| {
+/// The named workspaces (saved layouts of the Window menu), then the Start workspace and Preferences.
+fn workspace_presets(ui: &mut Ui, view: &mut View, actions: &mut Vec<Action>) {
+    ui.menu_button("Saved Workspaces", |ui| {
         for (name, _) in builtin_workspaces() {
             if ui.button(name).clicked() {
                 actions.push(Action::Workspace(WorkspaceAction::ApplyWorkspace(name.to_owned())));
@@ -209,9 +195,6 @@ fn window_menu(ui: &mut Ui, view: &mut View, actions: &mut Vec<Action>) {
         });
     });
     ui.separator();
-    if item(ui, view, "Start workspace", "window.start") {
-        actions.push(Action::Workspace(WorkspaceAction::Start(true)));
-    }
     if item(ui, view, "Preferences...", "app.preferences") {
         view.prefs_open = true;
     }
@@ -248,49 +231,6 @@ fn puppet_menu(ui: &mut Ui, view: &mut View, ctx: &Ctx<'_>, actions: &mut Vec<Ac
         view.dialog = Some(Dialog::Warnings);
         ui.close();
     }
-}
-
-fn top_bar(ui: &mut Ui, view: &mut View, ctx: &Ctx<'_>, actions: &mut Vec<Action>) {
-    egui::Panel::top("top_bar").show(ui, |ui| {
-        ui.horizontal(|ui| {
-            ui.label(RichText::new("CharCraft").strong().size(15.0));
-            ui.add_space(6.0);
-            egui::MenuBar::new().ui(ui, |ui| {
-                ui.menu_button("File", |ui| file_menu(ui, view, ctx, actions));
-                ui.menu_button("Edit", |ui| {
-                    if ui.add_enabled(ctx.can_undo, egui::Button::new("Undo")).clicked() {
-                        actions.push(Action::Undo);
-                        ui.close();
-                    }
-                    if ui.add_enabled(ctx.can_redo, egui::Button::new("Redo")).clicked() {
-                        actions.push(Action::Redo);
-                        ui.close();
-                    }
-                });
-                ui.menu_button("Puppet", |ui| puppet_menu(ui, view, ctx, actions));
-                ui.menu_button("View", |ui| {
-                    let mut dark = view.dark;
-                    if ui.checkbox(&mut dark, "Dark theme").changed() {
-                        actions.push(Action::Dark(dark));
-                    }
-                    ui.checkbox(&mut view.hud, "Stream overlay");
-                });
-                ui.menu_button("Window", |ui| window_menu(ui, view, actions));
-                // The mode switch and title live inside the menu bar: it claims the rest of the row, so anything added
-                // after it is laid out past the window's right edge.
-                ui.separator();
-                for mode in Mode::ALL {
-                    if ui.selectable_label(view.mode == mode, RichText::new(mode.label()).strong()).on_hover_text(mode_shortcut(mode)).clicked() {
-                        actions.push(Action::Mode(mode));
-                    }
-                }
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    let title = format!("{}{}", ctx.world.title, if ctx.dirty { " *" } else { "" });
-                    ui.label(RichText::new(visual(&title).into_owned()).weak());
-                });
-            });
-        });
-    });
 }
 
 fn status_bar(ui: &mut Ui, view: &mut View, ctx: &Ctx<'_>, actions: &mut Vec<Action>) {

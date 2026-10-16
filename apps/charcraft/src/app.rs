@@ -4,13 +4,12 @@
 //! the performance, ask the renderer for the picture of the current state, draw the UI as a function of that state,
 //! and apply the actions it returned to the session. Nothing blocks on the actors except short tool calls.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use anim_core::Tick;
 use anim_mcp::{HostInfo, Reply, Request, SessionHost};
-use anim_ui::Theme;
 use charcraft_behaviors::api::{StackInfo, StackOp, stack_info};
 use charcraft_behaviors::{BehaviorStack, Inputs};
 use charcraft_puppet::PuppetPose;
@@ -30,6 +29,7 @@ use crate::state::{Mode, UiSet};
 use crate::view::{Action, ActiveTake, Ctx, Dialog, PreviewTexture, View};
 use crate::world::{Opened, World};
 
+mod start_thumbs;
 mod workspace_ops;
 use workspace_ops::WorkspaceState;
 
@@ -142,6 +142,28 @@ pub struct CharCraftApp {
     title: String,
     theme_dirty: bool,
     ws: WorkspaceState,
+    thumbs: Thumbs,
+}
+
+/// Ids of thumbnail renders start here, far above the ids of the main picture.
+const THUMB_BASE: u64 = 1 << 62;
+/// How long a thumbnail render may take before it is asked for again.
+const THUMB_PATIENCE: Duration = Duration::from_secs(3);
+/// Thumbnails are refreshed at most this often while the document changes.
+const THUMB_INTERVAL: Duration = Duration::from_millis(700);
+
+/// Small pictures of the puppets and scenes for the Project panel, drawn one at a time while the main view is idle.
+#[derive(Default)]
+struct Thumbs {
+    textures: BTreeMap<String, (TextureHandle, [usize; 2])>,
+    queue: VecDeque<String>,
+    inflight: Option<(u64, String, Instant)>,
+    next: u64,
+    rev: u64,
+    refreshed: Option<Instant>,
+    /// Pictures of the starters and recent files arriving from the background thread, and what they were made for.
+    start_rx: Option<Receiver<(String, Option<crate::compose::Picture>)>>,
+    start_jobs: Vec<String>,
 }
 
 fn script_events() -> Vec<charcraft_behaviors::ScriptEvent> {
@@ -192,13 +214,12 @@ impl CharCraftApp {
     /// A message when a door cannot start.
     pub fn new(cc: &eframe::CreationContext<'_>, opened: Opened, options: &Options, done: Sender<Outcome>) -> Result<Self, String> {
         let ctx = cc.egui_ctx.clone();
-        if anim_ui::theme::install_fallback_fonts(&ctx) == 0 {
+        if crate::ui::theme::install_fonts(&ctx) == 0 {
             eprintln!("charcraft: no system font covers Hebrew or Arabic; right-to-left text may show boxes");
         }
         let ws = WorkspaceState::open();
         let dark = options.dark && ws.prefs().dark;
-        let theme = if dark { Theme::Dark } else { Theme::Light };
-        theme.apply(&ctx);
+        crate::ui::theme::apply(&ctx, dark);
         let wake = move || ctx.request_repaint();
         let live = LiveHandle::spawn(wake.clone());
         let render = RenderHandle::spawn(wake.clone());
@@ -224,8 +245,15 @@ impl CharCraftApp {
             export_tx,
             export_rx,
             done,
+            // Screenshots always show the built-in layouts: they neither read nor write the user's saved ones.
             view: opened_view(
-                View { mode: options.mode, dark, dialog: options.dialog.as_deref().and_then(Dialog::parse), ..View::default() },
+                View {
+                    mode: options.mode,
+                    dark,
+                    dialog: options.dialog.as_deref().and_then(Dialog::parse),
+                    docks: crate::ui::dock::Docks::new(options.screenshot.is_none()),
+                    ..View::default()
+                },
                 options.open.as_deref(),
                 &doc.rec.scene.name,
             ),
@@ -250,6 +278,7 @@ impl CharCraftApp {
             title: String::new(),
             theme_dirty: false,
             ws,
+            thumbs: Thumbs::default(),
         };
         app.init_workspace(&cc.egui_ctx, options.start);
         app.view.prefs_open = options.prefs_open;
@@ -333,6 +362,7 @@ impl CharCraftApp {
             self.watch_artwork();
         }
         self.pump_render_results(ctx);
+        self.pump_start_thumbs(ctx);
         self.pump_workspace();
         let view = &self.view;
         let hooks = self.host.hooks_mut();
@@ -610,6 +640,21 @@ impl CharCraftApp {
 
     fn pump_render_results(&mut self, ctx: &Context) {
         while let Some(done) = self.render.try_result() {
+            if done.id >= THUMB_BASE {
+                let name = self.thumbs.inflight.take_if(|(id, _, _)| *id == done.id).map(|(_, name, _)| name);
+                if let (Some(name), Ok(picture)) = (name, done.picture) {
+                    let size = [usize::try_from(picture.width).unwrap_or(1), usize::try_from(picture.height).unwrap_or(1)];
+                    let image = egui::ColorImage::from_rgba_unmultiplied(size, &picture.rgba);
+                    if let Some((texture, current)) = self.thumbs.textures.get_mut(&name) {
+                        texture.set(image, TextureOptions::LINEAR);
+                        *current = size;
+                    } else {
+                        let texture = ctx.load_texture(format!("thumb-{name}"), image, TextureOptions::LINEAR);
+                        self.thumbs.textures.insert(name, (texture, size));
+                    }
+                }
+                continue;
+            }
             if self.pending == Some(done.id) {
                 self.pending = None;
             }
@@ -703,8 +748,11 @@ impl CharCraftApp {
         let quantise = |s: f64| (s.clamp(0.05, 4.0) * 50.0).round() / 50.0;
         let record = self.view.mode == Mode::Record;
         let (scale, pose, frame) = match self.view.mode {
-            Mode::Rig => {
-                let mut pose = pose.clone();
+            Mode::Rig | Mode::Start => {
+                // Without live input the rig shows the rest pose: idle motion (breathing, physics) would redraw the
+                // artwork every frame and make it impossible to judge the rig.
+                let live_on = self.view.live.tracking || self.view.live.mic || self.view.live.demo_voice;
+                let mut pose = if live_on { pose.clone() } else { PuppetPose::neutral() };
                 if let Some(v) = self.view.preview_viseme {
                     pose.viseme = Some(v);
                 }
@@ -743,6 +791,61 @@ impl CharCraftApp {
         self.last = Some(desc);
     }
 
+    /// Draws the next thumbnail when nothing else is being drawn: the neutral pose of each puppet and the first frame
+    /// of each scene. They are redrawn a little after the document changes.
+    fn drive_thumbs(&mut self) {
+        if let Some((_, name, since)) = self.thumbs.inflight.as_ref()
+            && since.elapsed() > THUMB_PATIENCE
+        {
+            // The renderer keeps only the newest request of a kind, so a thumbnail can be overtaken: ask again.
+            self.thumbs.queue.push_front(name.clone());
+            self.thumbs.inflight = None;
+        }
+        if self.thumbs.inflight.is_some() || self.texture.is_none() {
+            return;
+        }
+        // While live input redraws the main picture every frame there is never a quiet moment: a thumbnail then goes
+        // first, and the main picture that it may have overtaken is asked for again.
+        let busy = self.pending.is_some();
+        if busy && !(self.view.live.tracking || self.view.live.mic || self.view.live.demo_voice) {
+            return;
+        }
+        if self.thumbs.queue.is_empty() {
+            let stale = self.thumbs.rev != self.rev || self.thumbs.textures.is_empty();
+            if !stale || self.thumbs.refreshed.is_some_and(|t| t.elapsed() < THUMB_INTERVAL) {
+                return;
+            }
+            self.thumbs.rev = self.rev;
+            self.thumbs.refreshed = Some(Instant::now());
+            let mut names: Vec<String> = self.host.hooks_mut().world.cast.keys().map(|k| format!("puppet:{k}")).collect();
+            names.extend((0..self.doc.rec.scene_count()).map(|i| format!("scene:{i}")));
+            self.thumbs.queue = names.into();
+        }
+        let Some(name) = self.thumbs.queue.pop_front() else { return };
+        let id = THUMB_BASE.saturating_add(self.thumbs.next);
+        self.thumbs.next = self.thumbs.next.saturating_add(1);
+        let request = if let Some(key) = name.strip_prefix("puppet:") {
+            let height = self.host.hooks_mut().world.cast.get(key).map_or(1.0, |m| m.puppet.size.height.max(1.0));
+            Some(RenderRequest::Puppet { id, key: key.to_owned(), pose: PuppetPose::neutral(), scale: (96.0 / height).min(1.0), background: None })
+        } else {
+            name.strip_prefix("scene:").and_then(|i| i.parse::<usize>().ok()).and_then(|i| self.doc.rec.scenes().nth(i)).map(|scene| RenderRequest::Scene {
+                id,
+                scene: scene.clone(),
+                frame: 0,
+                live: Vec::new(),
+                scale: (128.0 / scene.size.width.max(1.0)).min(1.0),
+            })
+        };
+        if let Some(request) = request {
+            if busy {
+                self.pending = None;
+                self.last = None;
+            }
+            self.render.send(request);
+            self.thumbs.inflight = Some((id, name, Instant::now()));
+        }
+    }
+
     // --- applying actions -----------------------------------------------------------------------------------------
 
     fn run(&mut self, id: &str, params: &Value, merge: Option<&str>) {
@@ -763,6 +866,10 @@ impl CharCraftApp {
     }
 
     fn set_mode(&mut self, mode: Mode) {
+        self.view.start = mode == Mode::Start;
+        if mode == Mode::Start {
+            self.refresh_start_info();
+        }
         if self.view.mode != mode {
             self.view.mode = mode;
             self.texture = None;
@@ -1087,13 +1194,14 @@ impl eframe::App for CharCraftApp {
         let ctx = ui.ctx().clone();
         if self.theme_dirty {
             self.theme_dirty = false;
-            (if self.view.dark { Theme::Dark } else { Theme::Light }).apply(&ctx);
+            crate::ui::theme::apply(&ctx, self.view.dark);
         }
         self.begin_frame(&ctx);
         let mut actions = self.shortcuts(&ctx);
         let pose = self.perform(&ctx);
         self.pose.clone_from(&pose);
         self.request_render(&ctx, &pose);
+        self.drive_thumbs();
 
         let frame = u32::try_from(self.doc.rec.scene.frame_at(Tick::from_seconds_f64(self.view.playhead)).max(0)).unwrap_or(0);
         let can_undo = self.host.session().history().can_undo();
@@ -1118,6 +1226,7 @@ impl eframe::App for CharCraftApp {
             frame,
             rows: self.ws.rows(),
             doc_path: doc_path.as_deref(),
+            thumbs: &self.thumbs.textures,
         };
         actions.extend(crate::ui::draw(ui, &mut self.view, &ctx_view));
         self.apply(&ctx, actions);

@@ -1,4 +1,5 @@
-//! The scene as the timeline widget wants it: a row per puppet track, a row under it per take, a row per sound.
+//! The scene as the timeline widget wants it: a row per puppet track, a row under it per behavior holding the takes
+//! that recorded it, a row per sound.
 
 use anim_core::Rgba8;
 use anim_ui::TimelineModel;
@@ -9,7 +10,28 @@ use crate::view::View;
 
 /// Row ids: puppet tracks, their takes and the sound tracks never collide.
 const TAKE_BASE: u64 = 10_000;
+const BEHAVIOR_BASE: u64 = 500_000_000;
 const AUDIO_BASE: u64 = 900_000_000;
+
+/// The behaviors a track opens into, with the groups of the performance each one records.
+const BEHAVIORS: [(&str, &[charcraft_record::ParamGroup]); 4] = [
+    ("Face", &charcraft_record::ParamGroup::FACE),
+    ("Lip Sync", &[charcraft_record::ParamGroup::Voice]),
+    ("Dragger", &[charcraft_record::ParamGroup::Pointer]),
+    ("Triggers", &[charcraft_record::ParamGroup::Keys]),
+];
+
+/// The row id of behavior `behavior` (an index of [`BEHAVIORS`]) of `track`.
+#[must_use]
+pub fn behavior_row(track: usize, behavior: usize) -> u64 {
+    BEHAVIOR_BASE.saturating_add(u64::try_from(track).unwrap_or(0).saturating_mul(8)).saturating_add(u64::try_from(behavior).unwrap_or(0))
+}
+
+/// Whether a row is a behavior row (selecting it selects its track; it has no eye or delete of its own).
+#[must_use]
+pub const fn is_behavior_row(id: u64) -> bool {
+    id >= BEHAVIOR_BASE && id < AUDIO_BASE
+}
 
 /// The row id of a puppet track.
 #[must_use]
@@ -28,6 +50,10 @@ pub fn take_row(track: usize, take: usize) -> u64 {
 pub fn row_target(id: u64) -> Option<(usize, Option<usize>)> {
     if id >= AUDIO_BASE {
         return None;
+    }
+    if is_behavior_row(id) {
+        let track = usize::try_from(id.saturating_sub(BEHAVIOR_BASE) / 8).ok()?;
+        return Some((track, None));
     }
     if id < TAKE_BASE {
         return usize::try_from(id).ok().map(|t| (t, None));
@@ -84,17 +110,31 @@ pub fn model(view: &mut View, scene: &Scene, media: &MediaStore, playing: bool) 
         row.expanded = true;
         row.spans = vec![Span::key(0, frame_count)];
         layers.push(row);
-        for (k, take) in track.takes.iter().enumerate() {
-            let start = frames_of(scene, take.start.seconds());
-            let len = frames_of(scene, take.duration.seconds()).max(1);
-            let mut take_row = LayerRow::new(take_row(i, k), format!("{} {}", take.name, groups_label(&take.groups)));
-            take_row.depth = 1;
-            take_row.color = color;
-            take_row.visible = take.enabled;
-            let mut span = Span::key(start, len);
-            span.label = Some(take.name.clone());
-            take_row.spans = if start > 0 { vec![Span::blank(0, start), span] } else { vec![span] };
-            layers.push(take_row);
+        // The track opens into one row per behavior that has takes, each holding the takes that recorded it.
+        for (b, (name, covers)) in BEHAVIORS.iter().enumerate() {
+            let mut takes: Vec<&charcraft_record::Take> = track.takes.iter().filter(|t| t.groups.iter().any(|g| covers.contains(g))).collect();
+            if takes.is_empty() {
+                continue;
+            }
+            takes.sort_by_key(|t| t.start);
+            let mut row = LayerRow::new(behavior_row(i, b), (*name).to_owned());
+            row.depth = 1;
+            row.color = color;
+            let mut spans: Vec<Span> = Vec::new();
+            let mut cursor = 0_u32;
+            for take in takes {
+                let start = frames_of(scene, take.start.seconds()).max(cursor);
+                let len = frames_of(scene, take.duration.seconds()).max(1);
+                if start > cursor {
+                    spans.push(Span::blank(cursor, start.saturating_sub(cursor)));
+                }
+                let mut span = Span::key(start, len);
+                span.label = Some(take.name.clone());
+                cursor = start.saturating_add(len);
+                spans.push(span);
+            }
+            row.spans = spans;
+            layers.push(row);
         }
     }
     for (a, audio) in scene.audio.iter().enumerate() {
@@ -132,11 +172,6 @@ pub fn model(view: &mut View, scene: &Scene, media: &MediaStore, playing: bool) 
         playing,
         ..TimelineModel::default()
     }
-}
-
-fn groups_label(groups: &std::collections::BTreeSet<charcraft_record::ParamGroup>) -> String {
-    let names: Vec<String> = groups.iter().map(|g| format!("{g:?}")).collect();
-    format!("[{}]", names.join(" "))
 }
 
 #[cfg(test)]

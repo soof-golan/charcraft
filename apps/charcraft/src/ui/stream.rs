@@ -353,14 +353,55 @@ pub fn show(ui: &mut Ui, view: &mut View, ctx: &Ctx<'_>, actions: &mut Vec<Actio
     if view.hud && view.stream.panels {
         panels(ui, view, ctx, actions);
     }
-    let background = if view.transparent {
+    let background = backdrop(view);
+    egui::CentralPanel::default().frame(egui::Frame::new().fill(background)).show(ui, |ui| stage(ui, view, ctx));
+    if view.hud {
+        hud(ui, view, actions);
+    }
+}
+
+const fn backdrop(view: &View) -> Color32 {
+    if view.transparent {
         Color32::TRANSPARENT
     } else if view.chroma {
         GREEN_SCREEN
     } else {
         BACKDROP
-    };
-    egui::CentralPanel::default().frame(egui::Frame::new().fill(background)).show(ui, |ui| {
+    }
+}
+
+/// The Camera & Microphone panel: the pickers, the live preview with its tracked points, Set Rest Pose, the level
+/// meter and the backdrop.
+pub fn camera_panel(ui: &mut Ui, view: &mut View, actions: &mut Vec<Action>) {
+    egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| controls(ui, view, actions));
+}
+
+/// The Controls panel: the trigger buttons and swap sets.
+pub fn controls_panel(ui: &mut Ui, view: &mut View, ctx: &Ctx<'_>, actions: &mut Vec<Action>) {
+    egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| triggers(ui, view, ctx, actions));
+}
+
+/// The Stream Output panel: NDI, virtual camera and web source.
+pub fn output_panel(ui: &mut Ui, view: &mut View, actions: &mut Vec<Action>) {
+    egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| output(ui, view, actions));
+}
+
+/// The Scenes panel of the stream view.
+pub fn scenes_panel(ui: &mut Ui, view: &mut View, ctx: &Ctx<'_>, actions: &mut Vec<Action>) {
+    egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| scenes(ui, view, ctx, actions));
+}
+
+/// The performing puppet filling its panel, on the backdrop, the green screen or transparent.
+pub fn stage_panel(ui: &mut Ui, view: &mut View, ctx: &Ctx<'_>) {
+    let background = backdrop(view);
+    egui::Frame::new().fill(background).show(ui, |ui| {
+        ui.set_min_size(ui.available_size());
+        stage(ui, view, ctx);
+    });
+}
+
+fn stage(ui: &mut Ui, view: &mut View, ctx: &Ctx<'_>) {
+    {
         let (area, response) = ui.allocate_exact_size(ui.available_size(), Sense::click_and_drag());
         if let Some((texture, size)) = ctx.texture {
             let target = fit(area.shrink(8.0), size);
@@ -375,8 +416,5 @@ pub fn show(ui: &mut Ui, view: &mut View, ctx: &Ctx<'_>, actions: &mut Vec<Actio
         } else {
             ui.painter().text(area.center(), Align2::CENTER_CENTER, "waiting for the first frame", FontId::proportional(16.0), Color32::from_gray(0x99));
         }
-    });
-    if view.hud {
-        hud(ui, view, actions);
     }
 }

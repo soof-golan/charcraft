@@ -41,6 +41,8 @@ anim-artwork = { git = "https://github.com/soof-golan/anicraft-libs", rev = "7b3
 anim-export = { git = "https://github.com/soof-golan/anicraft-libs", rev = "7b3bc39d02c9b062a832f4b130e506cd317db748" }
 anim-video = { git = "https://github.com/soof-golan/anicraft-libs", rev = "7b3bc39d02c9b062a832f4b130e506cd317db748" }
 anim-ui = { git = "https://github.com/soof-golan/anicraft-libs", rev = "7b3bc39d02c9b062a832f4b130e506cd317db748" }
+# The docking model anim-ui builds on (same rev as anim-ui's own): the app builds its workspace layouts from it.
+craft-ui = { git = "https://github.com/storytold/craft-libs", rev = "5c874d51eeb3de70e735c8ce87a59a7dedd47675", features = ["serde"] }
 anim-session = { git = "https://github.com/soof-golan/anicraft-libs", rev = "7b3bc39d02c9b062a832f4b130e506cd317db748" }
 # MCP without the streamable-HTTP front-end: the app serves stdio and the loopback control channel.
 anim-mcp = { git = "https://github.com/soof-golan/anicraft-libs", rev = "7b3bc39d02c9b062a832f4b130e506cd317db748", default-features = false }

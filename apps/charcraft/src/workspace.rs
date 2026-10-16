@@ -128,6 +128,7 @@ pub const SHORTCUTS: &[ShortcutDef] = &[
     def("file.revert", "Revert", "File", ""),
     def("edit.undo", "Undo", "Edit", "Cmd+Z"),
     def("edit.redo", "Redo", "Edit", "Cmd+Shift+Z"),
+    def("mode.start", "Start workspace", "Window", ""),
     def("mode.rig", "Rig mode", "Window", "Cmd+1"),
     def("mode.record", "Record mode", "Window", "Cmd+2"),
     def("mode.stream", "Stream mode", "Window", "Cmd+3"),
@@ -136,6 +137,12 @@ pub const SHORTCUTS: &[ShortcutDef] = &[
     def("app.preferences", "Preferences", "Window", "Cmd+Comma"),
     def("transport.play", "Play or pause", "Record", "Space"),
     def("transport.record", "Record or stop", "Record", "R"),
+    def("transport.home", "Go to start", "Record", "Home"),
+    def("transport.end", "Go to end", "Record", "End"),
+    def("transport.back", "Step back one frame", "Record", "Left"),
+    def("transport.forward", "Step forward one frame", "Record", "Right"),
+    def("transport.back10", "Step back ten frames", "Record", "Shift+Left"),
+    def("transport.forward10", "Step forward ten frames", "Record", "Shift+Right"),
     def("stream.hud", "Stream overlay", "Stream", "H"),
 ];
 

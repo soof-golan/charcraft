@@ -12,7 +12,7 @@ use charcraft_puppet::{Layer, LayerId, Puppet, Viseme};
 use egui::{Color32, Pos2, Rect, RichText, Ui, pos2, vec2};
 use serde_json::{Value, json};
 
-use super::rigtools::{self, Tab};
+use super::rigtools;
 use crate::view::{Action, Ctx, View};
 
 pub(super) const ACCENT: Color32 = Color32::from_rgb(0x4f, 0x9d, 0xff);
@@ -38,6 +38,27 @@ fn is_anonymous_leaf(layer: &Layer) -> bool {
     layer.name.trim().is_empty() && layer.children.is_empty() && layer.tags.is_empty()
 }
 
+/// Whether the tree lists anything under the layer (only groups with listed layers get a disclosure arrow).
+fn has_rows(puppet: &Puppet, layer: &Layer) -> bool {
+    let mut stack: Vec<LayerId> = layer.children.clone();
+    let mut seen = 0_u32;
+    while let Some(id) = stack.pop() {
+        seen = seen.saturating_add(1);
+        if seen > 20_000 {
+            return false;
+        }
+        let Some(child) = puppet.layer(id) else { continue };
+        if is_anonymous_leaf(child) {
+            continue;
+        }
+        if !(child.name.trim().is_empty() && child.tags.is_empty()) {
+            return true;
+        }
+        stack.extend(child.children.iter().copied());
+    }
+    false
+}
+
 /// The layers in display order (top of the puppet first), skipping what a collapsed parent hides and unnamed leaves.
 fn rows<'a>(puppet: &'a Puppet, collapsed: &std::collections::BTreeSet<String>) -> Vec<(&'a Layer, usize)> {
     let mut out = Vec::new();
@@ -46,6 +67,11 @@ fn rows<'a>(puppet: &'a Puppet, collapsed: &std::collections::BTreeSet<String>) 
     while let Some((id, depth)) = stack.pop() {
         let Some(layer) = puppet.layer(id) else { continue };
         if is_anonymous_leaf(layer) {
+            continue;
+        }
+        // An unnamed, untagged group is only artwork plumbing: its named layers show at the same level.
+        if layer.name.trim().is_empty() && layer.tags.is_empty() {
+            stack.extend(layer.children.iter().rev().map(|&c| (c, depth)));
             continue;
         }
         out.push((layer, depth));
@@ -68,7 +94,7 @@ pub(super) fn pick(puppet: &Puppet, at: Pos2) -> Option<String> {
         .map(|(l, _)| l.path.clone())
 }
 
-fn tree(ui: &mut Ui, puppet: &Puppet, view: &mut View, ctx: &Ctx<'_>, actions: &mut Vec<Action>) {
+fn tree(ui: &mut Ui, puppet: &Puppet, key: &str, view: &mut View, ctx: &Ctx<'_>, actions: &mut Vec<Action>) {
     ui.add(egui::TextEdit::singleline(&mut view.rig.layer_filter).hint_text("Filter by name or tag").desired_width(f32::INFINITY));
     let keep = rigtools::visible_paths(puppet, &view.rig.layer_filter);
     egui::ScrollArea::both().auto_shrink([false, false]).show(ui, |ui| {
@@ -77,9 +103,13 @@ fn tree(ui: &mut Ui, puppet: &Puppet, view: &mut View, ctx: &Ctx<'_>, actions: &
                 continue;
             }
             ui.horizontal(|ui| {
+                let eye = if layer.visible { anim_ui::icons::Icon::Eye } else { anim_ui::icons::Icon::EyeOff };
+                if anim_ui::widgets::icon_button(ui, vec2(16.0, 16.0), eye, false, true, "Show or hide this layer").clicked() {
+                    actions.push(rig_edit(key, json!({ "op": "set_visible", "layer": layer.path, "visible": !layer.visible })));
+                }
                 ui.add_space(f32::from(u16::try_from(depth.saturating_mul(14)).unwrap_or(0)));
                 super::layers::thumbnail(ui, layer, puppet.size, ctx.texture.map(|(t, _)| t));
-                if layer.children.is_empty() {
+                if !has_rows(puppet, layer) {
                     ui.add_space(16.0);
                 } else {
                     let open = !view.collapsed.contains(&layer.path);
@@ -92,8 +122,15 @@ fn tree(ui: &mut Ui, puppet: &Puppet, view: &mut View, ctx: &Ctx<'_>, actions: &
                     }
                 }
                 let selected = view.layer.as_deref() == Some(layer.path.as_str());
-                let mut text =
-                    if layer.name.trim().is_empty() { RichText::new("(unnamed)").weak().italics() } else { RichText::new(visual(&layer.name).into_owned()) };
+                let name = visual(&layer.name).into_owned();
+                // An independent group is marked with a plus in front of its name, as in Character Animator.
+                let mut text = if layer.name.trim().is_empty() {
+                    RichText::new("(unnamed)").weak().italics()
+                } else if layer.independent {
+                    RichText::new(format!("+{name}"))
+                } else {
+                    RichText::new(name)
+                };
                 if layer.independent {
                     text = text.strong();
                 }
@@ -103,15 +140,19 @@ fn tree(ui: &mut Ui, puppet: &Puppet, view: &mut View, ctx: &Ctx<'_>, actions: &
                 if ui.selectable_label(selected, text).clicked() {
                     actions.push(Action::SelectLayer(Some(layer.path.clone())));
                 }
-                for tag in layer.tags.iter().take(3) {
-                    ui.label(RichText::new(short(tag)).size(10.0).color(ACCENT));
-                }
-                if layer.tags.len() > 3 {
-                    ui.label(RichText::new(format!("+{}", layer.tags.len().saturating_sub(3))).size(10.0).weak());
-                }
-                if let Some(key) = &layer.key_trigger {
-                    ui.label(RichText::new(format!("[{key}]")).size(10.0).color(HANDLE));
-                }
+                // The tags have their own right-aligned column, so they never run off the edge of the panel.
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if let Some(key) = &layer.key_trigger {
+                        ui.label(RichText::new(format!("[{key}]")).size(10.0).color(HANDLE));
+                    }
+                    if layer.tags.len() > 2 {
+                        let rest = layer.tags.iter().skip(2).map(|t| short(t)).collect::<Vec<_>>().join(", ");
+                        ui.label(RichText::new(format!("+{}", layer.tags.len().saturating_sub(2))).size(10.0).weak()).on_hover_text(rest);
+                    }
+                    for tag in layer.tags.iter().take(2).rev() {
+                        ui.label(RichText::new(short(tag)).size(10.0).color(ACCENT)).on_hover_text(tag);
+                    }
+                });
             });
         }
     });
@@ -144,9 +185,11 @@ fn overlays(puppet: &Puppet, key: &str, view: &mut View, edits: usize) -> Vec<Ov
     out
 }
 
-fn pose_bar(ui: &mut Ui, view: &mut View) {
-    ui.horizontal_wrapped(|ui| {
-        ui.label(RichText::new("Preview").weak());
+/// The mouth shape and blink to preview, in a small dropdown at the right of the breadcrumb.
+fn pose_menu(ui: &mut Ui, view: &mut View) {
+    ui.toggle_value(&mut view.preview_blink, "Blink").on_hover_text("Preview a closed eye pair");
+    let current = view.preview_viseme.map_or("Live", Viseme::label);
+    egui::ComboBox::from_id_salt("preview_viseme").selected_text(format!("Preview: {current}")).width(120.0).show_ui(ui, |ui| {
         if ui.selectable_label(view.preview_viseme.is_none(), "Live").clicked() {
             view.preview_viseme = None;
         }
@@ -155,8 +198,6 @@ fn pose_bar(ui: &mut Ui, view: &mut View) {
                 view.preview_viseme = Some(v);
             }
         }
-        ui.separator();
-        ui.toggle_value(&mut view.preview_blink, "Blink");
     });
 }
 
@@ -239,56 +280,75 @@ pub(super) fn param_editor(ui: &mut Ui, track: usize, index: usize, name: &str, 
     }
 }
 
-/// Rig mode.
-pub fn show(ui: &mut Ui, view: &mut View, ctx: &Ctx<'_>, actions: &mut Vec<Action>) {
-    let Some((key, member)) = ctx.puppet.and_then(|k| ctx.world.cast.get(k).map(|m| (k, m))) else {
-        ui.centered_and_justified(|ui| ui.label("No puppet loaded. Use File > Open."));
-        return;
-    };
-    let puppet = &member.puppet;
-    rigtools::keys(ui, puppet, key, view, actions);
-    egui::Panel::left("rig_tree").default_size(290.0).min_size(200.0).show(ui, |ui| {
-        ui.horizontal(|ui| {
-            ui.strong(visual(key).into_owned());
-            ui.weak(format!("{} layers", puppet.layers().len().saturating_sub(1)));
-        });
-        ui.separator();
-        tree(ui, puppet, view, ctx, actions);
+/// The puppet being rigged and its cast key.
+fn edited<'a>(ctx: &'a Ctx<'_>) -> Option<(&'a str, &'a Puppet)> {
+    ctx.puppet.and_then(|k| ctx.world.cast.get(k).map(|m| (k, &m.puppet)))
+}
+
+fn nothing_open(ui: &mut Ui) {
+    ui.centered_and_justified(|ui| ui.label("No puppet loaded. Use File > Open Project."));
+}
+
+/// The Puppet panel: the layer tree.
+pub fn puppet_panel(ui: &mut Ui, view: &mut View, ctx: &Ctx<'_>, actions: &mut Vec<Action>) {
+    let Some((key, puppet)) = edited(ctx) else { return nothing_open(ui) };
+    ui.horizontal(|ui| {
+        ui.label(RichText::new(visual(key.rsplit('/').next().unwrap_or(key)).into_owned()).family(super::theme::semibold()));
+        ui.weak(format!("{} layers", puppet.layers().len().saturating_sub(1)));
     });
-    egui::Panel::right("rig_inspector").default_size(330.0).min_size(240.0).show(ui, |ui| {
-        ui.horizontal(|ui| {
-            for (tab, label) in [(Tab::Properties, "Properties"), (Tab::Triggers, "Triggers"), (Tab::Behaviors, "Behaviors")] {
-                if ui.selectable_label(view.rig.tab == tab, label).clicked() {
-                    view.rig.tab = tab;
-                }
-            }
+    tree(ui, puppet, key, view, ctx, actions);
+}
+
+/// The Properties panel: the selected layer (tags, handles), then the behaviors and the triggers of the puppet.
+pub fn properties_panel(ui: &mut Ui, view: &mut View, ctx: &Ctx<'_>, actions: &mut Vec<Action>) {
+    let Some((key, puppet)) = edited(ctx) else { return nothing_open(ui) };
+    egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
+        egui::CollapsingHeader::new("Tags and Handles").default_open(true).show(ui, |ui| rigtools::properties(ui, puppet, key, view, actions));
+        egui::CollapsingHeader::new("Behaviors").default_open(true).show(ui, |ui| {
+            ui.weak("Parameters of the selected track, as the scene plays them.");
+            rigtools::behaviors(ui, puppet, view, ctx, actions);
         });
-        ui.separator();
-        egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
-            match view.rig.tab {
-                Tab::Properties => rigtools::properties(ui, puppet, key, view, actions),
-                Tab::Triggers => rigtools::triggers(ui, puppet, key, view, actions),
-                Tab::Behaviors => {
-                    ui.weak("Parameters of the selected track, as the scene plays them.");
-                    rigtools::behaviors(ui, puppet, view, ctx, actions);
-                }
-            }
-            let rows = ctx.world.warning_rows();
-            if !rows.is_empty() {
-                ui.separator();
-                ui.label(RichText::new("Warnings").strong());
+        egui::CollapsingHeader::new("Triggers").default_open(false).show(ui, |ui| rigtools::triggers(ui, puppet, key, view, actions));
+        let rows = ctx.world.warning_rows();
+        if !rows.is_empty() {
+            egui::CollapsingHeader::new("Warnings").default_open(false).show(ui, |ui| {
                 for row in rows.iter().take(8) {
                     ui.label(RichText::new(visual(&row.message).into_owned()).weak().size(11.0));
                 }
                 if ui.link(format!("All {} warnings...", rows.len())).clicked() {
                     view.dialog = Some(crate::view::Dialog::Warnings);
                 }
+            });
+        }
+    });
+}
+
+/// The Triggers panel.
+pub fn triggers_panel(ui: &mut Ui, view: &mut View, ctx: &Ctx<'_>, actions: &mut Vec<Action>) {
+    let Some((key, puppet)) = edited(ctx) else { return nothing_open(ui) };
+    egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| rigtools::triggers(ui, puppet, key, view, actions));
+}
+
+/// The puppet canvas: a breadcrumb of what is being edited, the artwork with its handles, the preview poses and the
+/// rig tools along the bottom edge.
+pub fn canvas_panel(ui: &mut Ui, view: &mut View, ctx: &Ctx<'_>, actions: &mut Vec<Action>) {
+    let Some((key, puppet)) = edited(ctx) else { return nothing_open(ui) };
+    rigtools::keys(ui, puppet, key, view, actions);
+    egui::Panel::top("rig_crumbs").show(ui, |ui| {
+        ui.horizontal(|ui| {
+            let name = key.rsplit('/').next().unwrap_or(key);
+            ui.label(RichText::new(visual(&ctx.world.title).into_owned()).weak());
+            ui.label(RichText::new("\u{203a}").weak());
+            ui.label(RichText::new(visual(name).into_owned()).family(super::theme::semibold()));
+            if let Some(layer) = view.layer.as_deref() {
+                ui.label(RichText::new("\u{203a}").weak());
+                ui.label(RichText::new(visual(layer).into_owned()).color(ACCENT));
             }
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| pose_menu(ui, view));
         });
     });
     rigtools::toolbar(ui, puppet, key, view, actions);
-    egui::Panel::bottom("rig_pose").show(ui, |ui| pose_bar(ui, view));
-    egui::CentralPanel::default().show(ui, |ui| stage(ui, puppet, key, view, ctx, actions));
+    egui::CentralPanel::default().frame(egui::Frame::new()).show(ui, |ui| stage(ui, puppet, key, view, ctx, actions));
 }
 
 #[cfg(test)]

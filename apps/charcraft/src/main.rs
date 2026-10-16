@@ -5,7 +5,7 @@
 //! charcraft --template ID                  start from a starter puppet (classic, round-pal, square-bot, long-hair, bun)
 //! charcraft --dialog warnings|maker        open the import warnings list or the Puppet Maker at the start
 //! charcraft --smoke [FILE]                 render one frame offscreen and exit 0 (no window needed)
-//! charcraft --screenshot OUT.png [FILE] [--mode rig|record|stream]
+//! charcraft --screenshot OUT.png [FILE] [--mode start|rig|record|stream]
 //!                                          open the window, wait until it settles, save a PNG of it, exit
 //! charcraft --check-live                   check live input (ONNX Runtime, face models) without a camera and exit
 //! charcraft --face-file PHOTO|GIF|DIR      track the faces in pictures instead of a camera
@@ -33,9 +33,9 @@ use color_eyre::eyre::{Result, WrapErr, bail, eyre};
 struct Cli {
     /// A puppet, project, artwork or saved document to open.
     file: Option<PathBuf>,
-    /// The mode to start in: rig, record or stream.
-    #[arg(long, value_name = "MODE", default_value = "rig")]
-    mode: String,
+    /// The workspace to start in: start, rig, record or stream (start without a file, rig with one).
+    #[arg(long, value_name = "MODE")]
+    mode: Option<String>,
     /// Render one frame offscreen, check it is not blank and exit.
     #[arg(long)]
     smoke: bool,
@@ -127,7 +127,11 @@ fn main() -> Result<ExitCode> {
     if cli.check_live {
         return check_live();
     }
-    let mode = Mode::parse(&cli.mode).ok_or_else(|| eyre!("--mode must be rig, record or stream, got {:?}", cli.mode))?;
+    let mode = match cli.mode.as_deref() {
+        Some(text) => Mode::parse(text).ok_or_else(|| eyre!("--mode must be start, rig, record or stream, got {text:?}"))?,
+        None if cli.file.is_some() => Mode::Rig,
+        None => Mode::Start,
+    };
     let size = parse_size(&cli.size)?;
     let opened = load(cli.file.as_ref(), cli.template.as_deref())?;
     for warning in opened.world.warnings.iter().take(5) {
@@ -164,7 +168,7 @@ fn main() -> Result<ExitCode> {
         screenshot: cli.screenshot.clone(),
         demo_takes: cli.demo_takes || (shooting && demo),
         // The rig view starts neutral: a demo face would pose the head and neck and the artwork could not be judged.
-        live_demo: cli.live_demo || (shooting && cli.face_file.is_none() && !matches!(mode, Mode::Rig)),
+        live_demo: cli.live_demo || (shooting && cli.face_file.is_none() && !matches!(mode, Mode::Rig | Mode::Start)),
         face_file: cli.face_file.clone(),
         dark: !cli.light,
         stream,
