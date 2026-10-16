@@ -19,8 +19,9 @@ This is version 0.1.0, a pre-release; see [Known gaps](#known-gaps).
   with per-scene overrides; ARAP mesh deformation for handles.
 - **Lip sync**: speech audio (WAV, MP3, AAC, FLAC, Ogg) turned into the 13 viseme mouth shapes; puppets with only a
   Flappy Chin jaw get the jaw driven instead.
-- **Live input**: webcam face tracking (the `live` feature: camera and ONNX Runtime) and microphone, as actors that own
-  their devices. Without it the app runs a demo face and voice.
+- **Live input**: webcam face tracking (camera and ONNX Runtime, built into the release packages) and microphone, as
+  actors that own their devices. With no camera the app says so and offers the demo face as an explicit choice;
+  `charcraft --face-file PHOTO` tracks a picture, an animated GIF or a folder of frames instead.
 - **Rig, Record and Stream modes** in the app; scenes with recorded and performed takes.
 - **Export**: a project scene or a performance to `MP4` (H.264 with AAC), `MOV` (ProRes 4444 with transparency) or a
   `PNG` sequence.
@@ -31,8 +32,11 @@ This is version 0.1.0, a pre-release; see [Known gaps](#known-gaps).
 
 Download a package from the [releases page](https://github.com/soof-golan/charcraft/releases): Linux `tar.gz`, macOS
 (Apple silicon and Intel, an app bundle with camera and microphone usage descriptions) and Windows `zip`, with
-`SHA256SUMS`. The binaries are unsigned: on macOS right-click the app and choose Open the first time; on Windows choose
-More info, then Run anyway in SmartScreen.
+`SHA256SUMS`. Every package carries its own ONNX Runtime library (next to the program, or in the app's
+`Contents/Frameworks`), so face tracking needs nothing installed; the two small face models are downloaded on first
+use and checked against their SHA-256. `charcraft --check-live` runs that whole chain without a camera. The binaries
+are unsigned: on macOS right-click the app and choose Open the first time; on Windows choose More info, then Run
+anyway in SmartScreen.
 
 ## Using it
 
@@ -68,7 +72,8 @@ video. Those files are never committed; tests that need them read `ANICRAFT_SAMP
 ## Building
 
 ```sh
-cargo build -p charcraft-app -p charcraft-cli
+cargo build -p charcraft-app -p charcraft-cli       # demo face only
+cargo build -p charcraft-app --features live        # webcam and ONNX Runtime, as in the release packages
 cargo test --workspace
 ```
 
@@ -79,7 +84,9 @@ from `anicraft-libs`, pinned by git rev in `Cargo.toml`.
 
 Face tracking (`charcraft-tracking`) has optional features: `camera` (nokhwa), `onnx` (ONNX Runtime from the binaries
 its build downloads; needs glibc 2.38+ on Linux, so Ubuntu 24.04 or newer) and `onnx-dynamic` (loads `libonnxruntime`
-at run time from `ORT_DYLIB_PATH`; for older Linux, Jetson and apps that ship their own runtime). Model weights are
+at run time, the mode of the `live` build: from `ORT_DYLIB_PATH` when set, else the copy next to the program or in
+`Contents/Frameworks`; works on any Linux with glibc 2.27 or newer, Jetson and apps that ship their own runtime). Model
+weights are
 downloaded into the platform cache on first use and verified by SHA-256; `cargo run -p charcraft-tracking --features
 onnx-dynamic --example probe -- PHOTO.jpg OVERLAY.png` runs them on a photo.
 
@@ -88,10 +95,6 @@ onnx-dynamic --example probe -- PHOTO.jpg OVERLAY.png` runs them on a photo.
 - Recorded takes (`.arf` event graphs) in Character Animator projects are not decoded; scenes are performed from
   their audio instead.
 - Puppets without mouth-shape layers only get a moving jaw (when they have a Flappy Chin), no visemes.
-- Only the neutral pose was checked against real puppets; head-turn and drag poses are covered by synthetic tests.
-- Release binaries are built without the `live` feature (webcam capture and ONNX face tracking) and run the demo face
-  and voice; build from source with `cargo build -p charcraft-app --features live` for live input (the ONNX Runtime
-  library is then loaded at run time from `ORT_DYLIB_PATH`).
 - Binaries are unsigned and there is no installer.
 
 ## License

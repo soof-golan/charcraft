@@ -16,3 +16,12 @@ beside every installed file.
 |---|---|---|---|
 | MediaPipe BlazeFace short-range detector (ONNX) | Google LLC (MediaPipe); conversion by Fernando Tonon | huggingface.co/fernandotonon/QtMeshEditor-blazeface-onnx | Apache-2.0 |
 | MediaPipe Face Mesh V2, 478 landmarks (ONNX) | Google LLC (MediaPipe); conversion by naklitechie | huggingface.co/naklitechie/face-landmarks-onnx | Apache-2.0 |
+
+## Redistributed in release packages (tool-generated binaries, never committed)
+
+`.github/workflows/release.yml` downloads these from the pinned release, verifies the SHA-256 listed there, and
+ships them unmodified inside each package together with their licence and third-party notices (`licenses/`).
+
+| File | What | Source | License |
+|---|---|---|---|
+| `libonnxruntime.so`, `libonnxruntime.dylib` (in `CharCraft.app/Contents/Frameworks`), `onnxruntime.dll` | ONNX Runtime 1.23.2, the CPU build for Linux x64, macOS arm64, macOS x86_64 and Windows x64 | github.com/microsoft/onnxruntime/releases/tag/v1.23.2 | MIT |

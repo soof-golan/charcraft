@@ -2,6 +2,13 @@ name: release
 
 # Push a tag like v0.1.0 to build the app and the CLI on Linux, macOS (Apple silicon and Intel) and Windows, and attach
 # the packages plus SHA256SUMS to a GitHub pre-release. The binaries are unsigned (no signing secrets are used).
+#
+# The app is built with its `live` feature (webcam capture and ONNX Runtime face tracking). Every package carries
+# Microsoft's ONNX Runtime shared library for its platform, downloaded here from the pinned release and verified
+# against a SHA-256 below, so users need no ORT_DYLIB_PATH: next to the program on Linux and Windows, in
+# CharCraft.app/Contents/Frameworks on macOS. The face models (small, open licence) are downloaded on first use and
+# verified by the SHA-256 in crates/tracking/src/model.rs. After packaging, each package runs `charcraft --check-live`
+# on the runner: that loads the bundled library, downloads and verifies the models and runs both once.
 
 on:
   push:
@@ -13,6 +20,7 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: always
+  ORT_VERSION: "1.23.2"
 
 jobs:
   build:
@@ -24,28 +32,57 @@ jobs:
           - name: linux-x86_64
             os: ubuntu-22.04
             target: x86_64-unknown-linux-gnu
+            ort_asset: onnxruntime-linux-x64-1.23.2.tgz
+            ort_sha256: 1fa4dcaef22f6f7d5cd81b28c2800414350c10116f5fdd46a2160082551c5f9b
           - name: macos-arm64
             os: macos-14
             target: aarch64-apple-darwin
+            ort_asset: onnxruntime-osx-arm64-1.23.2.tgz
+            ort_sha256: b4d513ab2b26f088c66891dbbc1408166708773d7cc4163de7bdca0e9bbb7856
           - name: macos-x86_64
             os: macos-14
             target: x86_64-apple-darwin
+            ort_asset: onnxruntime-osx-x86_64-1.23.2.tgz
+            ort_sha256: d10359e16347b57d9959f7e80a225a5b4a66ed7d7e007274a15cae86836485a6
           - name: windows-x86_64
             os: windows-latest
             target: x86_64-pc-windows-msvc
+            ort_asset: onnxruntime-win-x64-1.23.2.zip
+            ort_sha256: 0b38df9af21834e41e73d602d90db5cb06dbd1ca618948b8f1d66d607ac9f3cd
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v5
       - name: Linux system libraries
         if: runner.os == 'Linux'
+        # libclang-dev: nokhwa's V4L2 bindings are generated with bindgen.
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends libasound2-dev libudev-dev libxkbcommon-dev libwayland-dev \
-            libx11-dev libxcursor-dev libxrandr-dev libxi-dev libgl1-mesa-dev libgtk-3-dev libfontconfig1-dev
+            libx11-dev libxcursor-dev libxrandr-dev libxi-dev libgl1-mesa-dev libgtk-3-dev libfontconfig1-dev \
+            libclang-dev linux-libc-dev
       - run: rustup show
       - run: rustup target add ${{ matrix.target }}
+      - name: ONNX Runtime
+        shell: bash
+        env:
+          ASSET: ${{ matrix.ort_asset }}
+          SHA256: ${{ matrix.ort_sha256 }}
+        run: |
+          set -euo pipefail
+          mkdir -p ort/x
+          curl -fsSL --retry 5 --retry-delay 5 -o "ort/${ASSET}" "https://github.com/microsoft/onnxruntime/releases/download/v${ORT_VERSION}/${ASSET}"
+          if command -v sha256sum >/dev/null; then
+            echo "${SHA256}  ort/${ASSET}" | sha256sum -c -
+          else
+            echo "${SHA256}  ort/${ASSET}" | shasum -a 256 -c -
+          fi
+          case "${ASSET}" in
+            *.zip) 7z x -y "ort/${ASSET}" -oort/x > /dev/null ;;
+            *) tar -xzf "ort/${ASSET}" -C ort/x ;;
+          esac
+          ls ort/x/*/lib
       - name: Build
-        run: cargo build --release --locked --target ${{ matrix.target }} -p charcraft-app -p charcraft-cli
+        run: cargo build --release --locked --target ${{ matrix.target }} -p charcraft-app -p charcraft-cli --features charcraft-app/live
       - name: Package
         shell: bash
         env:
@@ -58,28 +95,60 @@ jobs:
           if [ "$GITHUB_REF_TYPE" != "tag" ]; then VERSION="dev"; fi
           PKG="charcraft-${VERSION}-${NAME}"
           BIN="target/${TARGET}/release"
-          mkdir -p dist "stage/${PKG}"
+          ORT_DIR="$(echo ort/x/onnxruntime-*)"
+          mkdir -p dist "stage/${PKG}/licenses"
           cp README.md LICENSE-MIT LICENSE-BSD-3-Clause "stage/${PKG}/"
+          cp "${ORT_DIR}/LICENSE" "stage/${PKG}/licenses/onnxruntime-LICENSE.txt"
+          cp "${ORT_DIR}/ThirdPartyNotices.txt" "stage/${PKG}/licenses/onnxruntime-ThirdPartyNotices.txt"
           case "$OS_KIND" in
             Linux)
               cp "${BIN}/charcraft" "${BIN}/charcraft-cli" "stage/${PKG}/"
+              # -L: the real file, not the soname symlinks.
+              cp -L "${ORT_DIR}/lib/libonnxruntime.so" "stage/${PKG}/libonnxruntime.so"
               tar -C stage -czf "dist/${PKG}.tar.gz" "${PKG}"
               ;;
             macOS)
               APP="stage/${PKG}/CharCraft.app"
-              mkdir -p "${APP}/Contents/MacOS" "${APP}/Contents/Resources"
+              mkdir -p "${APP}/Contents/MacOS" "${APP}/Contents/Resources" "${APP}/Contents/Frameworks"
               cp "${BIN}/charcraft" "${APP}/Contents/MacOS/charcraft"
+              cp -L "${ORT_DIR}/lib/libonnxruntime.dylib" "${APP}/Contents/Frameworks/libonnxruntime.dylib"
               sed -e "s/<string>0\.1\.0<\/string>/<string>${VERSION}<\/string>/" packaging/macos/Info.plist > "${APP}/Contents/Info.plist"
               cp "${BIN}/charcraft-cli" "stage/${PKG}/"
-              codesign --force --deep --sign - "${APP}" || true
+              codesign --force --deep --sign - "${APP}"
+              codesign --verify --deep --strict "${APP}"
               (cd stage && ditto -c -k --keepParent "${PKG}" "../dist/${PKG}.zip")
               ;;
             Windows)
               cp "${BIN}/charcraft.exe" "${BIN}/charcraft-cli.exe" "stage/${PKG}/"
+              cp "${ORT_DIR}/lib/onnxruntime.dll" "stage/${PKG}/onnxruntime.dll"
               (cd stage && 7z a -tzip "../dist/${PKG}.zip" "${PKG}")
               ;;
           esac
+          echo "PKG=${PKG}" >> "$GITHUB_ENV"
           ls -l dist
+      - name: Check live input in the package
+        # Runs the packaged app with no ORT_DYLIB_PATH: it must find its own ONNX Runtime, fetch and verify the face
+        # models and run them. The Intel macOS build runs under Rosetta.
+        shell: bash
+        env:
+          OS_KIND: ${{ runner.os }}
+          TARGET: ${{ matrix.target }}
+          CHARCRAFT_MODELS_DIR: ${{ runner.temp }}/charcraft-models
+        run: |
+          set -euo pipefail
+          unset ORT_DYLIB_PATH
+          cd "stage/${PKG}"
+          case "$OS_KIND" in
+            Linux) ./charcraft --check-live ;;
+            macOS)
+              if [ "$TARGET" = "x86_64-apple-darwin" ]; then
+                arch -x86_64 ./CharCraft.app/Contents/MacOS/charcraft --check-live
+              else
+                ./CharCraft.app/Contents/MacOS/charcraft --check-live
+              fi
+              ;;
+            Windows) ./charcraft.exe --check-live ;;
+          esac
       - uses: actions/upload-artifact@v5
         with:
           name: package-${{ matrix.name }}
@@ -111,6 +180,10 @@ jobs:
           cat > notes.md <<'EOF'
           CharCraft ${{ github.ref_name }}: a live character animation tool that opens Character Animator puppets and
           projects.
+
+          Live input is included: webcam face tracking runs on the ONNX Runtime library shipped in each package (nothing
+          to install). The two small face models are downloaded on first use and verified by SHA-256. Without a camera
+          the app says so and offers the demo face; `charcraft --face-file PHOTO` tracks a picture instead.
 
           These binaries are unsigned. On macOS, right-click the app and choose Open the first time (or run
           `xattr -dr com.apple.quarantine CharCraft.app`); the app asks for camera and microphone access. On Windows,

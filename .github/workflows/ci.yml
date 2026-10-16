@@ -48,3 +48,7 @@ jobs:
       - uses: jdx/mr-boxington-action@v1
       - run: mbx clippy --workspace --all-targets --locked -- -D warnings
       - run: mbx test --workspace --locked
+      # The release binaries are built with the `live` feature (webcam capture and ONNX Runtime): lint and test it on
+      # every OS too, so a platform camera backend or the runtime loader cannot break unnoticed.
+      - run: mbx clippy -p charcraft-app -p charcraft-tracking --all-targets --locked --features charcraft-app/live -- -D warnings
+      - run: mbx test -p charcraft-app -p charcraft-tracking --locked --features charcraft-app/live
