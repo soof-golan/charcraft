@@ -92,9 +92,6 @@ onnx-dynamic --example probe -- PHOTO.jpg OVERLAY.png` runs them on a photo.
 
 ## Known gaps
 
-- Recorded takes (`.arf` event graphs) in Character Animator projects are not decoded; scenes are performed from
-  their audio instead.
-- Puppets without mouth-shape layers only get a moving jaw (when they have a Flappy Chin), no visemes.
 - Binaries are unsigned and there is no installer.
 
 ## License

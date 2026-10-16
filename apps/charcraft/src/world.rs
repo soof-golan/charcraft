@@ -16,7 +16,7 @@ use base64::Engine as _;
 use charcraft_behaviors::Rig;
 use charcraft_project::Project;
 use charcraft_puppet::Puppet;
-use charcraft_record::{Cast, CastMember, MediaStore, PuppetTrack, RecordDoc, Scene, import_scene, load_sounds, wav_bytes};
+use charcraft_record::{Cast, CastMember, ImportOptions, MediaStore, PuppetTrack, RecordDoc, Scene, TakePolicy, import_scene_with, load_sounds, wav_bytes};
 use serde::{Deserialize, Serialize};
 
 use crate::demo;
@@ -153,12 +153,21 @@ impl World {
     /// # Errors
     /// [`WorldError`] naming the problem.
     pub fn open(path: &Path) -> Result<Opened, WorldError> {
+        Self::open_scene(path, None, TakePolicy::default())
+    }
+
+    /// Opens a file like [`World::open`]; for a project, `scene` picks the scene (the first by default) and `takes`
+    /// says what to do with its recorded takes.
+    ///
+    /// # Errors
+    /// [`WorldError`] naming the problem, such as a scene the project does not have.
+    pub fn open_scene(path: &Path, scene: Option<&str>, takes: TakePolicy) -> Result<Opened, WorldError> {
         if path.is_dir() {
-            return Self::open_project(path);
+            return Self::open_project(path, scene, takes);
         }
         match extension(path).as_str() {
             "charcraft" => Self::open_saved(path),
-            "puppet" | "chproj" => Self::open_project(path),
+            "puppet" | "chproj" => Self::open_project(path, scene, takes),
             "psd" | "psb" | "ai" | "svg" | "pdf" | "eps" => Self::open_artwork(path),
             _ => Err(WorldError(format!("{}: not a .puppet, .chproj, .psd, .ai, .svg or .charcraft file", path.display()))),
         }
@@ -177,13 +186,22 @@ impl World {
         Ok(world.finish(scene))
     }
 
-    fn open_project(path: &Path) -> Result<Opened, WorldError> {
+    fn open_project(path: &Path, scene: Option<&str>, takes: TakePolicy) -> Result<Opened, WorldError> {
         let project = Project::open(path).map_err(|e| WorldError::of(&format!("opening {}", path.display()), e))?;
         let model = project.model().map_err(|e| WorldError::of("reading the project", e))?;
         let title = path.file_stem().map_or_else(|| "Project".to_owned(), |s| s.to_string_lossy().into_owned());
         let is_puppet = extension(path) == "puppet";
         let mut warnings = Vec::new();
-        let imported = if is_puppet { None } else { import_scene(&model, None).ok().filter(|i| !i.scene.tracks.is_empty()) };
+        let imported = if is_puppet {
+            None
+        } else {
+            match import_scene_with(&project, &model, scene, &ImportOptions { takes }) {
+                Ok(imported) => Some(imported).filter(|i| !i.scene.tracks.is_empty()),
+                // A scene asked for by name is an error when it is not there; the default one may be missing.
+                Err(e) if scene.is_some() => return Err(WorldError::of("importing the scene", e)),
+                Err(_) => None,
+            }
+        };
         let (cast, scene, media) = if let Some(imported) = imported {
             warnings.extend(imported.warnings.clone());
             let (cast, cast_warnings) = Cast::from_project(&project, &model, imported.puppets.iter().map(String::as_str));

@@ -15,7 +15,6 @@ mod cli;
 mod commands;
 mod frames;
 mod perform;
-mod scene;
 mod source;
 mod video;
 

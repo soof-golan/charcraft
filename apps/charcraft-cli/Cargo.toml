@@ -29,6 +29,7 @@ charcraft-behaviors = { workspace = true }
 charcraft-ltab = { workspace = true }
 charcraft-project = { workspace = true }
 charcraft-puppet = { workspace = true }
+charcraft-record = { workspace = true }
 clap = { workspace = true }
 color-eyre = { workspace = true }
 png = { workspace = true }
