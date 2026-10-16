@@ -8,6 +8,10 @@ use crate::pose::{PuppetPose, Sprite, Xform};
 use crate::tags::{self, ids};
 use crate::warp::{self, Warp, Weld};
 
+/// The tag of the handle a head attaches to the body at.
+const NECK_TAG: &str = "Adobe.Walk.Neck";
+/// A child group of a warped group follows the warp only by what its displacement exceeds this many pixels.
+const CHILD_DEAD_ZONE: f64 = 1.5;
 /// Deepest layer nesting evaluated.
 const MAX_DEPTH: usize = 128;
 /// Eyebrows move by this fraction of their own height at full raise.
@@ -248,7 +252,15 @@ impl Puppet {
     #[must_use]
     pub fn group_matrix(&self, id: LayerId, pose: &PuppetPose) -> Affine {
         let x = self.group_xform(id, pose);
-        if x.is_identity() { Affine::IDENTITY } else { x.about(self.layer(id).map_or(Point::ORIGIN, |l| l.origin)) }
+        if x.is_identity() { Affine::IDENTITY } else { x.about(self.pivot(id)) }
+    }
+
+    /// The point an independent group rotates and scales about, and attaches to the body at: its handle tagged
+    /// `Adobe.Walk.Neck` (where Character Animator attaches a head), else its origin.
+    #[must_use]
+    pub fn pivot(&self, id: LayerId) -> Point {
+        let Some(layer) = self.layer(id) else { return Point::ORIGIN };
+        layer.handles.iter().find(|h| h.tags.iter().any(|t| t == NECK_TAG)).map_or(layer.origin, |h| h.position)
     }
 
     /// The mesh of a group's warp in the pose: rest vertices and deformed vertices, when the pose moves the warp
@@ -408,6 +420,10 @@ impl Frame<'_> {
                     flush(&mut run, &mut out);
                     let held = welded.iter().any(|w| w.child == child.id) || child.attach == AttachStyle::Free;
                     let d = if held { Vec2::ZERO } else { warp::displacement(warp_mesh, positions, child.origin) };
+                    // A displacement of a fraction of a pixel is the mesh's long triangles, not a move: resampling the
+                    // child for it would blur it. The dead zone is soft, so a child never jumps.
+                    let moved = d.hypot();
+                    let d = if moved > CHILD_DEAD_ZONE { d * ((moved - CHILD_DEAD_ZONE) / moved) } else { Vec2::ZERO };
                     out.push(if d == Vec2::ZERO {
                         entry.node
                     } else {

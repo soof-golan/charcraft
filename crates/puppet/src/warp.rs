@@ -32,9 +32,8 @@ pub struct Warp {
     /// For each welded group, the vertices of this mesh under its artwork (the overlap), pinned to follow the
     /// group's pose rigidly. Pins after the handles', in this order; then `anchors`.
     overlaps: Vec<Vec<u32>>,
-    /// Vertices far from every overlap, held in place while a welded group moves, each with how much of the
-    /// overlap's sideways shift it takes up (the body leans with the head; the nearest anchors sway most).
-    anchors: Vec<(u32, f64)>,
+    /// Vertices far from every overlap, held in place while a welded group moves (the body does not follow the head).
+    anchors: Vec<u32>,
 }
 
 /// An independent group attached to another group's mesh (Character Animator's "Weld" attach style, the default).
@@ -67,7 +66,7 @@ pub fn plan_welds(puppet: &Puppet) -> Vec<(Weld, LayerId)> {
             .children
             .iter()
             .filter_map(|&c| puppet.layer(c))
-            .filter(|l| l.independent && l.id != child.id && l.bounds.is_some_and(|b| b.inflate(1.0, 1.0).contains(child.origin)))
+            .filter(|l| l.independent && l.id != child.id && l.bounds.is_some_and(|b| b.inflate(1.0, 1.0).contains(puppet.pivot(child.id))))
             .filter(|l| !l.warp_independent && !own_nodes(puppet, l.id).is_empty())
             .min_by(|a, b| area(a.bounds).total_cmp(&area(b.bounds)));
         if let Some(s) = sibling {
@@ -95,13 +94,10 @@ impl Warp {
             _ => self.handles.targets(targets),
         };
         let at = |id: u32| self.mesh.vertex(id).unwrap_or(Point::ORIGIN);
-        let mut sideways = 0.0;
         for (ids, matrix) in self.overlaps.iter().zip(matrices.iter().map(|m| m.unwrap_or(Affine::IDENTITY)).chain(std::iter::repeat(Affine::IDENTITY))) {
             pins.extend(ids.iter().map(|&id| matrix * at(id)));
-            let n = f64::from(u32::try_from(ids.len()).unwrap_or(u32::MAX)).max(1.0);
-            sideways += ids.iter().map(|&id| (matrix * at(id)).x - at(id).x).sum::<f64>() / n;
         }
-        pins.extend(self.anchors.iter().map(|&(id, sway)| at(id) + Vec2::new(sway * sideways, 0.0)));
+        pins.extend(self.anchors.iter().map(|&id| at(id)));
         self.checked(self.solver.solve(&pins))
     }
 
@@ -115,21 +111,28 @@ pub fn displacement(mesh: &Mesh, positions: &[Point], rest: Point) -> Vec2 {
     Binding::bind(mesh, rest, BindingMode::Barycentric).and_then(|b| b.evaluate(mesh, positions)).map_or(Vec2::ZERO, |p| p - rest)
 }
 
-/// Distance from the overlap, as a fraction of the mesh extent, beyond which a parent mesh is held in place while a
-/// welded group moves.
-const ANCHOR_REACH: f64 = 0.04;
-/// How much of a welded group's sideways shift the nearest anchors take up, so a short neck can lean instead of
-/// shearing to a thread.
-const SWAY: f64 = 0.8;
-/// Distance, in multiples of the reach beyond it, over which the sway fades out.
-const SWAY_FALLOFF: f64 = 2.0;
-/// A welded group overlapping fewer mesh vertices than this counts as touching only thinly.
-const THIN_OVERLAP: usize = 12;
-/// How far from the attach point, in mesh edges, vertices under a thinly overlapping group's whole subtree follow it.
-const NECK_EDGES: f64 = 4.0;
+/// A welded group overlapping fewer mesh vertices than this counts as touching only thinly (12 vertices of a mesh
+/// whose edge is 1/40 of its extent; the weld mesh is finer, so the count scales with the square of the ratio).
+const THIN_OVERLAP: usize = 75;
+/// How far from the attach point, as a fraction of the mesh extent, vertices under a thinly overlapping group's
+/// whole subtree follow it.
+const NECK_REACH: f64 = 0.1;
+/// The body does not follow a welded group: the vertices outside a band around its overlap are held in place. The
+/// band reaches this many overlap widths to each side of the overlap's centre ...
+const BAND_HALF: f64 = 0.85;
+/// ... and this many overlap widths away from the overlap.
+const BAND_DEPTH: f64 = 1.2;
+/// The overlap reaches this far (fraction of the mesh extent) beyond the welded group's outline, so the neck stays
+/// rigid with the head for a short way below the chin and the bend starts lower.
+const OVERLAP_MARGIN: f64 = 0.03;
+/// Only vertices this near the attach point (fraction of the mesh extent) follow the welded group: a head sitting
+/// straight on a wide torso pins the part of the torso at the neck, not its whole top edge.
+const OVERLAP_RADIUS: f64 = 0.12;
+/// Smallest overlap width the band is sized from, as a fraction of the mesh extent.
+const ANCHOR_FLOOR: f64 = 0.03;
 /// Edge length of a mesh that has welded groups, as a fraction of its extent (finer than the handle meshes, so the
 /// overlap is a few vertices wide).
-const WELD_EDGE: f64 = 1.0 / 40.0;
+const WELD_EDGE: f64 = 1.0 / 100.0;
 
 /// Builds the warp of every independent group that has mesh-pinning handles. Returns the warps and warnings for
 /// groups that could not be meshed.
@@ -228,14 +231,15 @@ pub fn build_one(puppet: &Puppet, group: LayerId, welded: Vec<Weld>) -> Result<W
     let mut taken: Vec<u32> = handles.pinned().to_vec();
     let mut overlaps: Vec<Vec<u32>> = Vec::new();
     for w in &welded {
-        let child = puppet.layer(w.child).ok_or("missing layer")?;
+        let pivot = puppet.pivot(w.child);
         let extent = mesh.bounds().map_or(0.0, |b| b.width().max(b.height()));
         let ring = silhouette_outline(puppet, &own_nodes(puppet, w.child)).map(|o| o.outer);
+        let margin = OVERLAP_MARGIN * extent;
         let mut under: Vec<u32> = mesh
             .vertices
             .iter()
             .enumerate()
-            .filter(|(_, v)| ring.as_deref().is_some_and(|r| inside(r, **v)))
+            .filter(|(_, v)| v.distance(pivot) <= OVERLAP_RADIUS * extent && ring.as_deref().is_some_and(|r| inside(r, **v) || ring_distance(r, **v) <= margin))
             .map(|(i, _)| num::usize_to_u32_sat(i))
             .filter(|i| !taken.contains(i))
             .collect();
@@ -245,14 +249,14 @@ pub fn build_one(puppet: &Puppet, group: LayerId, welded: Vec<Weld>) -> Result<W
             // collapses to a spike under the chin when the head moves. The whole welded subtree moves with the
             // group, so the vertices under all of it and near the attach point follow it as well; the neck keeps
             // its width right up to the chin while the shoulders under hanging hair stay on the body.
-            let reach = extent * WELD_EDGE * NECK_EDGES;
+            let reach = extent * NECK_REACH;
             if let Some(full) = silhouette_outline(puppet, &subtree_nodes(puppet, w.child)).map(|o| o.outer) {
                 let more: Vec<u32> = mesh
                     .vertices
                     .iter()
                     .enumerate()
                     .map(|(i, v)| (num::usize_to_u32_sat(i), *v))
-                    .filter(|(i, v)| !taken.contains(i) && !under.contains(i) && v.distance(child.origin) <= reach && inside(&full, *v))
+                    .filter(|(i, v)| !taken.contains(i) && !under.contains(i) && v.distance(pivot) <= reach && inside(&full, *v))
                     .map(|(i, _)| i)
                     .collect();
                 under.extend(more);
@@ -265,31 +269,55 @@ pub fn build_one(puppet: &Puppet, group: LayerId, welded: Vec<Weld>) -> Result<W
                 .iter()
                 .enumerate()
                 .filter(|(i, _)| !taken.contains(&num::usize_to_u32_sat(*i)))
-                .min_by(|a, b| a.1.distance(child.origin).total_cmp(&b.1.distance(child.origin)));
+                .min_by(|a, b| a.1.distance(pivot).total_cmp(&b.1.distance(pivot)));
             under.extend(nearest.map(|(i, _)| num::usize_to_u32_sat(i)));
         }
         taken.extend(under.iter().copied());
         overlaps.push(under);
     }
-    let anchors: Vec<(u32, f64)> = if welded.is_empty() {
+    let anchors: Vec<u32> = if welded.is_empty() {
         Vec::new()
     } else {
         let b = mesh.bounds().ok_or("empty mesh")?;
-        let reach = ANCHOR_REACH * b.width().max(b.height());
-        let held: Vec<Point> = overlaps.iter().flatten().filter_map(|&i| mesh.vertex(i)).collect();
+        let floor = ANCHOR_FLOOR * b.width().max(b.height());
+        // Each weld frees a band around its overlap: as wide as the overlap, a little deeper than it is wide.
+        let bands: Vec<(f64, f64, Vec<Point>)> = overlaps
+            .iter()
+            .map(|ids| {
+                let pts: Vec<Point> = ids.iter().filter_map(|&i| mesh.vertex(i)).collect();
+                let (lo, hi) = pts.iter().fold((f64::MAX, f64::MIN), |(lo, hi), p| (lo.min(p.x), hi.max(p.x)));
+                (f64::midpoint(lo, hi), (hi - lo).max(floor), pts)
+            })
+            .collect();
         mesh.vertices
             .iter()
             .enumerate()
-            .map(|(i, v)| (num::usize_to_u32_sat(i), held.iter().map(|h| h.distance(*v)).fold(f64::MAX, f64::min)))
-            .filter(|(i, d)| !taken.contains(i) && *d > reach)
-            .map(|(i, d)| (i, SWAY * (1.0 - (d - reach) / (SWAY_FALLOFF * reach)).clamp(0.0, 1.0)))
+            .map(|(i, v)| (num::usize_to_u32_sat(i), *v))
+            .filter(|(i, v)| {
+                !taken.contains(i)
+                    && bands.iter().all(|(cx, width, pts)| (v.x - cx).abs() > BAND_HALF * width || pts.iter().all(|p| p.distance(*v) > BAND_DEPTH * width))
+            })
+            .map(|(i, _)| i)
             .collect()
     };
     let mut all: Vec<u32> = handles.pinned().to_vec();
     all.extend(overlaps.iter().flatten().copied());
-    all.extend(anchors.iter().map(|a| a.0));
+    all.extend(anchors.iter().copied());
     let solver = ArapSolver::new(&mesh, &all).map_err(|e| e.to_string())?;
     Ok(Warp { group, mesh, handles, solver, plain, handle_indices: indices, pin_offsets: offsets, welded, overlaps, anchors })
+}
+
+/// Distance from a point to a closed polygon's outline.
+fn ring_distance(ring: &[Point], p: Point) -> f64 {
+    ring.iter()
+        .zip(ring.iter().cycle().skip(1))
+        .map(|(a, b)| {
+            let ab = *b - *a;
+            let len2 = ab.hypot2();
+            let t = if len2 > 0.0 { ((p - *a).dot(ab) / len2).clamp(0.0, 1.0) } else { 0.0 };
+            p.distance(*a + ab * t)
+        })
+        .fold(f64::MAX, f64::min)
 }
 
 /// True when a point is inside a closed polygon (even-odd rule).
