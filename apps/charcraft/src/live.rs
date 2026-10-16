@@ -23,6 +23,12 @@ use serde_json::{Value, json};
 
 /// How long a caller waits for the actor to answer a request.
 const ANSWER: Duration = Duration::from_secs(5);
+/// How long the actor waits for the system's camera list before it reports a failure instead.
+const CAMERA_TIMEOUT: Duration = Duration::from_secs(8);
+/// How long a caller waits for the answer to a camera listing: the actor's own timeout plus a margin.
+const CAMERA_ANSWER: Duration = Duration::from_secs(10);
+/// The tool whose answer comes from a worker thread instead of the actor's own loop.
+const LIST_CAMERAS: &str = "tracking_list_cameras";
 /// The loop period of the actor.
 const TICK: Duration = Duration::from_millis(8);
 /// Events the UI may fall behind by before the actor drops face and voice frames.
@@ -59,6 +65,8 @@ pub enum LiveRequest {
     Mic { action: MicAction, reply: Sender<Result<Value, String>> },
     /// Forward microphone chunks as [`LiveEvent::Audio`] (while a take records sound).
     ForwardAudio(bool),
+    /// Look for cameras; the answer arrives as [`LiveEvent::Cameras`], never as a reply, so the caller never waits.
+    ListCameras,
     /// End the actor.
     Shutdown,
 }
@@ -76,6 +84,55 @@ pub enum LiveEvent {
     Audio(PcmBuffer),
     /// The camera image and tracked points.
     Preview(Box<Preview>),
+    /// The outcome of a camera search: the `tracking_list_cameras` answer, or why there is none (a timeout when the
+    /// system's camera API is blocked, for example on a permission prompt).
+    Cameras(Result<Value, String>),
+}
+
+/// Where the actor gets its devices from: the real system in the app, deterministic stand-ins in tests.
+///
+/// Plain function pointers keep it `Copy` and free of shared state.
+#[derive(Debug, Clone, Copy)]
+pub struct Sources {
+    /// Starts the face and body tracking actors.
+    pub tracking: fn() -> (TrackingHandle, BodyHandle),
+    /// Lists the cameras (the `tracking_list_cameras` answer). Runs on a worker thread and may block.
+    pub cameras: fn() -> Result<Value, String>,
+    /// Lists the microphone names.
+    pub microphones: fn() -> Vec<String>,
+    /// How long a camera search may take before it is reported as failed.
+    pub camera_timeout: Duration,
+}
+
+impl Sources {
+    /// The real camera and microphone APIs of this machine (the camera and face models only with the `live` feature).
+    #[must_use]
+    pub const fn system() -> Self {
+        Self { tracking: spawn_tracking, cameras: system_cameras, microphones: input_devices, camera_timeout: CAMERA_TIMEOUT }
+    }
+
+    /// No devices: the scripted demo face and one fixed microphone. Never touches the system, so it is what unit tests use.
+    #[must_use]
+    pub const fn demo() -> Self {
+        Self { tracking: demo_tracking, cameras: demo_cameras, microphones: demo_microphones, camera_timeout: CAMERA_TIMEOUT }
+    }
+}
+
+fn system_cameras() -> Result<Value, String> {
+    charcraft_tracking::tools::camera_list().map_err(|e| e.to_string())
+}
+
+fn demo_tracking() -> (TrackingHandle, BodyHandle) {
+    (charcraft_tracking::actor::TrackingActor::spawn_demo_only(), charcraft_tracking::body_actor::BodyActor::spawn_demo_only())
+}
+
+#[expect(clippy::unnecessary_wraps, reason = "it stands in for the system listing, which can fail")]
+fn demo_cameras() -> Result<Value, String> {
+    Ok(json!({ "cameras": [{ "index": 0, "name": "Demo face", "description": "a scripted talking face" }], "demo": true }))
+}
+
+fn demo_microphones() -> Vec<String> {
+    vec!["Demo microphone".to_owned()]
 }
 
 /// The sending half, cheap to clone: document commands hold one.
@@ -99,7 +156,13 @@ impl LiveLink {
     pub fn tool(&self, name: &str, params: &Value) -> Result<Value, String> {
         let (reply, answer) = bounded(1);
         self.requests.send(LiveRequest::Tool { name: name.to_owned(), params: params.clone(), reply }).map_err(|_| "live input is not running".to_owned())?;
-        answer.recv_timeout(ANSWER).map_err(|_| "live input did not answer".to_owned())?
+        let wait = if name == LIST_CAMERAS { CAMERA_ANSWER } else { ANSWER };
+        answer.recv_timeout(wait).map_err(|_| "live input did not answer".to_owned())?
+    }
+
+    /// Starts a camera search without waiting; the outcome arrives as [`LiveEvent::Cameras`].
+    pub fn search_cameras(&self) {
+        let _ = self.requests.send(LiveRequest::ListCameras);
     }
 
     /// Runs a microphone action.
@@ -130,9 +193,16 @@ impl LiveHandle {
     /// Starts the actor. `wake` is called whenever events are waiting (to repaint the window).
     #[must_use]
     pub fn spawn(wake: impl Fn() + Send + 'static) -> Self {
+        Self::spawn_with(wake, Sources::system())
+    }
+
+    /// Starts the actor on the given device sources.
+    #[must_use]
+    pub fn spawn_with(wake: impl Fn() + Send + 'static, sources: Sources) -> Self {
         let (requests, request_rx) = unbounded();
         let (event_tx, events) = bounded(EVENT_QUEUE);
-        let thread = std::thread::Builder::new().name("charcraft-live".into()).spawn(move || Actor::new(event_tx, Box::new(wake)).run(&request_rx)).ok();
+        let thread =
+            std::thread::Builder::new().name("charcraft-live".into()).spawn(move || Actor::new(event_tx, Box::new(wake), sources).run(&request_rx)).ok();
         Self { link: LiveLink { requests }, events, thread }
     }
 
@@ -318,11 +388,20 @@ fn input_devices() -> Vec<String> {
     anim_audio::device::list_input_devices()
 }
 
+/// A camera search in flight on a worker thread, with everyone waiting for its outcome.
+struct CameraSearch {
+    started: Instant,
+    outcome: Receiver<Result<Value, String>>,
+    replies: Vec<Sender<Result<Value, String>>>,
+}
+
 struct Actor {
     events: Sender<LiveEvent>,
     wake: Box<dyn Fn() + Send>,
+    sources: Sources,
     tracking: TrackingTools,
     mic: Mic,
+    cameras: Option<CameraSearch>,
     last_face: Option<Tick>,
     last_body: Option<Tick>,
     started: Instant,
@@ -330,18 +409,66 @@ struct Actor {
 }
 
 impl Actor {
-    fn new(events: Sender<LiveEvent>, wake: Box<dyn Fn() + Send>) -> Self {
-        let (face, body) = spawn_tracking();
+    fn new(events: Sender<LiveEvent>, wake: Box<dyn Fn() + Send>, sources: Sources) -> Self {
+        let (face, body) = (sources.tracking)();
         Self {
             events,
             wake,
+            sources,
             tracking: TrackingTools::new(face).with_body(body),
             mic: Mic::default(),
+            cameras: None,
             last_face: None,
             last_body: None,
             started: Instant::now(),
             last_voice: None,
         }
+    }
+
+    /// Starts a camera search on its own thread (or joins the one running). The platform's camera API may block for a
+    /// long time, for example on a permission prompt, and the actor must keep answering meanwhile; [`Self::poll_cameras`]
+    /// collects the outcome or gives up at the timeout.
+    fn search_cameras(&mut self, reply: Option<Sender<Result<Value, String>>>) {
+        if self.cameras.is_none() {
+            let (sender, outcome) = bounded(1);
+            let list = self.sources.cameras;
+            match std::thread::Builder::new().name("charcraft-cameras".into()).spawn(move || {
+                let _ = sender.send(list());
+            }) {
+                Ok(_) => self.cameras = Some(CameraSearch { started: Instant::now(), outcome, replies: Vec::new() }),
+                Err(error) => {
+                    let outcome = Err(format!("cannot look for cameras: {error}"));
+                    if let Some(reply) = reply {
+                        let _ = reply.send(outcome.clone());
+                    }
+                    self.send(LiveEvent::Cameras(outcome));
+                    return;
+                }
+            }
+        }
+        if let (Some(search), Some(reply)) = (self.cameras.as_mut(), reply) {
+            search.replies.push(reply);
+        }
+    }
+
+    /// Reports a finished or overdue camera search.
+    fn poll_cameras(&mut self) {
+        let Some(search) = &self.cameras else { return };
+        let outcome = match search.outcome.try_recv() {
+            Ok(outcome) => outcome,
+            Err(crossbeam_channel::TryRecvError::Empty) if search.started.elapsed() < self.sources.camera_timeout => return,
+            Err(crossbeam_channel::TryRecvError::Empty) => Err(format!(
+                "looking for cameras took longer than {:?}; if the system asked for camera access, allow it and look again",
+                self.sources.camera_timeout
+            )),
+            Err(crossbeam_channel::TryRecvError::Disconnected) => Err("the camera search stopped without an answer".to_owned()),
+        };
+        if let Some(search) = self.cameras.take() {
+            for reply in search.replies {
+                let _ = reply.send(outcome.clone());
+            }
+        }
+        self.send(LiveEvent::Cameras(outcome));
     }
 
     fn run(mut self, requests: &Receiver<LiveRequest>) {
@@ -359,6 +486,8 @@ impl Actor {
 
     fn handle(&mut self, request: LiveRequest) {
         match request {
+            LiveRequest::Tool { name, reply, .. } if name == LIST_CAMERAS => self.search_cameras(Some(reply)),
+            LiveRequest::ListCameras => self.search_cameras(None),
             LiveRequest::Tool { name, params, reply } => {
                 let result = self.tracking.call(&name, &params).map_err(|e| e.to_string());
                 let _ = reply.send(result);
@@ -375,7 +504,7 @@ impl Actor {
                         Ok(json!({ "demo_voice": on }))
                     }
                     MicAction::Status => Ok(Value::Null),
-                    MicAction::Devices => Ok(json!({ "devices": input_devices(), "selected": self.mic.device })),
+                    MicAction::Devices => Ok(json!({ "devices": (self.sources.microphones)(), "selected": self.mic.device })),
                     MicAction::SetDevice(device) => self.mic.select(device.clone()).map(|()| Value::Null),
                     MicAction::SetGain(gain) => {
                         if gain.is_finite() {
@@ -406,6 +535,7 @@ impl Actor {
     }
 
     fn poll(&mut self) {
+        self.poll_cameras();
         self.tracking.pump();
         if let Ok(value) = self.tracking.call("tracking_latest", &Value::Null)
             && let Some(sample) = value.get("sample").cloned().and_then(|s| serde_json::from_value::<Sample>(s).ok())
@@ -521,7 +651,7 @@ mod tests {
 
     #[test]
     fn the_actor_streams_demo_bodies_and_answers_body_tools() {
-        let handle = LiveHandle::spawn(|| {});
+        let handle = LiveHandle::spawn_with(|| {}, Sources::demo());
         let link = handle.link();
         assert_eq!(link.tool("tracking_body_status", &Value::Null).unwrap()["running"], false);
         link.tool("tracking_body_start", &json!({ "demo": true })).unwrap();
@@ -561,7 +691,7 @@ mod tests {
 
     #[test]
     fn the_actor_keeps_the_microphone_choices() {
-        let handle = LiveHandle::spawn(|| {});
+        let handle = LiveHandle::spawn_with(|| {}, Sources::demo());
         let link = handle.link();
         assert!(link.mic(MicAction::Devices).unwrap()["devices"].is_array());
         assert_eq!(link.mic(MicAction::SetGain(100.0)).unwrap()["gain"].as_f64(), Some(8.0), "the gain is clamped");
@@ -575,10 +705,11 @@ mod tests {
 
     #[test]
     fn the_actor_lists_cameras_sets_the_rest_pose_and_streams_previews() {
-        let handle = LiveHandle::spawn(|| {});
+        let handle = LiveHandle::spawn_with(|| {}, Sources::demo());
         let link = handle.link();
         let cameras = link.tool("tracking_list_cameras", &Value::Null).unwrap();
-        assert!(cameras["cameras"].as_array().is_some_and(|c| !c.is_empty()) || cfg!(feature = "live"));
+        assert_eq!(cameras["cameras"][0]["name"], "Demo face");
+        assert_eq!(cameras["demo"], true);
         assert!(link.tool("tracking_set_rest_pose", &json!({ "target": "legs" })).is_err());
         link.tool("tracking_start", &json!({ "demo": true })).unwrap();
         link.tool("tracking_set_rest_pose", &json!({ "target": "body", "frames": 3 })).unwrap();
@@ -601,7 +732,7 @@ mod tests {
 
     #[test]
     fn the_actor_answers_tools_and_streams_demo_faces() {
-        let handle = LiveHandle::spawn(|| {});
+        let handle = LiveHandle::spawn_with(|| {}, Sources::demo());
         let link = handle.link();
         let status = link.tool("tracking_status", &Value::Null).unwrap();
         assert_eq!(status["running"], false);
@@ -622,5 +753,66 @@ mod tests {
         assert!(link.tool("nope", &Value::Null).is_err());
         let voice = link.mic(MicAction::DemoVoice(true)).unwrap();
         assert_eq!(voice["demo_voice"], true);
+    }
+
+    fn blocked_cameras() -> Result<Value, String> {
+        std::thread::sleep(Duration::from_secs(3));
+        Ok(json!({ "cameras": [], "demo": false }))
+    }
+
+    fn next_cameras(handle: &LiveHandle) -> Result<Value, String> {
+        for _ in 0..1000 {
+            while let Some(event) = handle.try_event() {
+                if let LiveEvent::Cameras(outcome) = event {
+                    return outcome;
+                }
+            }
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        Err("no camera event arrived".to_owned())
+    }
+
+    #[test]
+    fn a_blocked_camera_api_times_out_and_never_freezes_the_actor() {
+        let sources = Sources { cameras: blocked_cameras, camera_timeout: Duration::from_millis(150), ..Sources::demo() };
+        let handle = LiveHandle::spawn_with(|| {}, sources);
+        let link = handle.link();
+        link.search_cameras();
+        // The actor keeps answering while the search is stuck.
+        let started = Instant::now();
+        assert_eq!(link.tool("tracking_status", &Value::Null).unwrap()["running"], false);
+        assert!(link.mic(MicAction::Devices).unwrap()["devices"].is_array());
+        assert!(started.elapsed() < Duration::from_secs(1), "the actor waited for the camera search");
+        let outcome = next_cameras(&handle);
+        let message = outcome.unwrap_err();
+        assert!(message.contains("took longer"), "{message}");
+        // A tool call asking for the list gets the same clear error instead of a silent timeout.
+        let err = link.tool("tracking_list_cameras", &Value::Null).unwrap_err();
+        assert!(err.contains("took longer"), "{err}");
+    }
+
+    #[test]
+    fn a_camera_search_reports_its_list_as_an_event() {
+        let handle = LiveHandle::spawn_with(|| {}, Sources::demo());
+        handle.link().search_cameras();
+        let list = next_cameras(&handle).unwrap();
+        assert_eq!(list["cameras"][0]["index"], 0);
+    }
+
+    /// Touches the real cameras and microphones of this machine; runs only with `CHARCRAFT_DEVICE_TESTS=1`.
+    #[test]
+    fn the_system_devices_answer_in_time() {
+        if std::env::var("CHARCRAFT_DEVICE_TESTS").as_deref() != Ok("1") {
+            return;
+        }
+        let handle = LiveHandle::spawn_with(|| {}, Sources::system());
+        let link = handle.link();
+        assert!(link.mic(MicAction::Devices).unwrap()["devices"].is_array());
+        // Either the list or a clear error (access denied, timeout), but always an answer from the actor.
+        match link.tool("tracking_list_cameras", &Value::Null) {
+            Ok(list) => assert!(list["cameras"].is_array(), "{list}"),
+            Err(message) => assert_ne!(message, "live input did not answer"),
+        }
+        assert_eq!(link.tool("tracking_status", &Value::Null).unwrap()["running"], false);
     }
 }

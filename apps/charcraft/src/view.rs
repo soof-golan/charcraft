@@ -296,6 +296,10 @@ pub struct LiveSnapshot {
     pub cameras: Vec<(u32, String)>,
     /// The camera list is the single scripted demo face (no camera support in this build).
     pub camera_demo: bool,
+    /// A camera search is running ("looking for cameras...").
+    pub cameras_searching: bool,
+    /// Why the last camera search found nothing (a timeout, access denied).
+    pub cameras_error: Option<String>,
     /// The camera chosen in the picker.
     pub camera_index: u32,
     /// The microphones the system reports.
@@ -339,6 +343,8 @@ impl Default for LiveSnapshot {
             calibrating: None,
             cameras: Vec::new(),
             camera_demo: false,
+            cameras_searching: false,
+            cameras_error: None,
             camera_index: 0,
             mic_devices: Vec::new(),
             mic_device: None,

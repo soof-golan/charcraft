@@ -168,8 +168,14 @@ pub fn tools() -> Vec<ToolSpec> {
 }
 
 /// The cameras to offer: the system's with the `camera` feature, one scripted demo face without it.
+///
+/// With the `camera` feature this can block for as long as the platform's camera API does (macOS waits for the
+/// camera permission prompt), so callers that must stay responsive run it off their own thread.
+///
+/// # Errors
+/// [`ToolError::Failed`] when the platform's camera API fails.
 #[cfg_attr(not(feature = "camera"), allow(clippy::unnecessary_wraps, reason = "the camera build can fail"))]
-fn camera_list() -> Result<Value, ToolError> {
+pub fn camera_list() -> Result<Value, ToolError> {
     #[cfg(feature = "camera")]
     {
         let cameras = crate::camera::list_cameras().map_err(|e| ToolError::Failed(e.to_string()))?;

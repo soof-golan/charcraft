@@ -145,8 +145,11 @@ pub fn video_preview(ui: &mut Ui, live: &LiveSnapshot, mirror: bool, width: f32)
 /// The camera device picker: a list of the system's cameras and a refresh button.
 pub fn camera_picker(ui: &mut Ui, view: &mut View, actions: &mut Vec<Action>) {
     ui.horizontal(|ui| {
-        let current =
-            view.live.cameras.iter().find(|(index, _)| *index == view.live.camera_index).map_or_else(|| "No camera found".to_owned(), |(_, name)| name.clone());
+        let current = if view.live.cameras_searching {
+            "Looking for cameras\u{2026}".to_owned()
+        } else {
+            view.live.cameras.iter().find(|(index, _)| *index == view.live.camera_index).map_or_else(|| "No camera found".to_owned(), |(_, name)| name.clone())
+        };
         let before = view.live.camera_index;
         egui::ComboBox::from_id_salt("camera_picker").width((ui.available_width() - 34.0).max(80.0)).selected_text(visual(&current).into_owned()).show_ui(
             ui,
@@ -159,10 +162,14 @@ pub fn camera_picker(ui: &mut Ui, view: &mut View, actions: &mut Vec<Action>) {
         if view.live.camera_index != before && view.live.tracking {
             actions.push(Action::Tracking("tracking_start", json!({ "index": view.live.camera_index })));
         }
-        if ui.small_button("\u{21BB}").on_hover_text("Look for cameras and microphones again").clicked() {
+        let refresh = ui.add_enabled(!view.live.cameras_searching, egui::Button::new("\u{21BB}").small());
+        if refresh.on_hover_text("Look for cameras and microphones again").clicked() {
             actions.push(Action::InputsRefresh);
         }
     });
+    if let Some(error) = view.live.cameras_error.as_ref().filter(|_| !view.live.cameras_searching) {
+        ui.colored_label(ui.visuals().error_fg_color, visual(error).into_owned());
+    }
 }
 
 /// The camera panel: picker, live video with the tracked points, start and stop, rest pose, mirror and the values.

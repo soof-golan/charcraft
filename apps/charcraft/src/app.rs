@@ -499,18 +499,35 @@ impl CharCraftApp {
     /// Asks the live actor what cameras and microphones there are.
     fn refresh_inputs(&mut self) {
         let link = self.live.link();
-        if let Ok(list) = link.tool("tracking_list_cameras", &Value::Null) {
-            self.view.live.camera_demo = list.get("demo").and_then(Value::as_bool).unwrap_or(false);
-            self.view.live.cameras = list
-                .get("cameras")
-                .and_then(Value::as_array)
-                .map(|all| all.iter().filter_map(|c| Some((u32::try_from(c.get("index")?.as_u64()?).ok()?, c.get("name")?.as_str()?.to_owned()))).collect())
-                .unwrap_or_default();
-        }
+        // The camera search runs off the UI thread; its outcome arrives as an event (see `take_cameras`).
+        self.view.live.cameras_searching = true;
+        self.view.live.cameras_error = None;
+        link.search_cameras();
         if let Ok(list) = link.mic(MicAction::Devices) {
             self.view.live.mic_devices =
                 list.get("devices").and_then(Value::as_array).map(|all| all.iter().filter_map(|d| d.as_str().map(str::to_owned)).collect()).unwrap_or_default();
             self.view.live.mic_device = list.get("selected").and_then(Value::as_str).map(str::to_owned);
+        }
+    }
+
+    /// Takes the outcome of a camera search into the view: the list, or the reason there is none.
+    fn take_cameras(&mut self, outcome: Result<Value, String>) {
+        let live = &mut self.view.live;
+        live.cameras_searching = false;
+        match outcome {
+            Ok(list) => {
+                live.cameras_error = None;
+                live.camera_demo = list.get("demo").and_then(Value::as_bool).unwrap_or(false);
+                live.cameras = list
+                    .get("cameras")
+                    .and_then(Value::as_array)
+                    .map(|all| all.iter().filter_map(|c| Some((u32::try_from(c.get("index")?.as_u64()?).ok()?, c.get("name")?.as_str()?.to_owned()))).collect())
+                    .unwrap_or_default();
+            }
+            Err(message) => {
+                live.cameras.clear();
+                live.cameras_error = Some(message);
+            }
         }
     }
 
@@ -544,6 +561,7 @@ impl CharCraftApp {
         while let Some(event) = self.live.try_event() {
             match event {
                 LiveEvent::Preview(preview) => self.take_preview(ctx, &preview),
+                LiveEvent::Cameras(outcome) => self.take_cameras(outcome),
                 LiveEvent::Face(_, face) => {
                     self.view.live.face = Some(face);
                     self.view.live.faces = self.view.live.faces.saturating_add(1);
