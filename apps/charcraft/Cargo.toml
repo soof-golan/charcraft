@@ -1,0 +1,56 @@
+[package]
+name = "charcraft-app"
+description = "CharCraft: live character animation. Rig, record and stream puppets that are file-compatible with Adobe Character Animator"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[lib]
+name = "charcraft_app"
+path = "src/lib.rs"
+
+[[bin]]
+name = "charcraft"
+path = "src/main.rs"
+
+[features]
+default = []
+# Real webcam and ONNX face models (ONNX Runtime loaded from ORT_DYLIB_PATH). Without it the tracking actor plays a
+# scripted demo face, so the app runs on machines without a camera.
+live = ["charcraft-tracking/camera", "charcraft-tracking/onnx-dynamic"]
+
+[dependencies]
+anim-artwork = { workspace = true }
+anim-audio = { workspace = true }
+anim-core = { workspace = true }
+anim-display = { workspace = true }
+anim-export = { workspace = true }
+anim-lipsync = { workspace = true }
+anim-mcp = { workspace = true }
+anim-render = { workspace = true }
+anim-session = { workspace = true }
+anim-ui = { workspace = true }
+anim-video = { workspace = true }
+base64 = { workspace = true }
+charcraft-behaviors = { workspace = true }
+charcraft-project = { workspace = true }
+charcraft-puppet = { workspace = true }
+charcraft-record = { workspace = true }
+charcraft-tracking = { workspace = true }
+clap = { workspace = true }
+color-eyre = { workspace = true }
+crossbeam-channel = { workspace = true }
+eframe = { workspace = true }
+egui = { workspace = true }
+png = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }

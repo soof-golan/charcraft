@@ -38,6 +38,8 @@ anim-export = { git = "https://github.com/soof-golan/anicraft-libs", branch = "m
 anim-video = { git = "https://github.com/soof-golan/anicraft-libs", branch = "main" }
 anim-ui = { git = "https://github.com/soof-golan/anicraft-libs", branch = "main" }
 anim-session = { git = "https://github.com/soof-golan/anicraft-libs", branch = "main" }
+# MCP without the streamable-HTTP front-end: the app serves stdio and the loopback control channel.
+anim-mcp = { git = "https://github.com/soof-golan/anicraft-libs", branch = "main", default-features = false }
 
 # External crates (versions match anicraft-libs so the lockfiles agree).
 kurbo = { version = "0.13", features = ["serde"] }
@@ -64,6 +66,7 @@ tempfile = "3"
 flate2 = { version = "1.1", default-features = false, features = ["rust_backend"] }
 sha1 = "0.11"
 sha2 = "0.11"
+base64 = "0.22"
 dirs = "7"
 ureq = "3"
 # Live input (charcraft-tracking). ONNX Runtime is a release candidate: pin it exactly. The crate picks the linking

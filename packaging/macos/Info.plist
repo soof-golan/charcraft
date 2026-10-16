@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleName</key>
+	<string>CharCraft</string>
+	<key>CFBundleDisplayName</key>
+	<string>CharCraft</string>
+	<key>CFBundleIdentifier</key>
+	<string>com.soofgolan.charcraft</string>
+	<key>CFBundleExecutable</key>
+	<string>charcraft</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>0.1.0</string>
+	<key>CFBundleVersion</key>
+	<string>1</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>12.0</string>
+	<key>NSHighResolutionCapable</key>
+	<true/>
+	<key>NSCameraUsageDescription</key>
+	<string>CharCraft tracks your face with the camera to move your puppet. Video never leaves this computer.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>CharCraft listens to your voice through the microphone to lip-sync your puppet and record takes.</string>
+	<key>CFBundleDocumentTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeName</key>
+			<string>Character Animator puppet</string>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>LSItemContentTypes</key>
+			<array>
+				<string>com.soofgolan.charcraft.puppet</string>
+			</array>
+		</dict>
+	</array>
+</dict>
+</plist>

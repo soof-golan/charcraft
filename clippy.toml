@@ -19,6 +19,16 @@ arithmetic-side-effects-allowed = [
   "anim_core::Affine",
   "anim_core::Size",
   "anim_core::Rect",
+  # egui's float geometry (the window code adds and scales points and rectangles).
+  "egui::Pos2",
+  "egui::Vec2",
+  "egui::Rect",
+  "egui::emath::Pos2",
+  "egui::emath::Vec2",
+  "egui::emath::Rect",
+  "emath::Pos2",
+  "emath::Vec2",
+  "emath::Rect",
 ]
 
 # No shared mutable state: actors own their state and talk over channels (placement rules).
