@@ -88,7 +88,7 @@ fn the_view_follows_the_yaw_and_pitch() {
     assert_eq!(view_at(p.clone(), 0.0, 30.0), "Head/Upward");
     assert_eq!(view_at(p.clone(), 0.0, -30.0), "Head/Downward");
     // Turned away, the nod does not matter.
-    assert_eq!(view_at(p.clone(), 50.0, 30.0), "Head/Right Profile");
+    assert_eq!(view_at(p, 50.0, 30.0), "Head/Right Profile");
     assert_eq!(view_at(json!({"smoothingRate": 0, "useVerticalViews": false}), 0.0, 30.0), "Head/Frontal");
     assert_eq!(view_at(json!({"smoothingRate": 0, "mirror": true}), 50.0, 0.0), "Head/Left Profile");
     assert_eq!(view_at(json!({"smoothingRate": 0, "sensitivity": 50}), 20.0, 0.0), "Head/Frontal", "half the turn counts");
@@ -181,7 +181,7 @@ fn motion_trigger_shows_the_transition_between_directions() {
 fn motion_trigger_falls_back_to_rest_and_watches_the_chosen_source() {
     // Only an at-rest and a moving-right layer: moving left shows the rest layer.
     let rig = Rig::new(Size::new(2000.0, 1000.0)).with_tagged(ids::AT_REST, "Rest").with_tagged(ids::MOVING_RIGHT, "Right");
-    let mut s = stack_of(rig.clone(), &[("Charcraft.Walk.js", json!({})), ("Adobe.MotionTrigger.js", json!({}))]);
+    let mut s = stack_of(rig, &[("Charcraft.Walk.js", json!({})), ("Adobe.MotionTrigger.js", json!({}))]);
     let f = play(&mut s, &Script::new(60.0, 120).with(key(0, "left", true)));
     assert_eq!((shown(&f[100], "Rest"), shown(&f[100], "Right")), (Some(true), Some(false)));
     // Walking moves the body, not the head: a head-only trigger stays at rest.
