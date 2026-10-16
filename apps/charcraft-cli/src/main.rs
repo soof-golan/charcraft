@@ -7,6 +7,8 @@
 //! charcraft-cli animate PUPPET --audio speech.wav -o out.mp4
 //! charcraft-cli export PROJECT --scene NAME -o out.mp4|frames/
 //! charcraft-cli convert in.puppet out.puppet
+//! charcraft-cli mcp [PUPPET|CHPROJ|...]        MCP server on stdio, headless (the demo puppet without a file)
+//! charcraft-cli mcp --bridge PORT              MCP server on stdio for a running `charcraft --control PORT`
 //! ```
 
 mod cli;
@@ -29,5 +31,6 @@ fn main() -> color_eyre::eyre::Result<()> {
         Command::Animate(args) => commands::animate::run(&args),
         Command::Export(args) => commands::export::run(&args),
         Command::Convert(args) => commands::convert::run(&args),
+        Command::Mcp(args) => commands::mcp::run(&args),
     }
 }

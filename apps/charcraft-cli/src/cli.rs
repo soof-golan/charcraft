@@ -26,6 +26,30 @@ pub enum Command {
     Export(ExportArgs),
     /// Read a puppet and write it again.
     Convert(ConvertArgs),
+    /// Serve `CharCraft` to an AI agent over MCP on stdin and stdout: headless, or as a bridge to a running app.
+    Mcp(McpArgs),
+}
+
+#[derive(Debug, Args)]
+pub struct McpArgs {
+    /// A .puppet, .chproj, .psd, .ai, .svg or saved .charcraft document to open (the built-in demo puppet without).
+    /// Ignored with --bridge: the running app has its own document.
+    pub file: Option<PathBuf>,
+    /// Talk to a running `charcraft --control PORT` instead of running headless.
+    #[arg(long, value_name = "PORT", conflicts_with = "file")]
+    pub bridge: Option<u16>,
+    /// With --bridge: the token file the app wrote (default: `charcraft-control-PORT.token` in the temp folder).
+    #[arg(long, value_name = "FILE", requires = "bridge")]
+    pub token_file: Option<PathBuf>,
+    /// Folders agents may read besides the working directory and the folder of FILE (repeatable).
+    #[arg(long, value_name = "DIR", conflicts_with = "bridge")]
+    pub allow_read: Vec<PathBuf>,
+    /// Folders agents may write besides the working directory and the temp folder (repeatable).
+    #[arg(long, value_name = "DIR", conflicts_with = "bridge")]
+    pub allow_write: Vec<PathBuf>,
+    /// Let agents read and write anywhere.
+    #[arg(long, conflicts_with = "bridge")]
+    pub unrestricted: bool,
 }
 
 #[derive(Debug, Args)]

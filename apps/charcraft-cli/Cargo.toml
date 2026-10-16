@@ -21,8 +21,10 @@ anim-core = { workspace = true }
 anim-display = { workspace = true }
 anim-export = { workspace = true }
 anim-lipsync = { workspace = true }
+anim-mcp = { workspace = true }
 anim-render = { workspace = true }
 anim-video = { workspace = true }
+charcraft-app = { path = "../charcraft" }
 charcraft-ltab = { workspace = true }
 charcraft-project = { workspace = true }
 charcraft-puppet = { workspace = true }
@@ -33,4 +35,6 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 
 [dev-dependencies]
+base64 = { workspace = true }
+crossbeam-channel = { workspace = true }
 tempfile = { workspace = true }

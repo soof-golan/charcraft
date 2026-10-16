@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "charcraft": {
+      "command": "cargo",
+      "args": ["run", "-q", "-p", "charcraft-cli", "--", "mcp"]
+    },
+    "charcraft-app": {
+      "command": "cargo",
+      "args": ["run", "-q", "-p", "charcraft-cli", "--", "mcp", "--bridge", "7870"]
+    }
+  }
+}

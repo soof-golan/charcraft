@@ -12,13 +12,13 @@
 //! * `tracking.*` and `mic.*` for the live input actor (transient: live input is not document state),
 //! * `ui.set` to drive the window (mode, selection, playhead).
 
-use anim_session::command::RunFn;
-use anim_session::{CommandError, CommandRegistry, CommandSpec, RegistryError, SizeHint, param_opt};
-use charcraft_puppet::{Puppet, PuppetOp};
-use charcraft_record::RecordDoc;
 use anim_audio::PcmBuffer;
 use anim_core::Tick;
+use anim_session::command::RunFn;
+use anim_session::{CommandError, CommandRegistry, CommandSpec, RegistryError, SizeHint, param_opt};
 use charcraft_behaviors::Inputs;
+use charcraft_puppet::{Puppet, PuppetOp};
+use charcraft_record::RecordDoc;
 use charcraft_record::{AudioClip, ParamGroup, Recorder};
 use crossbeam_channel::{Receiver, Sender};
 use serde::{Deserialize, Serialize};
@@ -424,7 +424,7 @@ fn lipsync_record(doc: &mut AppDoc, params: &Value) -> Result<Value, CommandErro
     Ok(Value::Object(result))
 }
 
-const NO_PARAMS: &str =r#"{"type":"object","properties":{},"additionalProperties":false}"#;
+const NO_PARAMS: &str = r#"{"type":"object","properties":{},"additionalProperties":false}"#;
 
 /// The commands the app adds to the record crate's.
 fn app_commands() -> Vec<CommandSpec<AppDoc>> {

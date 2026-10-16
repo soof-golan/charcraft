@@ -36,16 +36,24 @@ puppet pose, e.g. {\"head\":{\"rotation\":10}}), triggers (keys that are on), sw
 {time_seconds} for a scene frame. open_document opens .puppet, .chproj, .psd, .ai and .svg files (artwork becomes a new puppet), \
 save_document writes a .charcraft document.";
 
+/// Where the control server for `port` keeps its token and address unless told otherwise; `charcraft-cli mcp
+/// --bridge PORT` looks there too.
+#[must_use]
+pub fn default_token_file(port: u16) -> PathBuf {
+    std::env::temp_dir().join(format!("charcraft-control-{port}.token"))
+}
+
 /// Options of the control channels.
 #[derive(Debug, Clone, Args, Default)]
 pub struct ControlArgs {
     /// Serve MCP on stdin and stdout (nothing else is printed there).
     #[arg(long)]
     pub mcp_stdio: bool,
-    /// Serve the loopback control channel on this port (0 picks one) for the `anim-mcp` bridge.
-    #[arg(long, value_name = "PORT")]
+    /// Serve the loopback control channel on this port (0 picks one) for `charcraft-cli mcp --bridge PORT` or the
+    /// `anim-mcp` bridge.
+    #[arg(long, alias = "control", value_name = "PORT")]
     pub control_port: Option<u16>,
-    /// Where the control server writes its token and address.
+    /// Where the control server writes its token and address (default: `charcraft-control-PORT.token` in the temp folder).
     #[arg(long, value_name = "FILE")]
     pub token_file: Option<PathBuf>,
     /// Folders agents may read (repeatable). The working directory and the folder of the opened file are always allowed.
@@ -121,8 +129,15 @@ impl Control {
         }
         let server = match args.control_port {
             Some(port) => {
+                let token_file = args.token_file.clone().unwrap_or_else(|| default_token_file(port));
                 let server =
-                    ControlServer::start(&ControlConfig { port, token_file: args.token_file.clone() }, wake).map_err(|e| format!("control server: {e}"))?;
+                    ControlServer::start(&ControlConfig { port, token_file: Some(token_file.clone()) }, wake).map_err(|e| format!("control server: {e}"))?;
+                eprintln!(
+                    "charcraft: control channel on {} (token in {}); connect with `charcraft-cli mcp --bridge {}`",
+                    server.addr(),
+                    token_file.display(),
+                    server.addr().port()
+                );
                 summary.push(format!("control channel on {}", server.addr()));
                 Some(server)
             }

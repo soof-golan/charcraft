@@ -153,7 +153,8 @@ fn pose_from_options(options: &Value) -> Result<PuppetPose, ControlError> {
         pose.triggers.extend(keys);
     }
     if let Some(swaps) = options.get("swaps").filter(|t| !t.is_null()) {
-        let swaps: std::collections::BTreeMap<String, String> = serde_json::from_value(swaps.clone()).map_err(|_| ControlError::invalid("`swaps` must map a swap set name to a layer label"))?;
+        let swaps: std::collections::BTreeMap<String, String> =
+            serde_json::from_value(swaps.clone()).map_err(|_| ControlError::invalid("`swaps` must map a swap set name to a layer label"))?;
         pose.swaps.extend(swaps);
     }
     Ok(pose)
@@ -600,12 +601,12 @@ mod tests {
         std::fs::write(&wav, charcraft_record::wav_bytes(&speechlike())).unwrap();
         let session = headless();
         let backend = session.backend();
-        let done = run(backend,"lipsync.record", json!({ "track": 0, "path": wav.display().to_string(), "start_seconds": 0.25 })).unwrap();
+        let done = run(backend, "lipsync.record", json!({ "track": 0, "path": wav.display().to_string(), "start_seconds": 0.25 })).unwrap();
         assert_eq!(done.value["media"], "hello there");
         assert!(done.value["keys"].as_u64().unwrap() >= 2, "{}", done.value);
-        let takes = run(backend,"take.list", json!({ "track": 0 })).unwrap();
+        let takes = run(backend, "take.list", json!({ "track": 0 })).unwrap();
         assert!(!takes.value["takes"].as_array().unwrap().is_empty());
-        let scene = run(backend,"scene.info", json!({})).unwrap();
+        let scene = run(backend, "scene.info", json!({})).unwrap();
         assert_eq!(scene.value["audio"][0]["clips"].as_array().map(Vec::len), Some(1), "{}", scene.value);
         // The sound reaches the media store on the host's next tick.
         let mut sounds = Vec::new();
@@ -620,11 +621,11 @@ mod tests {
         assert_eq!(sounds, [json!("hello there")]);
         // One undo step takes the take and the clip away again.
         backend.call(Request::Undo {}).unwrap();
-        let scene = run(backend,"scene.info", json!({})).unwrap();
+        let scene = run(backend, "scene.info", json!({})).unwrap();
         assert!(scene.value["audio"].as_array().is_none_or(Vec::is_empty), "{}", scene.value);
-        assert!(run(backend,"lipsync.record", json!({ "track": 0, "path": dir.path().join("missing.wav").display().to_string() })).is_err());
-        assert!(run(backend,"lipsync.record", json!({ "track": 9, "path": wav.display().to_string() })).is_err());
-        assert!(run(backend,"lipsync.record", json!({ "path": wav.display().to_string(), "start_seconds": -1.0 })).is_err());
+        assert!(run(backend, "lipsync.record", json!({ "track": 0, "path": dir.path().join("missing.wav").display().to_string() })).is_err());
+        assert!(run(backend, "lipsync.record", json!({ "track": 9, "path": wav.display().to_string() })).is_err());
+        assert!(run(backend, "lipsync.record", json!({ "path": wav.display().to_string(), "start_seconds": -1.0 })).is_err());
         session.shutdown();
     }
 }
