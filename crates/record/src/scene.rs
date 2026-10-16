@@ -303,12 +303,14 @@ impl Scene {
         }
     }
 
-    /// Time of frame `f`.
+    /// Time of frame `f`: the first tick that [`Self::frame_at`] puts in frame `f` (the start rounded up, so that
+    /// `frame_at(frame_time(f)) == f` also at rates whose frame start is not a whole tick).
     #[must_use]
     pub fn frame_time(&self, frame: i64) -> Tick {
         let num = i128::from(self.fps.num.max(1));
         let den = i128::from(self.fps.den.max(1));
-        let ticks = i128::from(frame).saturating_mul(i128::from(anim_core::TICKS_PER_SECOND)).saturating_mul(den).div_euclid(num);
+        let scaled = i128::from(frame).saturating_mul(i128::from(anim_core::TICKS_PER_SECOND)).saturating_mul(den);
+        let ticks = scaled.div_euclid(num).saturating_add(i128::from(scaled.rem_euclid(num) != 0));
         Tick(i64::try_from(ticks).unwrap_or(if ticks < 0 { i64::MIN } else { i64::MAX }))
     }
 

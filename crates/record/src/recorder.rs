@@ -152,23 +152,47 @@ impl Recorder {
         active.samples.push(Sample { t: inputs.time, frame });
     }
 
-    /// Appends a chunk of microphone sound that starts at scene time `at`. Chunks must arrive in order and share
-    /// one format; chunks that start outside the punch range, or break the limits, are dropped.
+    /// Appends a chunk of microphone sound that starts at scene time `at`. Chunks must share one format and
+    /// arrive in order; the part of a chunk before the start of the recording or outside the punch range is cut
+    /// off (so the sound covers exactly the punch), a hole between chunks is filled with silence and an overlap
+    /// with the previous chunk is not repeated, so every sample stays at its true scene time. Chunks that break
+    /// the limits are dropped.
     pub fn push_audio(&mut self, at: Tick, chunk: &PcmBuffer) {
-        if !self.arming.audio || !self.punched(at) || !chunk.is_valid_format() {
+        if !self.arming.audio || !chunk.is_valid_format() {
             return;
         }
+        let punch = self.arming.punch;
         let Some(active) = self.active.as_mut() else { return };
-        if at.0 < active.started.0 {
+        let chunk_end = Tick(at.0.saturating_add(chunk.duration().0));
+        let from = punch.map_or(active.started, |p| p.start.max(active.started)).max(at);
+        let to = punch.map_or(chunk_end, |p| p.end().min(chunk_end));
+        if to.0 <= from.0 {
             return;
         }
-        match active.audio.as_mut() {
-            Some(rec) => {
-                if rec.buffer.samples.len().saturating_add(chunk.samples.len()) <= MAX_AUDIO_SAMPLES {
-                    rec.buffer.append(chunk);
-                }
+        let piece = chunk.slice_ticks(TimeRange::from_bounds(Tick(from.0.saturating_sub(at.0)), Tick(to.0.saturating_sub(at.0))));
+        if piece.samples.is_empty() {
+            return;
+        }
+        let Some(rec) = active.audio.as_mut() else {
+            active.audio = Some(RecordedAudio { start: from, buffer: piece });
+            return;
+        };
+        let have_end = Tick(rec.start.0.saturating_add(rec.buffer.duration().0));
+        let rate = i64::from(rec.buffer.sample_rate);
+        let channels = usize::from(rec.buffer.channels);
+        if from.0 >= have_end.0 {
+            let gap = usize::try_from(Tick(from.0.saturating_sub(have_end.0)).to_units_floor(rate)).unwrap_or(usize::MAX);
+            let pad = gap.saturating_mul(channels);
+            if rec.buffer.samples.len().saturating_add(pad).saturating_add(piece.samples.len()) > MAX_AUDIO_SAMPLES {
+                return;
             }
-            None => active.audio = Some(RecordedAudio { start: at, buffer: chunk.clone() }),
+            rec.buffer.samples.resize(rec.buffer.samples.len().saturating_add(pad), 0.0);
+            rec.buffer.append(&piece);
+        } else {
+            let fresh = piece.slice_ticks(TimeRange::new(Tick(have_end.0.saturating_sub(from.0)), Tick::MAX));
+            if rec.buffer.samples.len().saturating_add(fresh.samples.len()) <= MAX_AUDIO_SAMPLES {
+                rec.buffer.append(&fresh);
+            }
         }
     }
 
