@@ -8,4 +8,5 @@ mod real_poses;
 mod robust;
 mod samples;
 mod visual_body;
+mod view_behaviors;
 mod visual_face;
