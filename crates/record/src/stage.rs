@@ -160,11 +160,11 @@ fn picture_puppet(project: &Project, model: &Model, item: &PuppetItem) -> Option
     Some(puppet)
 }
 
-fn origin_of(item: &PuppetItem) -> Vec2 {
+pub(crate) fn origin_of(item: &PuppetItem) -> Vec2 {
     item.tagged_locations.iter().find(|(name, _)| name == "__user_origin").and_then(|(_, xy)| Some(Vec2::new(*xy.first()?, *xy.get(1)?))).unwrap_or(Vec2::ZERO)
 }
 
-fn skin_of(item: &PuppetItem) -> Vec2 {
+pub(crate) fn skin_of(item: &PuppetItem) -> Vec2 {
     item.bindings.iter().find(|b| b.kind == BindingKind::Skin).map_or(Vec2::ZERO, |b| Vec2::new(b.transform.position[0], b.transform.position[1]))
 }
 

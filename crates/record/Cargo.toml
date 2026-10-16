@@ -20,6 +20,7 @@ anim-lipsync = { workspace = true }
 anim-render = { workspace = true }
 anim-session = { workspace = true }
 anim-video = { workspace = true }
+charcraft-arf = { workspace = true }
 charcraft-behaviors = { workspace = true }
 charcraft-ltab = { workspace = true }
 charcraft-project = { workspace = true }

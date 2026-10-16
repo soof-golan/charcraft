@@ -74,10 +74,13 @@ fn the_news_anchors_scene_imports_and_plays() {
     }
     let project = Project::open(&path).unwrap();
     let model = project.model().unwrap();
-    let imported = import_scene(&model, None).unwrap();
+    let imported = import_scene(&project, &model, None).unwrap();
     println!("{} puppet tracks, {} audio tracks, warnings {:?}", imported.scene.tracks.len(), imported.scene.audio.len(), imported.warnings);
     assert!(!imported.scene.tracks.is_empty());
     assert!(imported.scene.size.width >= 640.0);
+    let takes: usize = imported.scene.tracks.iter().map(|t| t.takes.len()).sum();
+    assert!(takes >= 6, "the recorded takes are decoded and placed: {takes}, warnings {:?}", imported.warnings);
+    assert!(imported.scene.tracks.iter().flat_map(|t| &t.takes).all(|t| t.enabled), "they are performed by default");
     let (cast, cast_warnings) = Cast::from_project(&project, &model, imported.puppets.iter().map(String::as_str));
     println!("cast {:?} warnings {cast_warnings:?}", cast.keys().collect::<Vec<_>>());
     assert!(!cast.is_empty(), "{cast_warnings:?}");

@@ -106,7 +106,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let project = Project::open(input)?;
     let model = project.model()?;
     let mut media = MediaStore::new();
-    let (mut scene, cast) = if let Some(imported) = import_scene(&model, None).ok().filter(|i| !i.puppets.is_empty()) {
+    let (mut scene, cast) = if let Some(imported) = import_scene(&project, &model, None).ok().filter(|i| !i.puppets.is_empty()) {
         println!("imported scene {:?}: {} puppet tracks; {:?}", imported.scene.name, imported.scene.tracks.len(), imported.warnings);
         let (cast, warnings) = Cast::from_project(&project, &model, imported.puppets.iter().map(String::as_str));
         println!("cast: {:?}; {warnings:?}", cast.keys().collect::<Vec<_>>());

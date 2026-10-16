@@ -8,7 +8,7 @@
 use std::collections::BTreeSet;
 
 use anim_core::Vec2;
-use charcraft_behaviors::{FaceInput, Inputs, Pointer};
+use charcraft_behaviors::{FaceInput, HandleTarget, Inputs, Pointer};
 use serde::{Deserialize, Serialize};
 
 /// A separately armed and overridden part of the inputs.
@@ -120,11 +120,13 @@ pub struct Frame {
     pub viseme: Option<anim_lipsync::Viseme>,
     /// Pointers.
     pub pointers: Vec<Pointer>,
+    /// Draggable handles held at a position (what Character Animator records for a drag).
+    pub handles: Vec<HandleTarget>,
     /// Held keys.
     pub keys: BTreeSet<String>,
 }
 
-/// Most pointers and keys one sample keeps (hostile files could list millions).
+/// Most pointers and handles one sample keeps (hostile files could list millions).
 pub const MAX_POINTERS: usize = 16;
 /// Most keys one sample keeps.
 pub const MAX_KEYS: usize = 64;
@@ -151,6 +153,7 @@ impl Frame {
         }
         if groups.contains(&ParamGroup::Pointer) {
             frame.pointers = inputs.pointers.iter().filter(|p| p.position.x.is_finite() && p.position.y.is_finite()).take(MAX_POINTERS).copied().collect();
+            frame.handles = inputs.handle_targets.iter().filter(|h| h.position.x.is_finite() && h.position.y.is_finite()).take(MAX_POINTERS).cloned().collect();
         }
         if groups.contains(&ParamGroup::Keys) {
             frame.keys = inputs.keys.iter().take(MAX_KEYS).map(|k| k.chars().take(MAX_KEY_LEN).collect()).collect();
@@ -175,6 +178,12 @@ impl Frame {
                 pointer.position.y = mix(pointer.position.y, other.position.y, w);
             }
         }
+        for handle in &mut out.handles {
+            if let Some(other) = next.handles.iter().find(|h| h.handle == handle.handle && h.held) {
+                handle.position.x = mix(handle.position.x, other.position.x, w);
+                handle.position.y = mix(handle.position.y, other.position.y, w);
+            }
+        }
         out
     }
 
@@ -183,6 +192,8 @@ impl Frame {
         self.face = self.face.map(|f| f.sanitized());
         self.pointers.retain(|p| p.position.x.is_finite() && p.position.y.is_finite());
         self.pointers.truncate(MAX_POINTERS);
+        self.handles.retain(|h| h.position.x.is_finite() && h.position.y.is_finite());
+        self.handles.truncate(MAX_POINTERS);
         self.keys = std::mem::take(&mut self.keys).into_iter().take(MAX_KEYS).map(|k| k.chars().take(MAX_KEY_LEN).collect()).collect();
     }
 }
@@ -203,7 +214,10 @@ pub fn apply_group(inputs: &mut Inputs, group: ParamGroup, frame: &Frame, weight
             }
         }
         ParamGroup::Voice if weight >= 0.5 => inputs.viseme = frame.viseme,
-        ParamGroup::Pointer if weight >= 0.5 => inputs.pointers.clone_from(&frame.pointers),
+        ParamGroup::Pointer if weight >= 0.5 => {
+            inputs.pointers.clone_from(&frame.pointers);
+            inputs.handle_targets.clone_from(&frame.handles);
+        }
         ParamGroup::Keys if weight >= 0.5 => inputs.keys.clone_from(&frame.keys),
         ParamGroup::Voice | ParamGroup::Pointer | ParamGroup::Keys => {}
     }

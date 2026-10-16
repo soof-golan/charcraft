@@ -1,16 +1,44 @@
-//! Reading a scene out of a Character Animator project: tracks, placements and sound clips.
+//! Reading a scene out of a Character Animator project: tracks, placements, recorded takes and sound clips.
 //!
-//! The project's recorded takes (`.arf` event graphs) are not decoded, so the imported scene has puppet tracks
-//! without takes; record new ones or load a sidecar. What does import is the stage (size, rate, length), one
-//! track per puppet clip with the Transform behavior's placement, and the audio clips.
+//! What imports is the stage (size, rate, length), one track per puppet clip with the Transform behavior's
+//! placement and the clip's recorded takes, and the audio clips. The takes are the project's `.arf` event graphs
+//! ([`crate::recorded`]): the face (Camera Input), the voice (Audio Input) and dragged handles (Handle), each
+//! placed on the track the way the project's timeline has them.
 
-use anim_core::{Size, Tick, Vec2};
+use std::collections::BTreeMap;
+
+use anim_core::{Affine, Size, Tick, Vec2};
+use charcraft_arf::EventGraph;
 use charcraft_ltab::LValue;
-use charcraft_project::{Model, Project};
+use charcraft_project::scene::TrackItem;
+use charcraft_project::{Model, Project, PuppetItem};
 
 use crate::audio::{MediaStore, valid_media_name};
 use crate::error::{Error, Result};
+use crate::recorded::{self, HandleBinding, Meta, Window};
 use crate::scene::{AudioClip, AudioTrack, Placement, PuppetTrack, Scene};
+use crate::stage::{origin_of, skin_of};
+use crate::take::Take;
+
+/// What to do with the takes of a project.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum TakePolicy {
+    /// Play every recorded take. A project can be saved with its takes muted (the news anchors sample is: all 42 of
+    /// them), and a scene that opens silent is not what anyone who imports a recorded performance wants.
+    #[default]
+    Perform,
+    /// Keep each take's own mute switch.
+    AsStored,
+    /// Leave the recorded takes out.
+    Skip,
+}
+
+/// How to import a scene.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct ImportOptions {
+    /// What to do with the recorded takes.
+    pub takes: TakePolicy,
+}
 
 /// A scene read from a project and what it needs from the rest of the project.
 #[derive(Debug, Clone, PartialEq)]
@@ -53,11 +81,133 @@ fn media_name(file_name: &str) -> String {
     name
 }
 
-/// Reads scene `name` (the first scene when `None`) of a project model.
+/// The graphs read so far, by project path (`None`: the file could not be read, already reported).
+type Graphs = BTreeMap<String, Option<EventGraph>>;
+
+fn last_segment(path: &str) -> &str {
+    path.trim_end_matches('/').rsplit('/').next().unwrap_or(path)
+}
+
+/// The key of the rig handle that a recording's handle address names: `HandleTarget/../B2/B8/B4:/Draggable/` is
+/// the `Draggable` handle of the puppet reached through bindings `B2`, `B8` and `B4` of the track's puppet, and the
+/// rig keys its handles `<name of that puppet>/<handle>`.
+fn handle_key(model: &Model, root: &PuppetItem, group: &str) -> Option<String> {
+    let (chain, handle) = group.strip_prefix("HandleTarget/../")?.split_once(":/")?;
+    let mut item = root;
+    let mut label = None;
+    let mut ids = chain.split('/').peekable();
+    while let Some(id) = ids.next() {
+        let ppath = item.binding(id)?.ppath.as_deref()?;
+        label = Some(last_segment(ppath));
+        if ids.peek().is_some() {
+            item = model.puppet(strip(ppath))?;
+        }
+    }
+    Some(format!("{}/{}", label?, handle.trim_end_matches('/')))
+}
+
+fn read_graph<'g>(project: &Project, model: &Model, graphs: &'g mut Graphs, ppath: &str, warnings: &mut Vec<String>) -> Option<&'g EventGraph> {
+    if !graphs.contains_key(ppath) {
+        let loaded = (|| {
+            let file = model.recording(ppath).and_then(|r| r.file.as_ref()).ok_or_else(|| "the recording is not in the project".to_owned())?;
+            let bytes = project.package().read(&file.path).map_err(|e| e.to_string())?;
+            EventGraph::from_bytes(&bytes).map_err(|e| e.to_string())
+        })();
+        match loaded {
+            Ok(graph) => {
+                graphs.insert(ppath.to_owned(), Some(graph));
+            }
+            Err(e) => {
+                warnings.push(format!("{ppath}: {e}"));
+                graphs.insert(ppath.to_owned(), None);
+            }
+        }
+    }
+    graphs.get(ppath)?.as_ref()
+}
+
+/// The recorded takes of one clip, lowest take number first.
+#[allow(clippy::too_many_arguments, reason = "everything one clip's takes depend on, passed as it is")]
+fn clip_takes(
+    project: &Project,
+    model: &Model,
+    clip: &TrackItem,
+    item: &PuppetItem,
+    placement: &Placement,
+    stage: Size,
+    policy: TakePolicy,
+    graphs: &mut Graphs,
+    warnings: &mut Vec<String>,
+) -> Vec<Take> {
+    let mut takes: Vec<Take> = Vec::new();
+    if policy == TakePolicy::Skip {
+        return takes;
+    }
+    // Scene pixels (from the middle of the frame, y down) to the puppet's own space, for dragged handles.
+    let centre = Vec2::new(stage.width / 2.0, stage.height / 2.0);
+    let matrix = placement.matrix(centre, skin_of(item), origin_of(item));
+    let to_puppet = (matrix.determinant().abs() > 1e-9).then(|| matrix.inverse() * Affine::translate(centre));
+    for behavior in &clip.behaviors {
+        for recorded in &behavior.takes {
+            let Some(path) = recorded.source.as_deref() else { continue };
+            let label = recorded.name.clone().unwrap_or_else(|| format!("take {}", recorded.take_id));
+            let Some(graph) = read_graph(project, model, graphs, path, warnings) else { continue };
+            let time = recorded.time.as_ref();
+            let window = Window {
+                offset: time.map_or(0.0, |t| t.parent_offset),
+                trim_in: time.map_or(0.0, |t| t.trim_in),
+                duration: time.map(|t| t.duration).filter(|d| *d > 0.0).unwrap_or(graph.end - graph.start),
+            };
+            let meta = Meta {
+                number: u32::try_from(recorded.take_id.max(0)).unwrap_or(0),
+                name: label.clone(),
+                enabled: policy == TakePolicy::Perform || recorded.enabled,
+                fade_in: recorded.fade_in,
+                fade_out: recorded.fade_out,
+            };
+            let made = match behavior.behavior.as_str() {
+                "Adobe.FaceTracker2.js" => recorded::face_take(graph, behavior.instance_id.as_deref(), &meta, window),
+                "Adobe.LipSync2.js" => recorded::voice_take(graph, &meta, window),
+                "Adobe.Dragger3.js" => {
+                    let binding = recorded.group_id.as_deref().and_then(|group| {
+                        Some(HandleBinding { instance: behavior.instance_id.clone()?, group: group.to_owned(), key: handle_key(model, item, group)? })
+                    });
+                    if let (Some(binding), Some(to_puppet)) = (binding, to_puppet.as_ref()) {
+                        recorded::handle_take(graph, &binding, to_puppet, &meta, window)
+                    } else {
+                        warnings.push(format!("{label}: cannot tell which handle of {} it drags", item.display_name()));
+                        continue;
+                    }
+                }
+                other => {
+                    warnings.push(format!("{label}: takes of {other} are not supported"));
+                    continue;
+                }
+            };
+            match made {
+                Some(take) => takes.push(take),
+                None => warnings.push(format!("{label}: the recording holds nothing for it inside the clip")),
+            }
+        }
+    }
+    takes.sort_by_key(|t| t.number);
+    takes
+}
+
+/// Reads scene `name` (the first scene when `None`) of a project, with its recorded takes performed.
 ///
 /// # Errors
 /// [`Error::Invalid`] when the project has no such scene or the scene's settings are out of range.
-pub fn import_scene(model: &Model, name: Option<&str>) -> Result<Imported> {
+pub fn import_scene(project: &Project, model: &Model, name: Option<&str>) -> Result<Imported> {
+    import_scene_with(project, model, name, &ImportOptions::default())
+}
+
+/// Reads scene `name` (the first scene when `None`) of a project, as `options` ask.
+///
+/// # Errors
+/// [`Error::Invalid`] when the project has no such scene or the scene's settings are out of range.
+pub fn import_scene_with(project: &Project, model: &Model, name: Option<&str>, options: &ImportOptions) -> Result<Imported> {
+    let mut graphs = Graphs::new();
     let source = match name {
         Some(n) => model.scene(n).ok_or_else(|| Error::invalid(format!("no scene named {n:?}")))?,
         None => model.scenes.first().ok_or_else(|| Error::invalid("the project has no scenes"))?,
@@ -83,6 +233,7 @@ pub fn import_scene(model: &Model, name: Option<&str>) -> Result<Imported> {
                     if let Some(transform) = clip.behaviors.iter().find(|b| b.behavior == "Adobe.Transform.js" && b.enabled) {
                         t.placement = placement_from_params(&transform.params);
                     }
+                    t.takes = clip_takes(project, model, clip, item, &t.placement, scene.size, options.takes, &mut graphs, &mut warnings);
                     if !puppets.contains(&item.path) {
                         puppets.push(item.path.clone());
                     }
@@ -119,10 +270,6 @@ pub fn import_scene(model: &Model, name: Option<&str>) -> Result<Imported> {
         }
     }
     scene.audio = audio_tracks;
-    let project_takes: usize = source.behavior_instances().map(|b| b.takes.len()).sum();
-    if project_takes > 0 {
-        warnings.push(format!("{project_takes} recorded takes of the project (.arf event graphs) are not decoded"));
-    }
     scene.sanitize()?;
     Ok(Imported { scene, puppets, sounds, warnings })
 }

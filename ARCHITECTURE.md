@@ -41,11 +41,12 @@ commit; to pick up newer engine work, change the revs and run `cargo update`.
 |---|---|---|
 | `charcraft-ltab` | The Lua-table text format Character Animator uses for metadata (`_archive_info` and friends): parse, typed access, byte-exact pretty printing, serde bridge | anim-core |
 | `charcraft-rope` | The `Rope10LM` log and the git-style object store inside `Ch Data/repo.noindex` | charcraft-ltab |
+| `charcraft-arf` | The `.arf` event graphs of recorded takes (face, voice, dragged handles), byte-exact both ways; format notes in `crates/arf/FORMAT.md` | none |
 | `charcraft-project` | `.chproj` folders and `.puppet` zips to and from the project model; scenes, takes, media references | anim-archive, charcraft-rope, charcraft-ltab |
 | `charcraft-puppet` | Puppet model: layer tree from artwork, tags from names, visemes, eyes, handles, behaviors and their parameters, rigging | anim-artwork, anim-rig |
 | `charcraft-behaviors` | Face, Lip Sync, Eye Gaze, Auto Blink, Dragger, Physics/Dangle, Breathe, Walk, Triggers, Transform | charcraft-puppet, anim-lipsync, anim-rig |
 | `charcraft-tracking` | Webcam via nokhwa and face landmarks via ort (ONNX Runtime), as an actor | nokhwa, ort |
-| `charcraft-record` | Takes, the scene timeline, playback and recording | charcraft-project, anim-timeline |
+| `charcraft-record` | Takes (recorded in the app, or decoded from a project's `.arf` recordings), the scene timeline, playback and recording | charcraft-project, charcraft-arf, anim-timeline |
 
 Apps live in `apps/*`: `charcraft-app` (eframe app, binary `charcraft`) and `charcraft-cli` (headless convert,
 render, export and inspect, used by tests).

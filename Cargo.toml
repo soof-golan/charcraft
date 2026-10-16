@@ -13,6 +13,7 @@ repository = "https://github.com/soof-golan/charcraft"
 # Internal crates (see ARCHITECTURE.md for what each one owns).
 charcraft-ltab = { path = "crates/ltab" }
 charcraft-rope = { path = "crates/rope" }
+charcraft-arf = { path = "crates/arf" }
 charcraft-project = { path = "crates/project" }
 charcraft-puppet = { path = "crates/puppet" }
 charcraft-behaviors = { path = "crates/behaviors" }
