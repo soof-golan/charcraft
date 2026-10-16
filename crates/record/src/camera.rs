@@ -71,7 +71,10 @@ impl View {
     /// The matrix from scene pixels to frame pixels for a frame centred on `centre`.
     #[must_use]
     pub fn matrix(&self, centre: Vec2) -> Affine {
-        Affine::translate(centre) * Affine::rotate(self.rotation.to_radians()) * Affine::scale(self.zoom) * Affine::translate(Vec2::new(-(centre.x + self.position.x), -(centre.y + self.position.y)))
+        Affine::translate(centre)
+            * Affine::rotate(self.rotation.to_radians())
+            * Affine::scale(self.zoom)
+            * Affine::translate(Vec2::new(-(centre.x + self.position.x), -(centre.y + self.position.y)))
     }
 
     /// Whether this view shows the stage unchanged.
@@ -93,7 +96,11 @@ impl Camera {
     #[must_use]
     pub fn view_at(&self, t: Tick, face: Option<Vec2>) -> View {
         let lane = |name: &str, base: f64| self.lanes.iter().find(|l| l.target == name).and_then(|l| l.value_at(t)).unwrap_or(base);
-        let mut view = View { position: Vec2::new(lane("position_x", self.position.x), lane("position_y", self.position.y)), zoom: lane("zoom", self.zoom), rotation: lane("rotation", self.rotation) };
+        let mut view = View {
+            position: Vec2::new(lane("position_x", self.position.x), lane("position_y", self.position.y)),
+            zoom: lane("zoom", self.zoom),
+            rotation: lane("rotation", self.rotation),
+        };
         if let (Some(follow), Some(face)) = (self.zoom_on_face, face) {
             let a = follow.amount.clamp(0.0, 1.0);
             view.position = Vec2::new(view.position.x + (face.x - view.position.x) * a, view.position.y + (face.y - view.position.y) * a);

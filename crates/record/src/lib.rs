@@ -63,10 +63,10 @@ pub use audio::{MediaStore, mix_scene, scene_soundtrack, valid_media_name, video
 pub use camera::{Camera, ZoomOnFace};
 pub use commands::{commands as all_commands, register, registry};
 pub use doc::{Committed, RecordDoc};
-pub use keyframes::{Ease, Key, Lane};
 pub use error::{Error, Result};
 pub use group::{Frame, ParamGroup, apply_group};
 pub use import::{ImportOptions, Imported, TakePolicy, import_scene, import_scene_with, load_sounds};
+pub use keyframes::{Ease, Key, Lane};
 pub use playback::{Evaluator, Templates, track_inputs, track_stack};
 pub use recorder::{Arming, RecordedAudio, Recorder, Recording};
 pub use scene::{AudioClip, AudioTrack, Placement, PuppetTrack, Scene};

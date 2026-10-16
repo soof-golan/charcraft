@@ -19,7 +19,7 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 
 use crate::camera::{TARGETS as CAMERA_TARGETS, ZoomOnFace};
-use crate::commands::{camera_json, fail, lanes_json, params, secs_opt, seconds, take_info, to_seconds, unlocked};
+use crate::commands::{camera_json, fail, lanes_json, params, seconds, secs_opt, take_info, to_seconds, unlocked};
 use crate::doc::RecordDoc;
 use crate::keyframes::{Ease, Lane, lane_mut};
 use crate::playback::{param_json, track_stack};
@@ -75,7 +75,8 @@ fn scene_add(doc: &mut RecordDoc, value: &Value) -> Result<Value, CommandError> 
     scene.seed = doc.scene.seed;
     if let Some(puppet) = p.puppet.as_deref() {
         // Same placement as the same puppet has in the open scene, when it stands there.
-        let mut track = doc.scene.tracks.iter().find(|t| t.puppet == puppet).map_or_else(|| PuppetTrack::new(puppet, puppet), |t| PuppetTrack::new(&t.name, puppet));
+        let mut track =
+            doc.scene.tracks.iter().find(|t| t.puppet == puppet).map_or_else(|| PuppetTrack::new(puppet, puppet), |t| PuppetTrack::new(&t.name, puppet));
         if let Some(existing) = doc.scene.tracks.iter().find(|t| t.puppet == puppet) {
             track.placement = existing.placement;
         }
@@ -339,7 +340,9 @@ fn keyframe_list(doc: &mut RecordDoc, value: &Value) -> Result<Value, CommandErr
 /// Reads an ease given as a preset name or as `{kind, ...}`.
 fn ease_from(value: &Value) -> Result<Ease, CommandError> {
     match value {
-        Value::String(name) => Ease::parse(name).ok_or_else(|| invalid(format!("no ease {name:?} (linear, hold, ease_in, ease_out, ease_in_out, or a bezier object)"))),
+        Value::String(name) => {
+            Ease::parse(name).ok_or_else(|| invalid(format!("no ease {name:?} (linear, hold, ease_in, ease_out, ease_in_out, or a bezier object)")))
+        }
         Value::Object(_) => {
             let mut ease: Ease = serde_json::from_value(value.clone()).map_err(|e| invalid(format!("not an ease: {e}")))?;
             ease.sanitize();
@@ -534,7 +537,8 @@ fn camera_set(doc: &mut RecordDoc, value: &Value) -> Result<Value, CommandError>
     match p.zoom_on_face {
         Some(Some(f)) => {
             let old = camera.zoom_on_face.unwrap_or_default();
-            camera.zoom_on_face = Some(ZoomOnFace { track: f.track.unwrap_or(old.track), amount: f.amount.unwrap_or(old.amount), zoom: f.zoom.unwrap_or(old.zoom) });
+            camera.zoom_on_face =
+                Some(ZoomOnFace { track: f.track.unwrap_or(old.track), amount: f.amount.unwrap_or(old.amount), zoom: f.zoom.unwrap_or(old.zoom) });
         }
         Some(None) => camera.zoom_on_face = None,
         None => {}
@@ -563,7 +567,9 @@ fn parse_viseme(name: &str) -> Result<Option<Viseme>, CommandError> {
     if name.eq_ignore_ascii_case("none") {
         return Ok(None);
     }
-    Viseme::from_ca_layer_name(name).map(Some).ok_or_else(|| invalid(format!("no mouth shape {name:?} (Neutral, Ah, D, Ee, F, L, M, Oh, R, S, Uh, W-Oo, Smile, Surprised or none)")))
+    Viseme::from_ca_layer_name(name)
+        .map(Some)
+        .ok_or_else(|| invalid(format!("no mouth shape {name:?} (Neutral, Ah, D, Ee, F, L, M, Oh, R, S, Uh, W-Oo, Smile, Surprised or none)")))
 }
 
 fn timing_json(take: &crate::take::Take) -> Value {
@@ -981,7 +987,11 @@ mod tests {
         run(&mut s, "keyframe.set", json!({ "track": 0, "target": "position_x", "time_seconds": 2.0, "value": 100.0, "ease": "ease_in_out" }));
         let t = &s.doc().scene.tracks[0];
         assert!((t.placement_at(Tick::from_seconds_f64(1.0)).position.x - 50.0).abs() < 1e-6);
-        run(&mut s, "keyframe.set", json!({ "track": 0, "target": "position_x", "index": 0, "ease": { "kind": "bezier", "x1": 0.0, "y1": 0.0, "x2": 1.0, "y2": 0.0 } }));
+        run(
+            &mut s,
+            "keyframe.set",
+            json!({ "track": 0, "target": "position_x", "index": 0, "ease": { "kind": "bezier", "x1": 0.0, "y1": 0.0, "x2": 1.0, "y2": 0.0 } }),
+        );
         run(&mut s, "keyframe.set", json!({ "track": 0, "target": "position_x", "index": 1, "time_seconds": 4.0 }));
         assert_eq!(s.doc().scene.tracks[0].lanes[0].keys[1].t, Tick::from_seconds_f64(4.0));
         assert!(s.execute("keyframe.set", &json!({ "track": 0, "target": "nonsense", "time_seconds": 0.0, "value": 1.0 })).is_err());
@@ -1000,7 +1010,11 @@ mod tests {
         let ok = s.execute("keyframe.set", &json!({ "track": 0, "target": "behavior.0.nonexistent_param", "time_seconds": 0.0, "value": 1.0 }));
         assert!(ok.is_err(), "unknown parameters are refused");
         let stack = crate::playback::track_stack(&s.doc().scene, &s.doc().templates, 0, &s.doc().scene.tracks[0]).unwrap();
-        let params = stack.slots().iter().enumerate().find_map(|(i, slot)| slot.behavior.params().as_object().and_then(|m| m.iter().find(|(_, v)| v.is_number()).map(|(k, _)| (i, k.clone()))));
+        let params = stack
+            .slots()
+            .iter()
+            .enumerate()
+            .find_map(|(i, slot)| slot.behavior.params().as_object().and_then(|m| m.iter().find(|(_, v)| v.is_number()).map(|(k, _)| (i, k.clone()))));
         let (slot, name) = params.expect("some behavior has a numeric parameter");
         let target = format!("behavior.{slot}.{name}");
         run(&mut s, "keyframe.set", json!({ "track": 0, "target": target, "time_seconds": 0.0, "value": 1.0 }));
@@ -1036,7 +1050,10 @@ mod tests {
         run(&mut s, "audio.split_clip", json!({ "track": 1, "clip": 0, "time_seconds": 3.0 }));
         let clips = &s.doc().scene.audio[1].clips;
         assert_eq!(clips.len(), 2);
-        assert_eq!((clips[0].duration, clips[1].start, clips[1].trim_in), (Some(Tick::from_seconds_f64(1.0)), Tick::from_seconds_f64(3.0), Tick::from_seconds_f64(1.0)));
+        assert_eq!(
+            (clips[0].duration, clips[1].start, clips[1].trim_in),
+            (Some(Tick::from_seconds_f64(1.0)), Tick::from_seconds_f64(3.0), Tick::from_seconds_f64(1.0))
+        );
         assert_eq!(clips[1].duration, Some(Tick::from_seconds_f64(3.0)));
         assert!(s.execute("audio.split_clip", &json!({ "track": 1, "clip": 0, "time_seconds": 9.0 })).is_err());
         run(&mut s, "audio.remove_track", json!({ "track": 1 }));
@@ -1050,8 +1067,12 @@ mod tests {
         clip.duration = Some(Tick::from_seconds_f64(2.0));
         s.edit("add clip", None, |d| d.scene.add_clip(0, clip)).unwrap();
         assert!(s.execute("lipsync.from_clip", &json!({ "clip": 0 })).is_err(), "unanalysed clips are refused");
-        let done = run(&mut s, "lipsync.from_clip", json!({ "clip": 0, "keys": [
-            { "time_seconds": 0.0, "viseme": "Neutral" }, { "time_seconds": 0.5, "viseme": "Ah" }, { "time_seconds": 1.0, "viseme": "Oh" } ] }));
+        let done = run(
+            &mut s,
+            "lipsync.from_clip",
+            json!({ "clip": 0, "keys": [
+            { "time_seconds": 0.0, "viseme": "Neutral" }, { "time_seconds": 0.5, "viseme": "Ah" }, { "time_seconds": 1.0, "viseme": "Oh" } ] }),
+        );
         assert_eq!(done["take"]["start_seconds"], 1.0);
         assert_eq!(s.doc().scene.audio[0].clips[0].visemes.len(), 3, "the analysis stays with the clip");
         run(&mut s, "lipsync.from_clip", json!({ "clip": 0 }));

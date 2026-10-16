@@ -210,7 +210,17 @@ impl AudioClip {
     /// A clip playing all of `media` from `start`.
     #[must_use]
     pub fn new(name: &str, media: &str, start: Tick) -> Self {
-        Self { name: name.to_owned(), media: media.to_owned(), start, trim_in: Tick::ZERO, duration: None, gain: 1.0, pan: 0.0, enabled: true, visemes: Vec::new() }
+        Self {
+            name: name.to_owned(),
+            media: media.to_owned(),
+            start,
+            trim_in: Tick::ZERO,
+            duration: None,
+            gain: 1.0,
+            pan: 0.0,
+            enabled: true,
+            visemes: Vec::new(),
+        }
     }
 }
 

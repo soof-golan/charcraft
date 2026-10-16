@@ -213,7 +213,9 @@ fn prompt(ui: &Ui, view: &mut View, actions: &mut Vec<Action>) {
                     Prompt::Open => Action::Open(path),
                     Prompt::Save => Action::Save(path),
                     Prompt::Export => Action::Export(view.export_format, path),
-                    Prompt::Audio => Action::Run("audio.import", serde_json::json!({ "path": path.display().to_string(), "start_seconds": view.playhead.max(0.0) })),
+                    Prompt::Audio => {
+                        Action::Run("audio.import", serde_json::json!({ "path": path.display().to_string(), "start_seconds": view.playhead.max(0.0) }))
+                    }
                 });
                 close = true;
             }

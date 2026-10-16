@@ -149,7 +149,11 @@ fn track_section(ui: &mut Ui, view: &View, ctx: &Ctx<'_>, actions: &mut Vec<Acti
             actions.push(Action::Run("track.move", json!({ "from": index, "to": index.saturating_sub(1) })));
             actions.push(Action::SelectTrack(index.saturating_sub(1)));
         }
-        if ui.add_enabled(index.saturating_add(1) < scene.tracks.len(), egui::Button::new("\u{2193}").small()).on_hover_text("Move track down (drawn in front)").clicked() {
+        if ui
+            .add_enabled(index.saturating_add(1) < scene.tracks.len(), egui::Button::new("\u{2193}").small())
+            .on_hover_text("Move track down (drawn in front)")
+            .clicked()
+        {
             actions.push(Action::Run("track.move", json!({ "from": index, "to": index.saturating_add(1) })));
             actions.push(Action::SelectTrack(index.saturating_add(1)));
         }
@@ -277,12 +281,15 @@ fn keyframes_section(ui: &mut Ui, view: &View, ctx: &Ctx<'_>, actions: &mut Vec<
             ui.weak("No keyframes. Use +key beside a value above, or pick a behavior parameter below.");
         }
         for lane in &track.lanes {
-            CollapsingHeader::new(format!("{} ({})", lane.target, lane.keys.len())).id_salt(("lane", view.track, &lane.target)).default_open(true).show(ui, |ui| {
-                lane_rows(ui, Some(view.track), lane, actions);
-                if ui.small_button("Clear lane").clicked() {
-                    actions.push(Action::Run("keyframe.clear", key_params(Some(view.track), &lane.target, json!({}))));
-                }
-            });
+            CollapsingHeader::new(format!("{} ({})", lane.target, lane.keys.len())).id_salt(("lane", view.track, &lane.target)).default_open(true).show(
+                ui,
+                |ui| {
+                    lane_rows(ui, Some(view.track), lane, actions);
+                    if ui.small_button("Clear lane").clicked() {
+                        actions.push(Action::Run("keyframe.clear", key_params(Some(view.track), &lane.target, json!({}))));
+                    }
+                },
+            );
         }
         if let Some(stack) = ctx.stack {
             ui.menu_button("Key a behavior parameter...", |ui| {
@@ -371,7 +378,8 @@ pub fn takes_section(ui: &mut Ui, view: &mut View, ctx: &Ctx<'_>, actions: &mut 
                 view.take = k;
             }
             ui.weak(format!("{:.1}s at {:.1}s", take.duration.seconds(), take.start.seconds()));
-            if ui.add_enabled(k > 0, egui::Button::new("\u{2191}").small()).on_hover_text("Stack lower (earlier takes are overridden by later ones)").clicked() {
+            if ui.add_enabled(k > 0, egui::Button::new("\u{2191}").small()).on_hover_text("Stack lower (earlier takes are overridden by later ones)").clicked()
+            {
                 actions.push(Action::Run("take.move", json!({ "track": view.track, "from": k, "to": k.saturating_sub(1) })));
             }
             if ui.add_enabled(k.saturating_add(1) < count, egui::Button::new("\u{2193}").small()).on_hover_text("Stack higher").clicked() {
@@ -516,7 +524,10 @@ fn timing_section(ui: &mut Ui, view: &View, ctx: &Ctx<'_>, actions: &mut Vec<Act
         });
     }
     if ui.small_button("Insert mouth shape at playhead").clicked() {
-        actions.push(Action::Run("timing.insert_viseme", json!({ "track": track, "take": t, "start_seconds": view.playhead, "end_seconds": view.playhead + 0.15, "viseme": "Ah" })));
+        actions.push(Action::Run(
+            "timing.insert_viseme",
+            json!({ "track": track, "take": t, "start_seconds": view.playhead, "end_seconds": view.playhead + 0.15, "viseme": "Ah" }),
+        ));
     }
     for (i, run) in keys.iter().enumerate() {
         ui.horizontal(|ui| {
@@ -525,7 +536,11 @@ fn timing_section(ui: &mut Ui, view: &View, ctx: &Ctx<'_>, actions: &mut Vec<Act
             let moved_down = ui.add(egui::DragValue::new(&mut down).speed(0.01).suffix(" s")).changed();
             let moved_up = ui.add(egui::DragValue::new(&mut up).speed(0.01).suffix(" s")).changed();
             if (moved_down || moved_up) && up > down {
-                actions.push(Action::RunMerged("timing.set_key", json!({ "track": track, "take": t, "index": i, "start_seconds": down, "end_seconds": up }), "timing.key"));
+                actions.push(Action::RunMerged(
+                    "timing.set_key",
+                    json!({ "track": track, "take": t, "index": i, "start_seconds": down, "end_seconds": up }),
+                    "timing.key",
+                ));
             }
             if ui.small_button("\u{00D7}").on_hover_text("Remove this key press").clicked() {
                 actions.push(Action::Run("timing.remove_key", json!({ "track": track, "take": t, "index": i })));
