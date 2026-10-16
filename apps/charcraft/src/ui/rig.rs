@@ -29,13 +29,22 @@ const fn rect_of(r: anim_core::Rect) -> Rect {
     Rect::from_min_max(pos2(f64_to_f32(r.x0), f64_to_f32(r.y0)), pos2(f64_to_f32(r.x1), f64_to_f32(r.y1)))
 }
 
-/// The layers in display order (top of the puppet first), skipping what a collapsed parent hides.
+/// An unnamed layer with no children and no tags: a bare artwork path. Listing it would draw an empty row, which
+/// shows up as a blank gap in the tree, and it can neither be told apart nor targeted by a behavior.
+fn is_anonymous_leaf(layer: &Layer) -> bool {
+    layer.name.trim().is_empty() && layer.children.is_empty() && layer.tags.is_empty()
+}
+
+/// The layers in display order (top of the puppet first), skipping what a collapsed parent hides and unnamed leaves.
 fn rows<'a>(puppet: &'a Puppet, collapsed: &std::collections::BTreeSet<String>) -> Vec<(&'a Layer, usize)> {
     let mut out = Vec::new();
     let Ok(root) = puppet.root() else { return out };
     let mut stack: Vec<(LayerId, usize)> = root.children.iter().rev().map(|&c| (c, 0)).collect();
     while let Some((id, depth)) = stack.pop() {
         let Some(layer) = puppet.layer(id) else { continue };
+        if is_anonymous_leaf(layer) {
+            continue;
+        }
         out.push((layer, depth));
         if !collapsed.contains(&layer.path) {
             stack.extend(layer.children.iter().map(|&c| (c, depth.saturating_add(1))));
@@ -74,7 +83,8 @@ fn tree(ui: &mut Ui, puppet: &Puppet, view: &mut View, actions: &mut Vec<Action>
                     }
                 }
                 let selected = view.layer.as_deref() == Some(layer.path.as_str());
-                let mut text = RichText::new(visual(&layer.name).into_owned());
+                let mut text =
+                    if layer.name.trim().is_empty() { RichText::new("(unnamed)").weak().italics() } else { RichText::new(visual(&layer.name).into_owned()) };
                 if layer.independent {
                     text = text.strong();
                 }
@@ -330,4 +340,46 @@ pub fn show(ui: &mut Ui, view: &mut View, ctx: &Ctx<'_>, actions: &mut Vec<Actio
     });
     egui::Panel::bottom("rig_pose").show(ui, |ui| pose_bar(ui, view));
     egui::CentralPanel::default().show(ui, |ui| stage(ui, puppet, view, ctx, actions));
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeSet;
+
+    use super::*;
+    use crate::world::World;
+
+    /// No row of the tree may be a blank line: it would show as a gap between its neighbours.
+    fn assert_no_blank_rows(puppet: &Puppet) {
+        let rows = rows(puppet, &BTreeSet::new());
+        assert!(!rows.is_empty());
+        for (layer, _) in rows {
+            assert!(!is_anonymous_leaf(layer), "blank row for {:?}", layer.path);
+        }
+    }
+
+    #[test]
+    fn the_demo_tree_has_no_blank_rows() {
+        let opened = World::demo().unwrap();
+        let member = opened.world.cast.keys().next().and_then(|k| opened.world.cast.get(k)).unwrap();
+        assert_no_blank_rows(&member.puppet);
+    }
+
+    #[test]
+    fn the_boy_tree_has_no_blank_rows() {
+        let Ok(samples) = std::env::var("ANICRAFT_SAMPLES") else { return };
+        let path = std::path::Path::new(&samples).join("Boy.puppet");
+        if !path.exists() {
+            return;
+        }
+        let opened = World::open(&path).unwrap();
+        let anonymous = |p: &Puppet| p.layers().iter().filter(|l| is_anonymous_leaf(l)).count();
+        let mut seen_blank = false;
+        for key in opened.world.cast.keys() {
+            let Some(member) = opened.world.cast.get(key) else { continue };
+            seen_blank |= anonymous(&member.puppet) > 0;
+            assert_no_blank_rows(&member.puppet);
+        }
+        assert!(seen_blank, "the Boy artwork is expected to hold unnamed leaves");
+    }
 }
