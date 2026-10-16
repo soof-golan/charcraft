@@ -26,3 +26,8 @@ anim-display = { workspace = true }
 anim-render = { workspace = true }
 png = { workspace = true }
 proptest = { workspace = true }
+criterion = { workspace = true }
+
+[[bench]]
+name = "behaviors"
+harness = false
