@@ -1,6 +1,7 @@
 name: release
 
-# Push a tag like v0.1.0 to build the app and the CLI on Linux, macOS (Apple silicon and Intel) and Windows, and attach
+# Push a tag like v0.1.0 to build the app and the CLI on Linux and Windows (x86_64 and Arm64) and macOS (Apple silicon
+# and Intel), and attach
 # the packages plus SHA256SUMS to a GitHub pre-release. The binaries are unsigned (no signing secrets are used).
 #
 # The app is built with its `live` feature (webcam capture and ONNX Runtime face tracking). Every package carries
@@ -49,9 +50,29 @@ jobs:
             target: x86_64-pc-windows-msvc
             ort_asset: onnxruntime-win-x64-1.23.2.zip
             ort_sha256: 0b38df9af21834e41e73d602d90db5cb06dbd1ca618948b8f1d66d607ac9f3cd
+          - name: linux-arm64
+            os: ubuntu-22.04-arm
+            target: aarch64-unknown-linux-gnu
+            ort_asset: onnxruntime-linux-aarch64-1.23.2.tgz
+            ort_sha256: 7c63c73560ed76b1fac6cff8204ffe34fe180e70d6582b5332ec094810241e5c
+          - name: windows-arm64
+            os: windows-11-arm
+            target: aarch64-pc-windows-msvc
+            ort_asset: onnxruntime-win-arm64-1.23.2.zip
+            ort_sha256: 1cfe88b6435df3b5fb0e9f6bd7d6f5df1e887b6174de7f6e2a47bab956f3f168
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v5
+      - name: Install rustup if the runner image lacks it
+        # The Windows on Arm image does not ship rustup; the pinned toolchain then comes from rust-toolchain.toml.
+        if: runner.os == 'Windows' && runner.arch == 'ARM64'
+        shell: pwsh
+        run: |
+          if (-not (Get-Command rustup -ErrorAction SilentlyContinue)) {
+            Invoke-WebRequest -Uri https://static.rust-lang.org/rustup/dist/aarch64-pc-windows-msvc/rustup-init.exe -OutFile rustup-init.exe
+            .\rustup-init.exe -y --default-toolchain none --profile minimal
+            Add-Content $env:GITHUB_PATH "$env:USERPROFILE\.cargo\bin"
+          }
       - name: Linux system libraries
         if: runner.os == 'Linux'
         # libclang-dev: nokhwa's V4L2 bindings are generated with bindgen.
