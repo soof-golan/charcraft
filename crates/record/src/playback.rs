@@ -14,8 +14,26 @@ use charcraft_behaviors::{BehaviorStack, Inputs, Rig};
 use charcraft_puppet::PuppetPose;
 
 use crate::error::{Error, Result};
-use crate::scene::{PuppetTrack, Scene};
+use crate::scene::{PuppetTrack, Scene, behavior_target};
 use crate::take::resolve;
+
+/// A lane value as the JSON a behavior parameter takes: whole numbers as integers (integer parameters refuse
+/// `60.0`), the rest as floats.
+#[must_use]
+pub fn param_json(v: f64) -> serde_json::Value {
+    if v.is_finite() && v.fract() == 0.0 && v.abs() < 1.0e12 { serde_json::json!(anim_core::num::round_f64_to_i64(v)) } else { serde_json::json!(v) }
+}
+
+/// Sets the behavior parameters that the track keyframes to their values at scene time `t`. A lane that names a
+/// missing slot or parameter is skipped (the commands refuse such lanes, so only a stale file has them).
+fn apply_lanes(stack: &mut BehaviorStack, track: &PuppetTrack, t: anim_core::Tick) {
+    for lane in &track.lanes {
+        let (Some((index, name)), Some(value)) = (behavior_target(&lane.target), lane.value_at(t)) else { continue };
+        if let Some(slot) = stack.slot_mut(index) {
+            let _ = charcraft_behaviors::behavior::set_param(slot.behavior.as_mut(), name, param_json(value));
+        }
+    }
+}
 
 /// Frames between stack snapshots.
 pub const CHECKPOINT_EVERY: i64 = 60;
@@ -85,6 +103,7 @@ impl Run {
         let mut pose = PuppetPose::neutral();
         while self.next <= frame {
             let step = self.next;
+            apply_lanes(&mut self.stack, track, scene.frame_time(step));
             pose = self.stack.step(&track_inputs(scene, track, step));
             if step > 0 && step % CHECKPOINT_EVERY == 0 && self.checkpoints.len() < MAX_CHECKPOINTS {
                 self.checkpoints.entry(step).or_insert_with(|| self.stack.clone());

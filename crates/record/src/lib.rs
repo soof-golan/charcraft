@@ -41,11 +41,14 @@
 )]
 
 pub mod audio;
+pub mod camera;
 pub mod commands;
 pub mod doc;
+pub mod edit_commands;
 pub mod error;
 pub mod group;
 pub mod import;
+pub mod keyframes;
 pub mod playback;
 pub mod recorded;
 pub mod recorder;
@@ -54,10 +57,13 @@ pub mod speech;
 pub mod stage;
 pub mod store;
 pub mod take;
+pub mod timing;
 
 pub use audio::{MediaStore, mix_scene, scene_soundtrack, valid_media_name, video_track, wav_bytes};
+pub use camera::{Camera, ZoomOnFace};
 pub use commands::{commands as all_commands, register, registry};
 pub use doc::{Committed, RecordDoc};
+pub use keyframes::{Ease, Key, Lane};
 pub use error::{Error, Result};
 pub use group::{Frame, ParamGroup, apply_group};
 pub use import::{ImportOptions, Imported, TakePolicy, import_scene, import_scene_with, load_sounds};
@@ -65,6 +71,6 @@ pub use playback::{Evaluator, Templates, track_inputs, track_stack};
 pub use recorder::{Arming, RecordedAudio, Recorder, Recording};
 pub use scene::{AudioClip, AudioTrack, Placement, PuppetTrack, Scene};
 pub use speech::voice_from_audio;
-pub use stage::{Cast, CastMember, SceneFrames, render_frame};
+pub use stage::{Cast, CastMember, Layout, SceneFrames, render_frame};
 pub use store::{SceneFile, load, save, sidecar_path};
 pub use take::{Sample, Take, resolve};

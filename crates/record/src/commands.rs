@@ -31,32 +31,41 @@ use crate::take::Take;
 /// Most poses one `playback.poses` call returns.
 pub const MAX_POSES: usize = 600;
 
-fn fail(e: impl std::fmt::Display) -> CommandError {
+pub(crate) fn fail(e: impl std::fmt::Display) -> CommandError {
     CommandError::failed(e.to_string())
 }
 
-fn seconds(name: &str, value: f64) -> Result<Tick, CommandError> {
+pub(crate) fn seconds(name: &str, value: f64) -> Result<Tick, CommandError> {
     if !value.is_finite() || value.abs() > 1.0e6 {
         return Err(CommandError::invalid_params(format!("{name}: {value} is not a usable time in seconds")));
     }
     Ok(Tick::from_seconds_f64(value))
 }
 
-fn secs_opt(name: &str, value: Option<f64>) -> Result<Option<Tick>, CommandError> {
+pub(crate) fn secs_opt(name: &str, value: Option<f64>) -> Result<Option<Tick>, CommandError> {
     value.map(|v| seconds(name, v)).transpose()
 }
 
-fn params<T: serde::de::DeserializeOwned>(value: &Value) -> Result<T, CommandError> {
+pub(crate) fn params<T: serde::de::DeserializeOwned>(value: &Value) -> Result<T, CommandError> {
     parse_params(value)
 }
 
-fn to_seconds(t: Tick) -> f64 {
+pub(crate) fn to_seconds(t: Tick) -> f64 {
     t.seconds()
+}
+
+/// Puppet track `index` for an edit: refuses a locked track.
+pub(crate) fn unlocked(doc: &mut RecordDoc, index: usize) -> Result<&mut PuppetTrack, CommandError> {
+    let track = doc.scene.track_mut(index).map_err(fail)?;
+    if track.locked {
+        return Err(CommandError::failed(format!("track {index} ({}) is locked; unlock it with track.set locked=false", track.name)));
+    }
+    Ok(track)
 }
 
 // --- scene ---------------------------------------------------------------------------------------------------
 
-fn take_info(index: usize, take: &Take) -> Value {
+pub(crate) fn take_info(index: usize, take: &Take) -> Value {
     json!({
         "index": index,
         "number": take.number,
@@ -65,6 +74,7 @@ fn take_info(index: usize, take: &Take) -> Value {
         "enabled": take.enabled,
         "start_seconds": to_seconds(take.start),
         "duration_seconds": to_seconds(take.duration),
+        "trim_in_seconds": to_seconds(take.offset),
         "blend_in_seconds": to_seconds(take.blend_in),
         "blend_out_seconds": to_seconds(take.blend_out),
         "samples": take.samples.len(),
@@ -82,12 +92,17 @@ fn scene_summary(doc: &RecordDoc) -> Value {
         "size": [scene.size.width, scene.size.height],
         "background": scene.background,
         "seed": scene.seed,
+        "scene_index": doc.active_scene(),
+        "scenes": doc.scenes().map(|s| s.name.clone()).collect::<Vec<_>>(),
+        "camera": camera_json(&scene.camera),
         "tracks": scene.tracks.iter().enumerate().map(|(i, t)| json!({
             "index": i,
             "name": t.name,
             "puppet": t.puppet,
             "enabled": t.enabled,
+            "locked": t.locked,
             "placement": t.placement,
+            "keyframes": lanes_json(&t.lanes),
             "behavior_edits": t.behaviors.len(),
             "puppet_known": doc.templates.contains_key(&t.puppet),
             "takes": t.takes.iter().enumerate().map(|(k, take)| take_info(k, take)).collect::<Vec<_>>(),
@@ -107,10 +122,38 @@ fn scene_summary(doc: &RecordDoc) -> Value {
                 "gain": c.gain,
                 "pan": c.pan,
                 "enabled": c.enabled,
+                "mouth_shapes": c.visemes.len(),
             })).collect::<Vec<_>>(),
         })).collect::<Vec<_>>(),
         "recording": arming_json(doc),
     })
+}
+
+pub(crate) fn camera_json(camera: &crate::camera::Camera) -> Value {
+    json!({
+        "position": [camera.position.x, camera.position.y],
+        "zoom": camera.zoom,
+        "rotation": camera.rotation,
+        "zoom_on_face": camera.zoom_on_face.map(|f| json!({ "track": f.track, "amount": f.amount, "zoom": f.zoom })),
+        "keyframes": lanes_json(&camera.lanes),
+    })
+}
+
+pub(crate) fn lanes_json(lanes: &[crate::keyframes::Lane]) -> Value {
+    lanes
+        .iter()
+        .map(|l| {
+            json!({
+                "target": l.target,
+                "keys": l.keys.iter().enumerate().map(|(i, k)| json!({
+                    "index": i,
+                    "time_seconds": to_seconds(k.t),
+                    "value": k.value,
+                    "ease": k.ease,
+                })).collect::<Vec<_>>(),
+            })
+        })
+        .collect()
 }
 
 fn arming_json(doc: &RecordDoc) -> Value {
@@ -234,11 +277,18 @@ struct TrackSet {
     puppet: Option<String>,
     enabled: Option<bool>,
     placement: Option<Placement>,
+    locked: Option<bool>,
 }
 
 fn track_set(doc: &mut RecordDoc, value: &Value) -> Result<Value, CommandError> {
     let p: TrackSet = params(value)?;
-    let track = doc.scene.track_mut(p.track).map_err(fail)?;
+    if p.locked == Some(false) {
+        doc.scene.track_mut(p.track).map_err(fail)?.locked = false;
+    }
+    let track = unlocked(doc, p.track)?;
+    if let Some(locked) = p.locked {
+        track.locked = locked;
+    }
     if let Some(name) = p.name {
         track.name = name;
     }
@@ -343,7 +393,7 @@ fn record_state(doc: &mut RecordDoc, _: &Value) -> Result<Value, CommandError> {
 
 /// Records prepared inputs into a take on `track` using the document's arming.
 fn record_into(doc: &mut RecordDoc, track: usize, inputs: &[Inputs]) -> Result<Value, CommandError> {
-    doc.check_track(track).map_err(fail)?;
+    unlocked(doc, track)?;
     let mut recorder = doc.recorder();
     let recording = recorder.record_all(inputs, None).map_err(fail)?;
     let Some(take) = recording.take else {
@@ -428,7 +478,7 @@ fn take_set(doc: &mut RecordDoc, value: &Value) -> Result<Value, CommandError> {
     if blend_in.is_some_and(|t| t.0 < 0) || blend_out.is_some_and(|t| t.0 < 0) {
         return Err(CommandError::invalid_params("blend lengths cannot be negative"));
     }
-    let track = doc.scene.track_mut(p.track).map_err(fail)?;
+    let track = unlocked(doc, p.track)?;
     let take = track.takes.get_mut(p.take).ok_or_else(|| fail(crate::Error::NoTake { track: p.track, take: p.take }))?;
     if let Some(name) = p.name {
         take.name = name;
@@ -458,7 +508,7 @@ fn take_set(doc: &mut RecordDoc, value: &Value) -> Result<Value, CommandError> {
 
 fn take_remove(doc: &mut RecordDoc, value: &Value) -> Result<Value, CommandError> {
     let p: TakeRef = params(value)?;
-    let track = doc.scene.track_mut(p.track).map_err(fail)?;
+    let track = unlocked(doc, p.track)?;
     if p.take >= track.takes.len() {
         return Err(fail(crate::Error::NoTake { track: p.track, take: p.take }));
     }
@@ -476,7 +526,7 @@ struct TakeMove {
 
 fn take_move(doc: &mut RecordDoc, value: &Value) -> Result<Value, CommandError> {
     let p: TakeMove = params(value)?;
-    let track = doc.scene.track_mut(p.track).map_err(fail)?;
+    let track = unlocked(doc, p.track)?;
     if p.from >= track.takes.len() || p.to >= track.takes.len() {
         return Err(fail(crate::Error::NoTake { track: p.track, take: p.from.max(p.to) }));
     }
@@ -709,6 +759,12 @@ macro_rules! schema {
 /// All commands of the recording layer.
 #[must_use]
 pub fn commands() -> Vec<CommandSpec<RecordDoc>> {
+    let mut all = base_commands();
+    all.extend(crate::edit_commands::commands());
+    all
+}
+
+fn base_commands() -> Vec<CommandSpec<RecordDoc>> {
     vec![
         CommandSpec::new("scene.info", "Scene info", scene_info)
             .transient()
@@ -731,8 +787,8 @@ pub fn commands() -> Vec<CommandSpec<RecordDoc>> {
             .describe("Remove a puppet track and its takes.")
             .with_schema(schema!(r#""required":["track"],"properties":{"track":{"type":"integer","minimum":0}}"#)),
         CommandSpec::new("track.set", "Edit puppet track", track_set)
-            .describe("Rename a track, switch it on or off, change its puppet or its placement.")
-            .with_schema(schema!(r#""required":["track"],"properties":{"track":{"type":"integer","minimum":0},"name":{"type":"string"},"puppet":{"type":"string"},"enabled":{"type":"boolean"},"placement":{"type":"object"}}"#)),
+            .describe("Rename a track, switch it on or off, lock or unlock it, change its puppet or its placement (position, anchor, scale, rotation, opacity; keyframe these with keyframe.set). A locked track refuses edits and recordings.")
+            .with_schema(schema!(r#""required":["track"],"properties":{"track":{"type":"integer","minimum":0},"name":{"type":"string"},"puppet":{"type":"string"},"enabled":{"type":"boolean"},"placement":{"type":"object"},"locked":{"type":"boolean"}}"#)),
         CommandSpec::new("track.behavior", "Edit track behaviors", track_behavior)
             .describe("Lay one edit over the puppet's behavior stack for this track, using behaviors.edit operations: {\"op\":\"set_param\",\"index\":0,\"name\":\"...\",\"value\":...}, set_enabled, set_seed, add, remove, move. Pass op null to clear the track's edits. Edits apply in order before playback.")
             .with_schema(schema!(r#""required":["track"],"properties":{"track":{"type":"integer","minimum":0},"op":{"type":["object","null"]}}"#)),

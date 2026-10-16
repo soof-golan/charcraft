@@ -47,6 +47,10 @@ pub struct Take {
     pub blend_out: Tick,
     /// The recorded samples, in time order.
     pub samples: Vec<Sample>,
+    /// How far into the recording the take starts: trimming the front of a take moves `start` and grows this, so
+    /// the samples stay where they were recorded and the trim can be undone.
+    #[serde(default)]
+    pub offset: Tick,
 }
 
 impl Take {
@@ -63,7 +67,54 @@ impl Take {
             blend_in: Tick::ZERO,
             blend_out: Tick::ZERO,
             samples: Vec::new(),
+            offset: Tick::ZERO,
         }
+    }
+
+    /// Cuts the front off: the take now starts at scene time `at` (clamped to inside the take). The samples keep
+    /// their place in the recording.
+    pub fn trim_start(&mut self, at: Tick) {
+        let at = Tick(at.0.clamp(self.start.0, self.end().0));
+        let cut = at.0.saturating_sub(self.start.0);
+        self.offset = Tick(self.offset.0.saturating_add(cut));
+        self.duration = Tick(self.duration.0.saturating_sub(cut));
+        self.start = at;
+        self.blend_in = Tick::ZERO;
+        self.fit_blends();
+    }
+
+    /// Cuts the back off: the take now ends at scene time `at` (clamped to inside the take).
+    pub fn trim_end(&mut self, at: Tick) {
+        let at = Tick(at.0.clamp(self.start.0, self.end().0));
+        self.duration = Tick(at.0.saturating_sub(self.start.0));
+        self.blend_out = Tick::ZERO;
+        self.fit_blends();
+    }
+
+    fn fit_blends(&mut self) {
+        let room = self.duration.0.max(0);
+        self.blend_in = Tick(self.blend_in.0.clamp(0, room));
+        self.blend_out = Tick(self.blend_out.0.clamp(0, room.saturating_sub(self.blend_in.0)));
+    }
+
+    /// Splits the take at scene time `at` into two that play exactly as the whole did. `self` keeps the first
+    /// part; the second part is returned (`None` when `at` is not strictly inside).
+    pub fn split_at(&mut self, at: Tick) -> Option<Self> {
+        if at.0 <= self.start.0 || at.0 >= self.end().0 {
+            return None;
+        }
+        let mut second = self.clone();
+        second.trim_start(at);
+        second.blend_out = self.blend_out;
+        second.fit_blends();
+        self.trim_end(at);
+        Some(second)
+    }
+
+    /// The position in the recording (what the samples use) of scene time `t`.
+    #[must_use]
+    pub const fn local(&self, t: Tick) -> Tick {
+        Tick(t.0.saturating_sub(self.start.0).saturating_add(self.offset.0))
     }
 
     /// `take 3 - head, brows`: Character Animator's naming, with the groups for the behaviors.
@@ -104,7 +155,7 @@ impl Take {
         if t.0 < self.start.0 || t.0 >= self.end().0 {
             return None;
         }
-        let local = t.0.saturating_sub(self.start.0);
+        let local = self.local(t).0;
         let next_index = self.samples.partition_point(|s| s.t.0 <= local);
         let prev = next_index.checked_sub(1).and_then(|i| self.samples.get(i));
         let next = self.samples.get(next_index);
@@ -131,6 +182,7 @@ impl Take {
         if self.duration.0 < 0 || self.blend_in.0 < 0 || self.blend_out.0 < 0 {
             return Err(Error::invalid(format!("take {} has a negative length", self.number)));
         }
+        self.offset = Tick(self.offset.0.max(0));
         self.samples.sort_by_key(|s| s.t);
         for sample in &mut self.samples {
             sample.frame.sanitize();
@@ -250,6 +302,44 @@ mod tests {
         let roll = |t: f64| take.frame_at(seconds(t)).unwrap().face.unwrap().head_roll;
         assert!((roll(0.25) - 2.5).abs() < 1e-9);
         assert!((roll(1.5) - 10.0).abs() < 1e-12, "after the last sample the value holds");
+    }
+
+    fn ramp_take() -> Take {
+        let mut take = Take::new(1, [ParamGroup::Head].into_iter().collect(), seconds(1.0), seconds(4.0));
+        for (t, roll) in [(0.0, 0.0), (4.0, 40.0)] {
+            take.samples.push(Sample { t: seconds(t), frame: Frame { face: Some(FaceInput { head_roll: roll, ..FaceInput::default() }), ..Frame::default() } });
+        }
+        take
+    }
+
+    #[test]
+    fn trimming_the_front_keeps_the_samples_where_they_were_recorded() {
+        let mut take = ramp_take();
+        let before = take.frame_at(seconds(3.0)).unwrap().face.unwrap().head_roll;
+        take.trim_start(seconds(2.0));
+        assert_eq!(take.start, seconds(2.0));
+        assert_eq!(take.duration, seconds(3.0));
+        let after = take.frame_at(seconds(3.0)).unwrap().face.unwrap().head_roll;
+        assert!((before - after).abs() < 1e-9, "trimming must not shift the performance");
+        assert!(take.frame_at(seconds(1.5)).is_none());
+        take.trim_end(seconds(100.0));
+        assert_eq!(take.end(), seconds(5.0), "a trim cannot grow the take");
+    }
+
+    #[test]
+    fn splitting_plays_the_same_as_the_whole() {
+        let whole = ramp_take();
+        let mut first = whole.clone();
+        let second = first.split_at(seconds(2.5)).unwrap();
+        assert_eq!(first.end(), seconds(2.5));
+        assert_eq!(second.start, seconds(2.5));
+        for t in [1.0, 1.9, 2.4, 2.5, 3.7, 4.9] {
+            let from = if t < 2.5 { &first } else { &second };
+            let a = whole.frame_at(seconds(t)).unwrap().face.unwrap().head_roll;
+            let b = from.frame_at(seconds(t)).unwrap().face.unwrap().head_roll;
+            assert!((a - b).abs() < 1e-9, "t={t}");
+        }
+        assert!(first.clone().split_at(seconds(0.5)).is_none() && first.clone().split_at(seconds(2.5)).is_none());
     }
 
     #[test]

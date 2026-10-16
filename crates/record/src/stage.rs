@@ -6,7 +6,7 @@
 
 use std::collections::BTreeMap;
 
-use anim_core::{ColorTransform, Size, Vec2};
+use anim_core::{Affine, ColorTransform, Size, Vec2};
 use anim_display::{DisplayList, Group, ImageId, ImageStore, Node};
 use anim_export::FrameSource;
 use charcraft_behaviors::{BehaviorStack, Rig};
@@ -16,7 +16,37 @@ use charcraft_puppet::{Puppet, PuppetPose};
 
 use crate::error::{Error, Result};
 use crate::playback::{Evaluator, Templates};
-use crate::scene::Scene;
+use crate::scene::{Placement, Scene};
+
+/// How one frame of a scene is laid out: the camera and where every track stands (keyframes applied).
+#[derive(Debug, Clone)]
+pub struct Layout {
+    /// Scene pixels to frame pixels.
+    pub camera: Affine,
+    /// The placement of each track at the frame.
+    pub placements: Vec<Placement>,
+}
+
+impl Cast {
+    /// Lays out `scene` at `frame` for the given poses (a missing pose counts as neutral).
+    #[must_use]
+    pub fn layout(&self, scene: &Scene, poses: &[PuppetPose], frame: i64) -> Layout {
+        let t = scene.frame_time(frame);
+        let placements: Vec<Placement> = scene.tracks.iter().map(|track| track.placement_at(t)).collect();
+        let centre = Vec2::new(scene.size.width / 2.0, scene.size.height / 2.0);
+        let face = scene.camera.zoom_on_face.and_then(|follow| {
+            let track = scene.tracks.get(follow.track)?;
+            let member = self.get(&track.puppet)?;
+            let placement = placements.get(follow.track)?;
+            let neutral = PuppetPose::neutral();
+            // `face_point` is relative to the middle of the frame, and so is the camera.
+            let at = crate::camera::face_point(&member.puppet, poses.get(follow.track).unwrap_or(&neutral), placement, member.skin, member.handle)?;
+            Some(Vec2::new(at.x, at.y))
+        });
+        let view = scene.camera.view_at(t, face);
+        Layout { camera: view.matrix(centre), placements }
+    }
+}
 
 /// A puppet that can be placed on tracks.
 #[derive(Debug, Clone)]
@@ -275,17 +305,27 @@ impl FrameSource for SceneFrames<'_> {
     fn display_list(&self, index: u32) -> DisplayList {
         let mut list = DisplayList::new(self.scene.size, self.scene.background);
         let centre = Vec2::new(self.scene.size.width / 2.0, self.scene.size.height / 2.0);
+        // Poses only matter to the layout when the camera follows a face.
+        let poses: Vec<PuppetPose> = if self.scene.camera.zoom_on_face.is_some() {
+            (0..self.scene.tracks.len()).map(|i| self.pose(i, index).cloned().unwrap_or_else(PuppetPose::neutral)).collect()
+        } else {
+            Vec::new()
+        };
+        let layout = self.cast.layout(&self.scene, &poses, i64::from(index));
         for (i, track) in self.scene.tracks.iter().enumerate() {
             if !track.enabled {
                 continue;
             }
-            let (Some(member), Some(pose), Some(map)) = (self.cast.get(&track.puppet), self.pose(i, index), self.remaps.get(&track.puppet)) else { continue };
+            let (Some(member), Some(pose), Some(map), Some(placement)) =
+                (self.cast.get(&track.puppet), self.pose(i, index), self.remaps.get(&track.puppet), layout.placements.get(i))
+            else {
+                continue;
+            };
             let mut nodes = member.puppet.evaluate(pose).nodes;
             remap(&mut nodes, map);
-            let opacity =
-                f32::from(u8::try_from(anim_core::num::round_f64_to_u32(track.placement.opacity.clamp(0.0, 1.0) * 255.0).min(255)).unwrap_or(255)) / 255.0;
+            let opacity = f32::from(u8::try_from(anim_core::num::round_f64_to_u32(placement.opacity.clamp(0.0, 1.0) * 255.0).min(255)).unwrap_or(255)) / 255.0;
             list.nodes.push(Node::Group(Group {
-                transform: track.placement.matrix(centre, member.skin, member.handle),
+                transform: layout.camera * placement.matrix(centre, member.skin, member.handle),
                 color: ColorTransform::alpha(opacity),
                 children: nodes,
                 key: u64::try_from(i).ok(),
