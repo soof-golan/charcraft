@@ -43,7 +43,7 @@ mod warp;
 pub use api::{LayerInfo, OpOutcome, PuppetOp};
 pub use build::MAX_LAYERS;
 pub use error::{Error, Result};
-pub use model::{HandleDef, HandleKind, Layer, LayerId, LayerKind, Puppet, SwapSet};
+pub use model::{AttachStyle, CycleDef, CycleMode, HandleDef, HandleKind, Layer, LayerId, LayerKind, MESH_DENSITY, Puppet, STICK_PINS, SwapSet};
 pub use pose::{PuppetPose, Xform};
 pub use summary::{GroupSummary, PuppetSummary};
 pub use tags::{TagKind, Viseme};

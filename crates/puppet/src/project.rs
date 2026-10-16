@@ -143,6 +143,7 @@ impl Puppet {
         layer.visible = binding.active;
         if binding.key_trigger.key.is_some() {
             layer.key_trigger.clone_from(&binding.key_trigger.key);
+            layer.hide_others = binding.key_trigger.hide_others;
         }
     }
 }
@@ -169,7 +170,7 @@ fn collect_handles(handle: &Handle, label: &str, origin: Point, location: &dyn F
         } else {
             HandleKind::Attach
         };
-        out.push(HandleDef { key: format!("{label}/{name}"), name, kind, position: Point::new(origin.x + x, origin.y + y), tags: tag_names });
+        out.push(HandleDef { key: format!("{label}/{name}"), name, kind, position: Point::new(origin.x + x, origin.y + y), tags: tag_names, end: None });
         collect_handles(child, label, origin, location, out, depth.saturating_add(1));
     }
 }

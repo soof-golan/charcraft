@@ -125,6 +125,10 @@ pub struct PuppetPose {
     pub swaps: BTreeMap<String, String>,
     /// Forces layers on or off, keyed by layer path or label.
     pub visibility: BTreeMap<String, bool>,
+    /// Milliseconds since the performance began: what layer cycles run on. It is not part of what makes a pose
+    /// neutral.
+    #[serde(default)]
+    pub time_millis: u64,
 }
 
 impl PuppetPose {
@@ -159,7 +163,7 @@ impl PuppetPose {
     /// True when no field differs from [`Self::neutral`].
     #[must_use]
     pub fn is_neutral(&self) -> bool {
-        *self == Self::default()
+        Self { time_millis: 0, ..self.clone() } == Self::default()
     }
 
     /// The displacement for a handle key, zero when none is set or the value is not finite.

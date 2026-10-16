@@ -3,7 +3,7 @@
 use anim_core::{Affine, ColorTransform, Point, Rect, Vec2};
 use anim_display::{DisplayList, Group, Mesh, Node};
 
-use crate::model::{HandleKind, Layer, LayerId, LayerKind, Puppet};
+use crate::model::{AttachStyle, HandleKind, Layer, LayerId, LayerKind, Puppet};
 use crate::pose::{PuppetPose, Xform};
 use crate::tags::{self, ids};
 use crate::warp::{self, Warp, Weld};
@@ -102,8 +102,26 @@ impl Puppet {
         }
 
         for layer in &self.layers {
+            let Some(cycle) = layer.cycle.filter(|_| layer.children.len() > 1) else { continue };
+            let shown = cycle.frame(pose.time_millis, layer.children.len());
+            for (i, &child) in layer.children.iter().enumerate() {
+                set(child, i == shown);
+            }
+        }
+
+        for layer in &self.layers {
             if let Some(key) = &layer.key_trigger {
                 set(layer.id, pose.triggers.contains(key));
+            }
+        }
+
+        // A layer that hides the others hides its siblings for as long as its key is down.
+        for layer in &self.layers {
+            let on = layer.hide_others && layer.key_trigger.as_ref().is_some_and(|k| pose.triggers.contains(k));
+            if let (true, Some(parent)) = (on, layer.parent.and_then(|p| self.layer(p))) {
+                for &sibling in parent.children.iter().filter(|&&s| s != layer.id) {
+                    set(sibling, false);
+                }
             }
         }
 
@@ -306,11 +324,12 @@ impl Frame<'_> {
         let targets: Vec<Point> = warp
             .handle_indices
             .iter()
-            .filter_map(|&i| layer.handles.get(i))
-            .map(|h| {
+            .zip(&warp.pin_offsets)
+            .filter_map(|(&i, &offset)| layer.handles.get(i).map(|h| (h, offset)))
+            .map(|(h, offset)| {
                 let d = if h.kind == HandleKind::Fixed { Vec2::ZERO } else { self.pose.drag_of(&h.key) };
                 moved |= d != Vec2::ZERO;
-                h.position + d
+                h.position + offset + d
             })
             .collect();
         let matrices: Vec<Option<Affine>> = warp.welded.iter().map(|&weld| self.weld_matrix(warp, weld)).collect();
@@ -346,7 +365,8 @@ impl Frame<'_> {
             match entry.child.and_then(|c| self.puppet.layer(c)) {
                 Some(child) => {
                     flush(&mut run, &mut out);
-                    let d = if welded.iter().any(|w| w.child == child.id) { Vec2::ZERO } else { warp::displacement(warp_mesh, positions, child.origin) };
+                    let held = welded.iter().any(|w| w.child == child.id) || child.attach == AttachStyle::Free;
+                    let d = if held { Vec2::ZERO } else { warp::displacement(warp_mesh, positions, child.origin) };
                     out.push(if d == Vec2::ZERO {
                         entry.node
                     } else {

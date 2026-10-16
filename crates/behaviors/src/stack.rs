@@ -193,6 +193,7 @@ impl BehaviorStack {
             slot.behavior.step(&cx, &mut pose);
         }
         prune_identity(&mut pose);
+        pose.time_millis = u64::try_from(anim_core::num::round_f64_to_i64(time * 1000.0)).unwrap_or(0);
         pose
     }
 

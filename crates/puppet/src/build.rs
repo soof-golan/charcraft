@@ -7,7 +7,7 @@ use anim_core::{Affine, Point, Rect};
 use anim_display::{Bitmap, ImageStore, Node};
 
 use crate::error::{Error, Result};
-use crate::model::{Content, Layer, LayerId, LayerKind, Puppet};
+use crate::model::{AttachStyle, Content, Layer, LayerId, LayerKind, Puppet};
 use crate::tags::{self, TagKind, Viseme, ids};
 
 /// Layers accepted per puppet.
@@ -83,6 +83,11 @@ impl Puppet {
                 origin: Point::ORIGIN,
                 handles: Vec::new(),
                 key_trigger: None,
+                hide_others: false,
+                attach: AttachStyle::default(),
+                warp_independent: false,
+                mesh_density: 1.0,
+                cycle: None,
             });
         }
 

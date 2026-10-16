@@ -59,6 +59,110 @@ impl HandleKind {
     }
 }
 
+/// How an independent group is attached to the mesh of the group it sits in (Character Animator's attach styles).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AttachStyle {
+    /// Welded into the parent's mesh: the mesh around the attach point follows the group, so the join stays
+    /// seamless (the default).
+    #[default]
+    Weld,
+    /// Pivots about its attach point, which rides on the parent's mesh without pulling it.
+    Hinge,
+    /// Not attached: the parent's mesh never moves it.
+    Free,
+}
+
+impl AttachStyle {
+    /// All styles, in menu order.
+    pub const ALL: [Self; 3] = [Self::Weld, Self::Hinge, Self::Free];
+
+    /// The name shown in menus.
+    #[must_use]
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Weld => "Weld",
+            Self::Hinge => "Hinge",
+            Self::Free => "Free",
+        }
+    }
+}
+
+/// How a layer cycle runs once it reaches its last child.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CycleMode {
+    /// Starts again at the first child.
+    #[default]
+    Loop,
+    /// Runs back and forth.
+    PingPong,
+    /// Stops on the last child.
+    Once,
+}
+
+impl CycleMode {
+    /// All modes, in menu order.
+    pub const ALL: [Self; 3] = [Self::Loop, Self::PingPong, Self::Once];
+
+    /// The name shown in menus.
+    #[must_use]
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Loop => "Loop",
+            Self::PingPong => "Ping-pong",
+            Self::Once => "Once",
+        }
+    }
+}
+
+/// A layer cycle: the children of a group are shown one after the other, as an animated sequence.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CycleDef {
+    /// How long each child stays, in milliseconds.
+    pub step_millis: u32,
+    /// What happens at the end.
+    #[serde(default)]
+    pub mode: CycleMode,
+}
+
+impl CycleDef {
+    /// Shortest step accepted.
+    pub const MIN_STEP: u32 = 10;
+    /// Longest step accepted.
+    pub const MAX_STEP: u32 = 60_000;
+
+    /// A cycle that moves on every `step_millis` and loops.
+    #[must_use]
+    pub const fn looping(step_millis: u32) -> Self {
+        Self { step_millis, mode: CycleMode::Loop }
+    }
+
+    /// The index of the child shown `time_millis` after the start, among `count` children.
+    #[must_use]
+    pub fn frame(&self, time_millis: u64, count: usize) -> usize {
+        if count <= 1 {
+            return 0;
+        }
+        let step = u64::from(self.step_millis.clamp(Self::MIN_STEP, Self::MAX_STEP));
+        let n = u64::try_from(count).unwrap_or(u64::MAX);
+        let tick = time_millis / step;
+        let at = match self.mode {
+            CycleMode::Loop => tick % n,
+            CycleMode::Once => tick.min(n.saturating_sub(1)),
+            CycleMode::PingPong => {
+                let period = n.saturating_mul(2).saturating_sub(2).max(1);
+                let p = tick % period;
+                if p < n { p } else { period.saturating_sub(p) }
+            }
+        };
+        usize::try_from(at).unwrap_or(0)
+    }
+}
+
+/// The range of [`Layer::mesh_density`].
+pub const MESH_DENSITY: (f64, f64) = (0.5, 4.0);
+
 /// A handle of an independent group: a named point in the artwork.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct HandleDef {
@@ -72,6 +176,36 @@ pub struct HandleDef {
     pub position: Point,
     /// Its tags.
     pub tags: Vec<String>,
+    /// The far end of a stick (`position` is the near end); `None` for every other handle.
+    #[serde(default)]
+    pub end: Option<Point>,
+}
+
+/// How many pins a stick puts along its length.
+pub const STICK_PINS: usize = 6;
+
+impl HandleDef {
+    /// True when the handle pins its group's mesh (a stick only does once it has two ends).
+    #[must_use]
+    pub const fn pins_mesh(&self) -> bool {
+        self.kind.pins_mesh() || (matches!(self.kind, HandleKind::Stick) && self.end.is_some())
+    }
+
+    /// The rest positions the handle pins, each with its offset from `position` (a stick pins points along its
+    /// length, every other handle just its position).
+    #[must_use]
+    pub fn pins(&self) -> Vec<(Point, anim_core::Vec2)> {
+        match (self.kind, self.end) {
+            (HandleKind::Stick, Some(end)) => (0..STICK_PINS)
+                .map(|i| {
+                    let t = f64::from(u32::try_from(i).unwrap_or(0)) / f64::from(u32::try_from(STICK_PINS.saturating_sub(1)).unwrap_or(1).max(1));
+                    let at = self.position.lerp(end, t);
+                    (at, at - self.position)
+                })
+                .collect(),
+            _ => vec![(self.position, anim_core::Vec2::ZERO)],
+        }
+    }
 }
 
 /// One layer of the artwork with the roles its name and the project data give it.
@@ -111,6 +245,26 @@ pub struct Layer {
     pub handles: Vec<HandleDef>,
     /// The key that shows the layer (project data).
     pub key_trigger: Option<String>,
+    /// While this layer is shown by its key trigger, its siblings are hidden.
+    #[serde(default)]
+    pub hide_others: bool,
+    /// How this independent group attaches to the mesh of the group around it.
+    #[serde(default)]
+    pub attach: AttachStyle,
+    /// The group's own mesh ignores the groups attached to it (they hinge instead of welding).
+    #[serde(default)]
+    pub warp_independent: bool,
+    /// How finely the group's mesh is cut: 1 is the default, 2 doubles the vertices along each side.
+    #[serde(default = "default_density")]
+    pub mesh_density: f64,
+    /// Shows the children one after the other.
+    #[serde(default)]
+    pub cycle: Option<CycleDef>,
+}
+
+/// The default [`Layer::mesh_density`].
+const fn default_density() -> f64 {
+    1.0
 }
 
 impl Layer {
@@ -269,9 +423,129 @@ impl Puppet {
             HandleKind::Dangle => vec![ids::DANGLE.to_owned()],
             HandleKind::Attach | HandleKind::Stick | HandleKind::Walk => Vec::new(),
         };
-        layer.handles.push(HandleDef { name: name.to_owned(), key: key.clone(), kind, position, tags });
+        layer.handles.push(HandleDef { name: name.to_owned(), key: key.clone(), kind, position, tags, end: None });
         self.rebuild_warps();
         Some(key)
+    }
+
+    /// Adds a stick between two points of an independent group: a rigid segment of the mesh. Returns the handle key.
+    pub fn add_stick(&mut self, group: LayerId, name: &str, from: Point, to: Point) -> Option<String> {
+        let key = self.add_handle(group, name, HandleKind::Stick, from)?;
+        if let Some(h) = self.layer_mut(group).and_then(|l| l.handles.iter_mut().find(|h| h.key == key)) {
+            h.end = Some(to);
+        }
+        self.rebuild_warps();
+        Some(key)
+    }
+
+    /// Moves a handle (both ends of a stick, unless `end` says where the far end goes). False when it does not exist.
+    pub fn move_handle(&mut self, group: LayerId, key: &str, position: Point, end: Option<Point>) -> bool {
+        let Some(h) = self.layer_mut(group).and_then(|l| l.handles.iter_mut().find(|h| h.key == key)) else { return false };
+        let delta = position - h.position;
+        h.position = position;
+        if let Some(old) = h.end {
+            h.end = Some(end.unwrap_or(old + delta));
+        }
+        self.rebuild_warps();
+        true
+    }
+
+    /// Makes a layer an independent group, or an ordinary layer again (which drops its handles). The root always
+    /// is one.
+    pub fn set_independent(&mut self, layer: LayerId, independent: bool) -> bool {
+        if layer == LayerId::ROOT {
+            return false;
+        }
+        let Some(l) = self.layer_mut(layer) else { return false };
+        if l.independent == independent {
+            return false;
+        }
+        l.independent = independent;
+        if !independent {
+            l.handles.clear();
+        }
+        self.rebuild_warps();
+        true
+    }
+
+    /// Chooses how an independent group attaches to its parent's mesh.
+    pub fn set_attach(&mut self, group: LayerId, style: AttachStyle) -> bool {
+        match self.layer_mut(group).filter(|l| l.independent) {
+            Some(l) if l.attach != style => {
+                l.attach = style;
+                self.rebuild_warps();
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// Switches whether a group's mesh ignores the groups attached to it.
+    pub fn set_warp_independent(&mut self, group: LayerId, on: bool) -> bool {
+        match self.layer_mut(group).filter(|l| l.independent) {
+            Some(l) if l.warp_independent != on => {
+                l.warp_independent = on;
+                self.rebuild_warps();
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// Sets how finely a group's mesh is cut (clamped to [`MESH_DENSITY`]).
+    pub fn set_mesh_density(&mut self, group: LayerId, density: f64) -> bool {
+        let density = density.clamp(MESH_DENSITY.0, MESH_DENSITY.1);
+        match self.layer_mut(group).filter(|l| l.independent) {
+            Some(l) if (l.mesh_density - density).abs() > f64::EPSILON => {
+                l.mesh_density = density;
+                self.rebuild_warps();
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// Hides the siblings of a layer while its key trigger shows it.
+    pub fn set_hide_others(&mut self, layer: LayerId, on: bool) -> bool {
+        match self.layer_mut(layer) {
+            Some(l) if l.hide_others != on => {
+                l.hide_others = on;
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// Makes a group show its children one after the other, or stops it (`None`).
+    pub fn set_cycle(&mut self, layer: LayerId, cycle: Option<CycleDef>) -> bool {
+        match self.layer_mut(layer).filter(|l| l.kind == LayerKind::Group) {
+            Some(l) if l.cycle != cycle => {
+                l.cycle = cycle.map(|c| CycleDef { step_millis: c.step_millis.clamp(CycleDef::MIN_STEP, CycleDef::MAX_STEP), ..c });
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// Deletes a swap set; true when it existed.
+    pub fn remove_swap_set(&mut self, name: &str) -> bool {
+        let before = self.swap_sets.len();
+        self.swap_sets.retain(|s| s.name != name);
+        self.swap_sets.len() != before
+    }
+
+    /// Renames a swap set. False when it does not exist or the new name is taken.
+    pub fn rename_swap_set(&mut self, name: &str, new_name: &str) -> bool {
+        if name == new_name || self.swap_sets.iter().any(|s| s.name == new_name) {
+            return false;
+        }
+        match self.swap_sets.iter_mut().find(|s| s.name == name) {
+            Some(s) => {
+                s.name = new_name.to_owned();
+                true
+            }
+            None => false,
+        }
     }
 
     /// Removes a handle by key; true when it existed.

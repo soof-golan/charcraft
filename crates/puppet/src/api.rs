@@ -20,7 +20,7 @@ use anim_core::Point;
 use serde::{Deserialize, Serialize};
 
 use crate::error::{Error, Result};
-use crate::model::{HandleDef, HandleKind, LayerId, Puppet};
+use crate::model::{AttachStyle, CycleDef, HandleDef, HandleKind, LayerId, Puppet};
 
 /// One edit of a puppet. Plain serde, tagged by `op`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -30,8 +30,39 @@ pub enum PuppetOp {
     AddTag { layer: String, tag: String },
     /// Takes a tag off a layer.
     RemoveTag { layer: String, tag: String },
-    /// Adds (or replaces) a handle of an independent group.
-    AddHandle { group: String, name: String, kind: HandleKind, position: [f64; 2] },
+    /// Adds (or replaces) a handle of an independent group. A stick (`kind` Stick) also takes the far `end`.
+    AddHandle {
+        group: String,
+        name: String,
+        kind: HandleKind,
+        position: [f64; 2],
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        end: Option<[f64; 2]>,
+    },
+    /// Moves a handle (a stick moves with both ends, or to a new `end` when given).
+    MoveHandle {
+        group: String,
+        key: String,
+        position: [f64; 2],
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        end: Option<[f64; 2]>,
+    },
+    /// Makes a layer an independent group or an ordinary layer.
+    SetIndependent { layer: String, independent: bool },
+    /// Chooses how an independent group attaches to its parent's mesh.
+    SetAttachStyle { group: String, style: AttachStyle },
+    /// Switches whether a group's own mesh ignores the groups attached to it.
+    SetWarpIndependent { group: String, on: bool },
+    /// Sets how finely a group's mesh is cut (0.5 to 4, 1 is the default).
+    SetMeshDensity { group: String, density: f64 },
+    /// Hides the siblings of a layer while its key trigger shows it.
+    SetHideOthers { layer: String, on: bool },
+    /// Makes a group show its children one after the other (`None` stops it).
+    SetCycle { layer: String, cycle: Option<CycleDef> },
+    /// Deletes a swap set.
+    RemoveSwapSet { name: String },
+    /// Renames a swap set.
+    RenameSwapSet { name: String, new_name: String },
     /// Removes a handle by its key.
     RemoveHandle { group: String, key: String },
     /// Moves the origin of an independent group.
@@ -78,6 +109,16 @@ pub struct LayerInfo {
     pub handles: Vec<HandleDef>,
     /// Key trigger.
     pub key_trigger: Option<String>,
+    /// The key trigger hides the siblings while it shows the layer.
+    pub hide_others: bool,
+    /// How an independent group attaches to its parent's mesh.
+    pub attach: Option<AttachStyle>,
+    /// An independent group's mesh ignores the groups attached to it.
+    pub warp_independent: Option<bool>,
+    /// How finely an independent group's mesh is cut.
+    pub mesh_density: Option<f64>,
+    /// A group's layer cycle.
+    pub cycle: Option<CycleDef>,
 }
 
 impl Puppet {
@@ -120,6 +161,11 @@ impl Puppet {
             origin: l.independent.then_some([l.origin.x, l.origin.y]),
             handles: l.handles.clone(),
             key_trigger: l.key_trigger.clone(),
+            hide_others: l.hide_others,
+            attach: l.independent.then_some(l.attach),
+            warp_independent: l.independent.then_some(l.warp_independent),
+            mesh_density: l.independent.then_some(l.mesh_density),
+            cycle: l.cycle,
         })
     }
 
@@ -141,13 +187,65 @@ impl Puppet {
                 let id = self.need(layer)?;
                 Ok(OpOutcome { changed: self.remove_tag(id, tag), key: None })
             }
-            PuppetOp::AddHandle { group, name, kind, position } => {
-                if !finite(position) {
+            PuppetOp::AddHandle { group, name, kind, position, end } => {
+                if !finite(position) || end.as_ref().is_some_and(|e| !finite(e)) {
                     return Err(Error::Rejected("handle positions must be finite"));
                 }
                 let id = self.need_group(group)?;
-                let key = self.add_handle(id, name, *kind, Point::new(position[0], position[1]));
+                let at = Point::new(position[0], position[1]);
+                let key = match end {
+                    Some(e) if *kind == HandleKind::Stick => self.add_stick(id, name, at, Point::new(e[0], e[1])),
+                    _ => self.add_handle(id, name, *kind, at),
+                };
                 Ok(OpOutcome { changed: key.is_some(), key })
+            }
+            PuppetOp::MoveHandle { group, key, position, end } => {
+                if !finite(position) || end.as_ref().is_some_and(|e| !finite(e)) {
+                    return Err(Error::Rejected("handle positions must be finite"));
+                }
+                let id = self.need_group(group)?;
+                let moved = self.move_handle(id, key, Point::new(position[0], position[1]), end.map(|e| Point::new(e[0], e[1])));
+                Ok(OpOutcome { changed: moved, key: None })
+            }
+            PuppetOp::SetIndependent { layer, independent } => {
+                let id = self.need(layer)?;
+                if id == LayerId::ROOT {
+                    return Err(Error::Rejected("the puppet itself is always an independent group"));
+                }
+                Ok(OpOutcome { changed: self.set_independent(id, *independent), key: None })
+            }
+            PuppetOp::SetAttachStyle { group, style } => {
+                let id = self.need_group(group)?;
+                Ok(OpOutcome { changed: self.set_attach(id, *style), key: None })
+            }
+            PuppetOp::SetWarpIndependent { group, on } => {
+                let id = self.need_group(group)?;
+                Ok(OpOutcome { changed: self.set_warp_independent(id, *on), key: None })
+            }
+            PuppetOp::SetMeshDensity { group, density } => {
+                if !density.is_finite() || *density <= 0.0 {
+                    return Err(Error::Rejected("the mesh density must be a positive number"));
+                }
+                let id = self.need_group(group)?;
+                Ok(OpOutcome { changed: self.set_mesh_density(id, *density), key: None })
+            }
+            PuppetOp::SetHideOthers { layer, on } => {
+                let id = self.need(layer)?;
+                Ok(OpOutcome { changed: self.set_hide_others(id, *on), key: None })
+            }
+            PuppetOp::SetCycle { layer, cycle } => {
+                let id = self.need(layer)?;
+                if self.layer(id).is_none_or(|l| l.kind != crate::LayerKind::Group || l.children.len() < 2) {
+                    return Err(Error::Rejected("a layer cycle needs a group with at least two layers"));
+                }
+                Ok(OpOutcome { changed: self.set_cycle(id, *cycle), key: None })
+            }
+            PuppetOp::RemoveSwapSet { name } => Ok(OpOutcome { changed: self.remove_swap_set(name), key: None }),
+            PuppetOp::RenameSwapSet { name, new_name } => {
+                if new_name.trim().is_empty() {
+                    return Err(Error::Rejected("a swap set needs a name"));
+                }
+                Ok(OpOutcome { changed: self.rename_swap_set(name, new_name), key: None })
             }
             PuppetOp::RemoveHandle { group, key } => {
                 let id = self.need_group(group)?;
@@ -189,7 +287,7 @@ mod tests {
 
     #[test]
     fn ops_are_tagged_json() {
-        let op = PuppetOp::AddHandle { group: "Body".into(), name: "Fixed".into(), kind: HandleKind::Fixed, position: [1.0, 2.0] };
+        let op = PuppetOp::AddHandle { group: "Body".into(), name: "Fixed".into(), kind: HandleKind::Fixed, position: [1.0, 2.0], end: None };
         let json = serde_json::to_string(&op).unwrap();
         assert!(json.contains(r#""op":"add_handle""#), "{json}");
         let back: PuppetOp = serde_json::from_str(&json).unwrap();

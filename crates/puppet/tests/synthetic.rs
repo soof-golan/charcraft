@@ -360,7 +360,8 @@ fn summary_describes_the_puppet() {
 fn tool_ops_edit_a_puppet_by_path() {
     use charcraft_puppet::{Error, PuppetOp};
     let mut p = Puppet::from_artwork(&puppet_tree()).unwrap();
-    let out = p.apply(&PuppetOp::AddHandle { group: "Body".into(), name: "Fixed".into(), kind: HandleKind::Fixed, position: [100.0, 195.0] }).unwrap();
+    let out =
+        p.apply(&PuppetOp::AddHandle { group: "Body".into(), name: "Fixed".into(), kind: HandleKind::Fixed, position: [100.0, 195.0], end: None }).unwrap();
     assert_eq!(out.key.as_deref(), Some("Body/Fixed"));
     assert!(p.apply(&PuppetOp::AddTag { layer: "Head/Face".into(), tag: "X.Tag".into() }).unwrap().changed);
     assert!(!p.apply(&PuppetOp::AddTag { layer: "Head/Face".into(), tag: "X.Tag".into() }).unwrap().changed);

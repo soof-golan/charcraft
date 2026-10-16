@@ -5,7 +5,7 @@ use anim_display::{DisplayList, Node};
 use anim_render::{Background, RenderOptions};
 use anim_rig::{ArapSolver, Binding, BindingMode, HandleSet, Mesh, MeshOptions, Outline};
 
-use crate::model::{LayerId, Puppet};
+use crate::model::{AttachStyle, HandleDef, LayerId, Puppet};
 use crate::silhouette;
 use crate::tags::ids;
 
@@ -23,8 +23,10 @@ pub struct Warp {
     solver: ArapSolver,
     /// The handles and solver without the welds, for groups that have handles of their own.
     plain: Option<(HandleSet, ArapSolver)>,
-    /// For each bound handle, its index in the group's `handles` list.
+    /// For each bound pin, the index of its handle in the group's `handles` list.
     pub handle_indices: Vec<usize>,
+    /// For each bound pin, where it sits relative to its handle's position (zero except along a stick).
+    pub pin_offsets: Vec<Vec2>,
     /// Independent groups welded to this mesh.
     pub welded: Vec<Weld>,
     /// For each welded group, the vertices of this mesh under its artwork (the overlap), pinned to follow the
@@ -49,7 +51,8 @@ pub struct Weld {
 pub fn plan_welds(puppet: &Puppet) -> Vec<(Weld, LayerId)> {
     let mut out = Vec::new();
     for child in puppet.layers().iter().filter(|l| l.independent && l.id != LayerId::ROOT) {
-        if child.handles.iter().any(|h| h.kind.pins_mesh())
+        if child.attach != AttachStyle::Weld
+            || child.handles.iter().any(HandleDef::pins_mesh)
             || child.has_tag(ids::LEFT_EYEBROW)
             || child.has_tag(ids::RIGHT_EYEBROW)
             || child.has_tag(ids::LEFT_PUPIL)
@@ -65,11 +68,11 @@ pub fn plan_welds(puppet: &Puppet) -> Vec<(Weld, LayerId)> {
             .iter()
             .filter_map(|&c| puppet.layer(c))
             .filter(|l| l.independent && l.id != child.id && l.bounds.is_some_and(|b| b.inflate(1.0, 1.0).contains(child.origin)))
-            .filter(|l| !own_nodes(puppet, l.id).is_empty())
+            .filter(|l| !l.warp_independent && !own_nodes(puppet, l.id).is_empty())
             .min_by(|a, b| area(a.bounds).total_cmp(&area(b.bounds)));
         if let Some(s) = sibling {
             out.push((Weld { child: child.id, sibling: true }, s.id));
-        } else if parent.independent && !own_nodes(puppet, parent.id).is_empty() {
+        } else if parent.independent && !parent.warp_independent && !own_nodes(puppet, parent.id).is_empty() {
             out.push((Weld { child: child.id, sibling: false }, parent.id));
         }
     }
@@ -136,7 +139,7 @@ pub fn build_all(puppet: &Puppet) -> (Vec<Warp>, Vec<String>) {
     let plan = plan_welds(puppet);
     for layer in puppet.layers() {
         let welded = welds_in(&plan, layer.id);
-        let pinned = layer.handles.iter().any(|h| h.kind.pins_mesh());
+        let pinned = layer.handles.iter().any(HandleDef::pins_mesh);
         if !layer.independent || (!pinned && welded.is_empty()) {
             continue;
         }
@@ -154,6 +157,7 @@ fn welds_in(plan: &[(Weld, LayerId)], group: LayerId) -> Vec<Weld> {
 
 /// The mesh of an independent group's own artwork.
 fn mesh_of(puppet: &Puppet, group: LayerId, edge: f64) -> Result<Mesh, String> {
+    let edge = edge / puppet.layer(group).map_or(1.0, |l| l.mesh_density).clamp(crate::model::MESH_DENSITY.0, crate::model::MESH_DENSITY.1);
     let nodes = own_nodes(puppet, group);
     if nodes.is_empty() {
         return Err("the group draws nothing".into());
@@ -180,10 +184,12 @@ pub fn build_one(puppet: &Puppet, group: LayerId, welded: Vec<Weld>) -> Result<W
     let mesh = mesh_of(puppet, group, if welded.is_empty() { 1.0 / 9.0 } else { WELD_EDGE })?;
     let mut rest = Vec::new();
     let mut indices = Vec::new();
-    for (i, h) in layer.handles.iter().enumerate() {
-        if h.kind.pins_mesh() {
-            rest.push(h.position);
+    let mut offsets = Vec::new();
+    for (i, h) in layer.handles.iter().enumerate().filter(|(_, h)| h.pins_mesh()) {
+        for (at, offset) in h.pins() {
+            rest.push(at);
             indices.push(i);
+            offsets.push(offset);
         }
     }
     let plain = if rest.is_empty() || welded.is_empty() {
@@ -258,7 +264,7 @@ pub fn build_one(puppet: &Puppet, group: LayerId, welded: Vec<Weld>) -> Result<W
     all.extend(overlaps.iter().flatten().copied());
     all.extend(anchors.iter().map(|a| a.0));
     let solver = ArapSolver::new(&mesh, &all).map_err(|e| e.to_string())?;
-    Ok(Warp { group, mesh, handles, solver, plain, handle_indices: indices, welded, overlaps, anchors })
+    Ok(Warp { group, mesh, handles, solver, plain, handle_indices: indices, pin_offsets: offsets, welded, overlaps, anchors })
 }
 
 /// True when a point is inside a closed polygon (even-odd rule).
