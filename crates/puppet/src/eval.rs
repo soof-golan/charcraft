@@ -156,11 +156,30 @@ impl Puppet {
 
     /// How far a pupil moves for a gaze: within what is left of the eye around the pupil.
     fn pupil_offset(&self, pupil: &Layer, eye_tag: &str, gaze: Vec2) -> Vec2 {
-        let eye_bounds = self.ancestor_with_tag(pupil.id, eye_tag).or(pupil.parent).and_then(|id| self.layer(id)).and_then(|l| l.bounds);
-        let (Some(eye), Some(own)) = (eye_bounds, pupil.bounds) else { return Vec2::ZERO };
+        let eye_bounds = self.ancestor_with_tag(pupil.id, eye_tag).or(pupil.parent).and_then(|id| self.shown_bounds(id));
+        let (Some(eye), Some(own)) = (eye_bounds, self.shown_bounds(pupil.id).or(pupil.bounds)) else { return Vec2::ZERO };
         let range = Vec2::new(((eye.width() - own.width()) / 2.0).max(0.0), ((eye.height() - own.height()) / 2.0).max(0.0));
         let unit = |v: f64| if v.is_finite() { v.clamp(-1.0, 1.0) } else { 0.0 };
         Vec2::new(unit(gaze.x) * range.x, unit(gaze.y) * range.y)
+    }
+
+    /// Bounds of what a layer draws at rest: layers the artwork hides (closed lids, alternative mouths) and blink
+    /// layers do not count, so a lid that is wider than the eye does not widen the eye.
+    fn shown_bounds(&self, id: LayerId) -> Option<Rect> {
+        let mut out: Option<Rect> = None;
+        let mut stack = vec![id];
+        while let Some(at) = stack.pop() {
+            let Some(l) = self.layer(at) else { continue };
+            if !l.visible || l.has_tag(ids::LEFT_BLINK) || l.has_tag(ids::RIGHT_BLINK) {
+                continue;
+            }
+            if l.kind == LayerKind::Group {
+                stack.extend(l.children.iter().copied());
+            } else if let Some(b) = l.bounds {
+                out = Some(out.map_or(b, |o| o.union(b)));
+            }
+        }
+        out
     }
 
     /// The closest ancestor (not the layer itself) carrying a tag.
