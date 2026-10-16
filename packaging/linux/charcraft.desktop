@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=CharCraft
+GenericName=Live character animation
+Comment=Live character animation with face tracking and lip sync
+Exec=charcraft %F
+Icon=charcraft
+Terminal=false
+Categories=Graphics;2DGraphics;AudioVideo;
+MimeType=application/x-charcraft-puppet;application/x-charcraft-project;
+StartupWMClass=charcraft

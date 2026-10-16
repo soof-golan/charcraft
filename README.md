@@ -30,13 +30,29 @@ This is version 0.1.0, a pre-release; see [Known gaps](#known-gaps).
 
 ## Install
 
-Download a package from the [releases page](https://github.com/soof-golan/charcraft/releases): Linux `tar.gz`, macOS
-(Apple silicon and Intel, an app bundle with camera and microphone usage descriptions) and Windows `zip`, with
-`SHA256SUMS`. Every package carries its own ONNX Runtime library (next to the program, or in the app's
+Download a package from the [releases page](https://github.com/soof-golan/charcraft/releases) and check it against
+`SHA256SUMS`:
+
+| Platform | Installer | Also |
+| --- | --- | --- |
+| Linux (x86_64, arm64) | `.AppImage` (`chmod +x`, then run it) or `.deb` (`sudo apt install ./charcraft_*.deb`) | `tar.gz` |
+| macOS | `.dmg` for Apple silicon (`macos-arm64`) or Intel (`macos-x86_64`): drag CharCraft to Applications | `zip` |
+| Windows (x86_64, arm64) | `-setup.exe`: Start-menu shortcuts, opens `.puppet` and `.chproj` files | `zip` |
+
+The `.deb` and the Windows installer register `.puppet` and `.chproj` so a double click opens them in CharCraft; the
+`.deb` also puts `charcraft` and `charcraft-cli` on the `PATH`. The macOS app asks for camera and microphone access.
+
+The binaries are unsigned (a deliberate choice), so each OS asks for confirmation the first time:
+
+- **macOS Gatekeeper**: "CharCraft cannot be opened". Open System Settings, Privacy & Security, scroll to the message
+  about CharCraft and choose Open Anyway; or right-click the app, choose Open, then Open; or run
+  `xattr -dr com.apple.quarantine /Applications/CharCraft.app`.
+- **Windows SmartScreen**: "Windows protected your PC". Choose More info, then Run anyway.
+- **Linux**: no prompt. An AppImage needs the executable bit and FUSE 2 (or run it with `--appimage-extract-and-run`).
+
+Every package carries its own ONNX Runtime library (next to the program, or in the app's
 `Contents/Frameworks`), so face tracking needs nothing installed; the two small face models are downloaded on first
-use and checked against their SHA-256. `charcraft --check-live` runs that whole chain without a camera. The binaries
-are unsigned: on macOS right-click the app and choose Open the first time; on Windows choose More info, then Run
-anyway in SmartScreen.
+use and checked against their SHA-256. `charcraft --check-live` runs that whole chain without a camera.
 
 ## Using it
 
@@ -92,7 +108,7 @@ onnx-dynamic --example probe -- PHOTO.jpg OVERLAY.png` runs them on a photo.
 
 ## Known gaps
 
-- Binaries are unsigned and there is no installer.
+None at present.
 
 ## License
 

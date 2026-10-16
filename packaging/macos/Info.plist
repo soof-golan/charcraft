@@ -31,9 +31,10 @@
 			<string>Character Animator puppet</string>
 			<key>CFBundleTypeRole</key>
 			<string>Editor</string>
-			<key>LSItemContentTypes</key>
+			<key>CFBundleTypeExtensions</key>
 			<array>
-				<string>com.soofgolan.charcraft.puppet</string>
+				<string>puppet</string>
+				<string>chproj</string>
 			</array>
 		</dict>
 	</array>

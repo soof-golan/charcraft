@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mime-info xmlns="http://www.freedesktop.org/standards/shared-mime-info">
+  <mime-type type="application/x-charcraft-puppet">
+    <comment>Character Animator puppet</comment>
+    <glob pattern="*.puppet"/>
+  </mime-type>
+  <mime-type type="application/x-charcraft-project">
+    <comment>Character Animator project</comment>
+    <glob pattern="*.chproj"/>
+  </mime-type>
+</mime-info>
