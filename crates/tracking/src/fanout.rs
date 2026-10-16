@@ -134,7 +134,7 @@ impl Hub {
                 }
             }
         }
-        let name = self.camera.as_ref().map(|c| c.name()).unwrap_or_default();
+        let name = self.camera.as_ref().map(FrameSource::name).unwrap_or_default();
         if reply.send(Ok(name)).is_ok() {
             self.subscribers.push(frames);
         }

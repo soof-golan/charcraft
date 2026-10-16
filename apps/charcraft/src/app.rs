@@ -736,7 +736,7 @@ impl CharCraftApp {
             } else {
                 Vec::new()
             };
-            self.render.send(RenderRequest::Scene { id, scene: self.doc.rec.scene.clone(), frame, live, scale });
+            self.render.send(RenderRequest::Scene { id, scene: Box::new(self.doc.rec.scene.clone()), frame, live, scale });
         } else {
             self.render.send(RenderRequest::Puppet { id, key, pose: Box::new(pose), scale, background: None });
         }

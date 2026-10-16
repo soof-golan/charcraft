@@ -828,7 +828,7 @@ const NO_PARAMS: &str = r#"{"type":"object","properties":{},"additionalPropertie
 
 /// The commands the app adds to the record crate's.
 fn app_commands() -> Vec<CommandSpec<AppDoc>> {
-    vec![
+    let mut all = vec![
         CommandSpec::new("rig.edit", "Edit puppet rig", rig_edit)
             .describe("Edit a puppet's rigging. Pick the edit with 'op': add_tag/remove_tag (layer, tag), add_handle (group, name, kind Fixed|Draggable|Dangle|Attach|Stick|Walk, position [x,y] in artwork pixels; the answer names the handle key), remove_handle (group, key), set_origin (group, origin), set_key_trigger (layer, key or null), add_swap_set (name, members), set_visible (layer, visible). Layers are paths (Head/Left Eye) or labels; use rig_layers to list them. 'puppet' picks the puppet (default: the first).")
             .with_schema(r#"{"type":"object","required":["op"],"properties":{"puppet":{"type":"string"},"op":{"enum":["add_tag","remove_tag","add_handle","remove_handle","set_origin","set_key_trigger","add_swap_set","set_visible"]},"layer":{"type":"string"},"tag":{"type":"string"},"group":{"type":"string"},"name":{"type":"string"},"kind":{"enum":["Fixed","Draggable","Dangle","Attach","Stick","Walk"]},"position":{"type":"array","items":{"type":"number"},"minItems":2,"maxItems":2},"origin":{"type":"array","items":{"type":"number"},"minItems":2,"maxItems":2},"key":{"type":["string","null"]},"members":{"type":"array","items":{"type":"string"},"minItems":2},"visible":{"type":"boolean"}}}"#),
@@ -897,6 +897,24 @@ fn app_commands() -> Vec<CommandSpec<AppDoc>> {
             .with_schema(r#"{"type":"object","properties":{"kind":{"enum":["ndi","virtual_camera","web","syphon","spout"]},"name":{"type":"string"},"width":{"type":"integer","minimum":16,"maximum":8192},"height":{"type":"integer","minimum":16,"maximum":8192},"fps":{"type":"integer","minimum":1,"maximum":120},"background":{"type":"string"},"device":{"type":"string","description":"Virtual camera device, e.g. /dev/video10."},"port":{"type":"integer","minimum":0,"maximum":65535}}}"#),
         CommandSpec::new("stream.stop", "Stop stream output", stream_stop).transient().describe("Stop the running stream output.").with_schema(NO_PARAMS),
         CommandSpec::new("stream.status", "Stream output status", stream_status).transient().describe("Whether a stream output runs, where it goes, frames sent and why the last one stopped.").with_schema(NO_PARAMS),
+        CommandSpec::new("mic.stop", "Stop microphone", mic_stop).transient().describe("Close the microphone.").with_schema(NO_PARAMS),
+        CommandSpec::new("mic.status", "Microphone status", mic_status).transient().describe("Whether the microphone is on, its level and the mouth shape the voice makes.").with_schema(NO_PARAMS),
+        CommandSpec::new("mic.demo_voice", "Demo voice", mic_demo)
+            .transient()
+            .describe("Play a synthetic talking mouth while no microphone is on (for demos and tests).")
+            .with_schema(r#"{"type":"object","properties":{"on":{"type":"boolean"}}}"#),
+        CommandSpec::new("ui.set", "Change the view", ui_set)
+            .transient()
+            .describe("Drive the window: mode (rig|record|stream), track (index), layer (path), seek_seconds, playing, mirror, dark, demo_voice; in the stream view triggers (keys held down, [] lets go), swaps (swap set to layer label), stream_panels, transparent and green_screen; dialog (warnings|maker|none: the import warnings list or the Puppet Maker). Only the given fields change.")
+            .with_schema(r#"{"type":"object","properties":{"mode":{"enum":["rig","record","stream"]},"track":{"type":"integer","minimum":0},"layer":{"type":"string"},"seek_seconds":{"type":"number"},"playing":{"type":"boolean"},"mirror":{"type":"boolean"},"dark":{"type":"boolean"},"demo_voice":{"type":"boolean"},"triggers":{"type":"array","items":{"type":"string"}},"swaps":{"type":"object","additionalProperties":{"type":"string"}},"stream_panels":{"type":"boolean"},"transparent":{"type":"boolean"},"green_screen":{"type":"boolean"},"dialog":{"enum":["warnings","maker","none"]}}}"#),
+    ];
+    all.extend(body_commands());
+    all
+}
+
+/// The body tracking commands.
+fn body_commands() -> Vec<CommandSpec<AppDoc>> {
+    vec![
         CommandSpec::new("tracking.body_status", "Body tracking status", tracking_body_status)
             .transient()
             .describe("Whether body tracking runs, frame counts, the rest pose in use, smoothing and the mirror switch.")
@@ -907,8 +925,8 @@ fn app_commands() -> Vec<CommandSpec<AppDoc>> {
             .with_schema(NO_PARAMS),
         CommandSpec::new("tracking.body_start", "Start body tracking", tracking_body_start)
             .transient()
-            .describe("Open the camera (shared with face tracking) and start tracking the body; the pose model downloads on first use (without the 'live' build feature a scripted demo body plays instead).")
-            .with_schema(r#"{"type":"object","properties":{"index":{"type":"integer","minimum":0},"width":{"type":"integer","minimum":1},"height":{"type":"integer","minimum":1},"fps":{"type":"integer","minimum":1}}}"#),
+            .describe("Open the camera (shared with face tracking) and start tracking the body; the pose model downloads on first use (without the 'live' build feature only the explicit demo body plays).")
+            .with_schema(r#"{"type":"object","properties":{"index":{"type":"integer","minimum":0},"width":{"type":"integer","minimum":1},"height":{"type":"integer","minimum":1},"fps":{"type":"integer","minimum":1},"demo":{"type":"boolean"}}}"#),
         CommandSpec::new("tracking.body_stop", "Stop body tracking", tracking_body_stop).transient().describe("Stop body tracking.").with_schema(NO_PARAMS),
         CommandSpec::new("tracking.body_set_rest_pose", "Set body rest pose", tracking_body_rest_pose)
             .transient()
@@ -923,16 +941,6 @@ fn app_commands() -> Vec<CommandSpec<AppDoc>> {
             .transient()
             .describe("Swap the performer's left and right so the puppet moves like a reflection.")
             .with_schema(r#"{"type":"object","properties":{"on":{"type":"boolean"}}}"#),
-        CommandSpec::new("mic.stop", "Stop microphone", mic_stop).transient().describe("Close the microphone.").with_schema(NO_PARAMS),
-        CommandSpec::new("mic.status", "Microphone status", mic_status).transient().describe("Whether the microphone is on, its level and the mouth shape the voice makes.").with_schema(NO_PARAMS),
-        CommandSpec::new("mic.demo_voice", "Demo voice", mic_demo)
-            .transient()
-            .describe("Play a synthetic talking mouth while no microphone is on (for demos and tests).")
-            .with_schema(r#"{"type":"object","properties":{"on":{"type":"boolean"}}}"#),
-        CommandSpec::new("ui.set", "Change the view", ui_set)
-            .transient()
-            .describe("Drive the window: mode (rig|record|stream), track (index), layer (path), seek_seconds, playing, mirror, dark, demo_voice; in the stream view triggers (keys held down, [] lets go), swaps (swap set to layer label), stream_panels, transparent and green_screen; dialog (warnings|maker|none: the import warnings list or the Puppet Maker). Only the given fields change.")
-            .with_schema(r#"{"type":"object","properties":{"mode":{"enum":["rig","record","stream"]},"track":{"type":"integer","minimum":0},"layer":{"type":"string"},"seek_seconds":{"type":"number"},"playing":{"type":"boolean"},"mirror":{"type":"boolean"},"dark":{"type":"boolean"},"demo_voice":{"type":"boolean"},"triggers":{"type":"array","items":{"type":"string"}},"swaps":{"type":"object","additionalProperties":{"type":"string"}},"stream_panels":{"type":"boolean"},"transparent":{"type":"boolean"},"green_screen":{"type":"boolean"},"dialog":{"enum":["warnings","maker","none"]}}}"#),
     ]
 }
 

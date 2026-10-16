@@ -38,7 +38,7 @@ pub enum RenderRequest {
         /// Echoed in the answer.
         id: u64,
         /// The scene.
-        scene: Scene,
+        scene: Box<Scene>,
         /// Frame to draw.
         frame: i64,
         /// Poses that replace playback for some tracks.
@@ -144,7 +144,7 @@ fn run(requests: &Receiver<RenderRequest>, results: &Sender<Rendered>, wake: &dy
                         .and_then(|p| p.ok_or_else(|| format!("no puppet {key:?}")));
                     (id, picture)
                 }
-                RenderRequest::Scene { id, scene, frame, live, scale } => (id, draw_scene(&stage, &mut renderer, &mut playback, scene, frame, &live, scale)),
+                RenderRequest::Scene { id, scene, frame, live, scale } => (id, draw_scene(&stage, &mut renderer, &mut playback, *scene, frame, &live, scale)),
                 RenderRequest::Cast(_) | RenderRequest::Shutdown => continue,
             };
             let _ = results.send(Rendered { id, picture, seconds: started.elapsed().as_secs_f32() });
@@ -194,7 +194,13 @@ mod tests {
         let mut scene = Scene::new("s", Size::new(320.0, 180.0), FrameRate::FPS_30, Tick::from_seconds_f64(1.0));
         scene.add_track(PuppetTrack::new("T", "demo")).unwrap();
         for id in 1..=5 {
-            handle.send(RenderRequest::Scene { id, scene: scene.clone(), frame: 3, live: vec![(0, PuppetPose::neutral().with_blink(1.0))], scale: 1.0 });
+            handle.send(RenderRequest::Scene {
+                id,
+                scene: Box::new(scene.clone()),
+                frame: 3,
+                live: vec![(0, PuppetPose::neutral().with_blink(1.0))],
+                scale: 1.0,
+            });
         }
         handle.send(RenderRequest::Puppet { id: 100, key: "demo".into(), pose: Box::new(PuppetPose::neutral()), scale: 0.25, background: None });
         let mut seen = Vec::new();

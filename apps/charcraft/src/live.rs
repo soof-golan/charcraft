@@ -524,7 +524,7 @@ mod tests {
         let handle = LiveHandle::spawn(|| {});
         let link = handle.link();
         assert_eq!(link.tool("tracking_body_status", &Value::Null).unwrap()["running"], false);
-        link.tool("tracking_body_start", &json!({})).unwrap();
+        link.tool("tracking_body_start", &json!({ "demo": true })).unwrap();
         let mut bodies = 0;
         for _ in 0..400 {
             while let Some(event) = handle.try_event() {
@@ -538,7 +538,7 @@ mod tests {
             std::thread::sleep(Duration::from_millis(5));
         }
         assert!(bodies > 3, "{bodies} bodies");
-        let rest = link.tool("tracking_set_rest_pose", &json!({ "frames": 3 })).unwrap();
+        let rest = link.tool("tracking_body_set_rest_pose", &json!({ "frames": 3 })).unwrap();
         assert_eq!(rest["capturing"], 3);
     }
 
