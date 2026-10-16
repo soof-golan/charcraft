@@ -30,8 +30,9 @@ pub struct Warp {
     /// For each welded group, the vertices of this mesh under its artwork (the overlap), pinned to follow the
     /// group's pose rigidly. Pins after the handles', in this order; then `anchors`.
     overlaps: Vec<Vec<u32>>,
-    /// Vertices far from every overlap, held in place while a welded group moves.
-    anchors: Vec<u32>,
+    /// Vertices far from every overlap, held in place while a welded group moves, each with how much of the
+    /// overlap's sideways shift it takes up (the body leans with the head; the nearest anchors sway most).
+    anchors: Vec<(u32, f64)>,
 }
 
 /// An independent group attached to another group's mesh (Character Animator's "Weld" attach style, the default).
@@ -91,10 +92,13 @@ impl Warp {
             _ => self.handles.targets(targets),
         };
         let at = |id: u32| self.mesh.vertex(id).unwrap_or(Point::ORIGIN);
+        let mut sideways = 0.0;
         for (ids, matrix) in self.overlaps.iter().zip(matrices.iter().map(|m| m.unwrap_or(Affine::IDENTITY)).chain(std::iter::repeat(Affine::IDENTITY))) {
             pins.extend(ids.iter().map(|&id| matrix * at(id)));
+            let n = f64::from(u32::try_from(ids.len()).unwrap_or(u32::MAX)).max(1.0);
+            sideways += ids.iter().map(|&id| (matrix * at(id)).x - at(id).x).sum::<f64>() / n;
         }
-        pins.extend(self.anchors.iter().map(|&id| at(id)));
+        pins.extend(self.anchors.iter().map(|&(id, sway)| at(id) + Vec2::new(sway * sideways, 0.0)));
         self.checked(self.solver.solve(&pins))
     }
 
@@ -111,6 +115,11 @@ pub fn displacement(mesh: &Mesh, positions: &[Point], rest: Point) -> Vec2 {
 /// Distance from the overlap, as a fraction of the mesh extent, beyond which a parent mesh is held in place while a
 /// welded group moves.
 const ANCHOR_REACH: f64 = 0.04;
+/// How much of a welded group's sideways shift the nearest anchors take up, so a short neck can lean instead of
+/// shearing to a thread.
+const SWAY: f64 = 0.8;
+/// Distance, in multiples of the reach beyond it, over which the sway fades out.
+const SWAY_FALLOFF: f64 = 2.0;
 /// Edge length of a mesh that has welded groups, as a fraction of its extent (finer than the handle meshes, so the
 /// overlap is a few vertices wide).
 const WELD_EDGE: f64 = 1.0 / 40.0;
@@ -207,7 +216,7 @@ pub fn build_one(puppet: &Puppet, group: LayerId, welded: Vec<Weld>) -> Result<W
         taken.extend(under.iter().copied());
         overlaps.push(under);
     }
-    let anchors: Vec<u32> = if welded.is_empty() {
+    let anchors: Vec<(u32, f64)> = if welded.is_empty() {
         Vec::new()
     } else {
         let b = mesh.bounds().ok_or("empty mesh")?;
@@ -216,14 +225,14 @@ pub fn build_one(puppet: &Puppet, group: LayerId, welded: Vec<Weld>) -> Result<W
         mesh.vertices
             .iter()
             .enumerate()
-            .map(|(i, v)| (num::usize_to_u32_sat(i), *v))
-            .filter(|(i, v)| !taken.contains(i) && held.iter().all(|h| h.distance(*v) > reach))
-            .map(|(i, _)| i)
+            .map(|(i, v)| (num::usize_to_u32_sat(i), held.iter().map(|h| h.distance(*v)).fold(f64::MAX, f64::min)))
+            .filter(|(i, d)| !taken.contains(i) && *d > reach)
+            .map(|(i, d)| (i, SWAY * (1.0 - (d - reach) / (SWAY_FALLOFF * reach)).clamp(0.0, 1.0)))
             .collect()
     };
     let mut all: Vec<u32> = handles.pinned().to_vec();
     all.extend(overlaps.iter().flatten().copied());
-    all.extend(anchors.iter().copied());
+    all.extend(anchors.iter().map(|a| a.0));
     let solver = ArapSolver::new(&mesh, &all).map_err(|e| e.to_string())?;
     Ok(Warp { group, mesh, handles, solver, plain, handle_indices: indices, welded, overlaps, anchors })
 }
