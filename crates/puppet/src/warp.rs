@@ -120,6 +120,10 @@ const ANCHOR_REACH: f64 = 0.04;
 const SWAY: f64 = 0.8;
 /// Distance, in multiples of the reach beyond it, over which the sway fades out.
 const SWAY_FALLOFF: f64 = 2.0;
+/// A welded group overlapping fewer mesh vertices than this counts as touching only thinly.
+const THIN_OVERLAP: usize = 12;
+/// How far from the attach point, in mesh edges, vertices under a thinly overlapping group's whole subtree follow it.
+const NECK_EDGES: f64 = 4.0;
 /// Edge length of a mesh that has welded groups, as a fraction of its extent (finer than the handle meshes, so the
 /// overlap is a few vertices wide).
 const WELD_EDGE: f64 = 1.0 / 40.0;
@@ -194,6 +198,7 @@ pub fn build_one(puppet: &Puppet, group: LayerId, welded: Vec<Weld>) -> Result<W
     let mut overlaps: Vec<Vec<u32>> = Vec::new();
     for w in &welded {
         let child = puppet.layer(w.child).ok_or("missing layer")?;
+        let extent = mesh.bounds().map_or(0.0, |b| b.width().max(b.height()));
         let ring = silhouette_outline(puppet, &own_nodes(puppet, w.child)).map(|o| o.outer);
         let mut under: Vec<u32> = mesh
             .vertices
@@ -203,6 +208,25 @@ pub fn build_one(puppet: &Puppet, group: LayerId, welded: Vec<Weld>) -> Result<W
             .map(|(i, _)| num::usize_to_u32_sat(i))
             .filter(|i| !taken.contains(i))
             .collect();
+        if under.len() < THIN_OVERLAP {
+            // A thin overlap (the head's own artwork only just touches a narrow neck, or a head built from
+            // independent parts draws almost nothing itself) would pin one or two vertices, and the neck then
+            // collapses to a spike under the chin when the head moves. The whole welded subtree moves with the
+            // group, so the vertices under all of it and near the attach point follow it as well; the neck keeps
+            // its width right up to the chin while the shoulders under hanging hair stay on the body.
+            let reach = extent * WELD_EDGE * NECK_EDGES;
+            if let Some(full) = silhouette_outline(puppet, &subtree_nodes(puppet, w.child)).map(|o| o.outer) {
+                let more: Vec<u32> = mesh
+                    .vertices
+                    .iter()
+                    .enumerate()
+                    .map(|(i, v)| (num::usize_to_u32_sat(i), *v))
+                    .filter(|(i, v)| !taken.contains(i) && !under.contains(i) && v.distance(child.origin) <= reach && inside(&full, *v))
+                    .map(|(i, _)| i)
+                    .collect();
+                under.extend(more);
+            }
+        }
         if under.is_empty() {
             // The artworks do not overlap at a vertex: hold the vertex nearest the attach point.
             let nearest = mesh
@@ -261,6 +285,28 @@ pub fn own_nodes(puppet: &Puppet, group: LayerId) -> Vec<Node> {
             out.extend(content.nodes.iter().cloned());
         }
         stack.extend(layer.children.iter().rev().copied());
+    }
+    out
+}
+
+/// Everything a group and its independent descendants draw, at default visibility, in artwork pixels.
+fn subtree_nodes(puppet: &Puppet, group: LayerId) -> Vec<Node> {
+    let mut out = own_nodes(puppet, group);
+    let mut stack: Vec<LayerId> = vec![group];
+    let mut seen = 0_usize;
+    while let Some(id) = stack.pop() {
+        seen = seen.saturating_add(1);
+        if seen > puppet.layers().len() {
+            break;
+        }
+        let Some(layer) = puppet.layer(id) else { continue };
+        for &child in &layer.children {
+            let Some(c) = puppet.layer(child) else { continue };
+            if c.independent && c.visible {
+                out.extend(own_nodes(puppet, child));
+            }
+            stack.push(child);
+        }
     }
     out
 }
