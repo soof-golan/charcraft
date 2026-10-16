@@ -35,6 +35,15 @@ pub fn draw(ui: &mut Ui, view: &mut View, ctx: &Ctx<'_>) -> Vec<Action> {
     actions
 }
 
+/// The keyboard shortcut that switches to a mode, shown as the tab's tooltip.
+const fn mode_shortcut(mode: Mode) -> &'static str {
+    match mode {
+        Mode::Rig => "Ctrl/Cmd+1",
+        Mode::Record => "Ctrl/Cmd+2",
+        Mode::Stream => "Ctrl/Cmd+3",
+    }
+}
+
 fn top_bar(ui: &mut Ui, view: &mut View, ctx: &Ctx<'_>, actions: &mut Vec<Action>) {
     egui::Panel::top("top_bar").show(ui, |ui| {
         ui.horizontal(|ui| {
@@ -80,16 +89,18 @@ fn top_bar(ui: &mut Ui, view: &mut View, ctx: &Ctx<'_>, actions: &mut Vec<Action
                     }
                     ui.checkbox(&mut view.hud, "Stream overlay");
                 });
-            });
-            ui.separator();
-            for mode in Mode::ALL {
-                if ui.selectable_label(view.mode == mode, RichText::new(mode.label()).strong()).clicked() {
-                    actions.push(Action::Mode(mode));
+                // The mode switch and title live inside the menu bar: it claims the rest of the row, so anything added
+                // after it is laid out past the window's right edge.
+                ui.separator();
+                for mode in Mode::ALL {
+                    if ui.selectable_label(view.mode == mode, RichText::new(mode.label()).strong()).on_hover_text(mode_shortcut(mode)).clicked() {
+                        actions.push(Action::Mode(mode));
+                    }
                 }
-            }
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                let title = format!("{}{}", ctx.world.title, if ctx.dirty { " *" } else { "" });
-                ui.label(RichText::new(visual(&title).into_owned()).weak());
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    let title = format!("{}{}", ctx.world.title, if ctx.dirty { " *" } else { "" });
+                    ui.label(RichText::new(visual(&title).into_owned()).weak());
+                });
             });
         });
     });
