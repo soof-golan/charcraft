@@ -24,7 +24,7 @@ thiserror = { workspace = true }
 anim-artwork = { workspace = true }
 anim-display = { workspace = true }
 anim-render = { workspace = true }
-png = { workspace = true }
+anim-testkit = { workspace = true }
 proptest = { workspace = true }
 criterion = { workspace = true }
 

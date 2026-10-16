@@ -65,13 +65,8 @@ struct Png {
 }
 
 fn read_png(path: &Path) -> Png {
-    let decoder = png::Decoder::new(std::io::BufReader::new(std::fs::File::open(path).unwrap()));
-    let mut reader = decoder.read_info().unwrap();
-    let mut buf = vec![0; reader.output_buffer_size().unwrap()];
-    let info = reader.next_frame(&mut buf).unwrap();
-    assert_eq!(info.color_type, png::ColorType::Rgba);
-    buf.truncate(info.buffer_size());
-    Png { width: info.width, height: info.height, rgba: buf }
+    let png = anim_testkit::read_png(path).unwrap();
+    Png { width: png.width, height: png.height, rgba: png.rgba }
 }
 
 /// Fraction of pixels that are not plain white or fully transparent.

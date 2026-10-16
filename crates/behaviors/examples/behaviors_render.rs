@@ -23,8 +23,6 @@
 )]
 
 use std::error::Error;
-use std::fs::File;
-use std::io::BufWriter;
 use std::path::Path;
 
 use anim_artwork::Limits;
@@ -149,10 +147,7 @@ fn write_sheet(path: &str, frames: &[anim_display::Image], cols: usize) -> Resul
             sheet[dst..dst + cw * 4].copy_from_slice(&px[y * cw * 4..(y + 1) * cw * 4]);
         }
     }
-    let mut encoder = png::Encoder::new(BufWriter::new(File::create(path)?), u32::try_from(cols * cw)?, u32::try_from(rows * ch)?);
-    encoder.set_color(png::ColorType::Rgba);
-    encoder.set_depth(png::BitDepth::Eight);
-    encoder.write_header()?.write_image_data(&sheet)?;
+    anim_testkit::write_png(Path::new(path), u32::try_from(cols * cw)?, u32::try_from(rows * ch)?, &sheet)?;
     println!("wrote {path}");
     Ok(())
 }

@@ -17,8 +17,6 @@
     reason = "test code"
 )]
 
-use std::fs::File;
-use std::io::BufWriter;
 use std::path::{Path, PathBuf};
 
 use anim_artwork::{ArtNode, ArtworkTree};
@@ -201,16 +199,7 @@ pub fn bbox_of(img: &Image, rgb: [u8; 3], tol: u8) -> Option<[i32; 4]> {
 }
 
 fn write_png(path: &Path, w: u32, h: u32, rgba: &[u8]) {
-    if let Some(dir) = path.parent() {
-        let _ = std::fs::create_dir_all(dir);
-    }
-    let Ok(file) = File::create(path) else { return };
-    let mut enc = png::Encoder::new(BufWriter::new(file), w, h);
-    enc.set_color(png::ColorType::Rgba);
-    enc.set_depth(png::BitDepth::Eight);
-    if let Ok(mut writer) = enc.write_header() {
-        let _ = writer.write_image_data(rgba);
-    }
+    let _ = anim_testkit::write_png(path, w, h, rgba);
 }
 
 /// Tiles images side by side (4 px gaps) into one PNG at `path`, returning the sheet.
@@ -270,15 +259,13 @@ fn golden_dir() -> PathBuf {
 pub fn golden(name: &str, imgs: &[&Image]) {
     let (w, h, rgba) = sheet(imgs);
     let path = golden_dir().join(format!("{name}.png"));
-    let Ok(file) = File::open(&path) else {
+    if !path.exists() {
         write_png(&path, w, h, &rgba);
         panic!("golden {} did not exist; wrote it, inspect it and run again", path.display());
-    };
-    let mut reader = png::Decoder::new(std::io::BufReader::new(file)).read_info().unwrap();
-    let mut buf = vec![0; reader.output_buffer_size().unwrap()];
-    let info = reader.next_frame(&mut buf).unwrap();
-    assert_eq!((info.width, info.height), (w, h), "golden {name} has another size");
-    let bad = buf.iter().zip(&rgba).filter(|(a, b)| a.abs_diff(**b) > 4).count();
+    }
+    let golden = anim_testkit::read_png(&path).unwrap();
+    assert_eq!((golden.width, golden.height), (w, h), "golden {name} has another size");
+    let bad = golden.rgba.iter().zip(&rgba).filter(|(a, b)| a.abs_diff(**b) > 4).count();
     if bad > (rgba.len() / 2000).max(16) {
         save_png(&format!("{name}.new"), w, h, &rgba);
         panic!("golden {name}: {bad} channel values differ (new render saved under $ANICRAFT_VISUAL_OUT when it is set)");

@@ -42,11 +42,7 @@ fn write_png(name: &str, images: &[&Image]) {
             rgba.extend_from_slice(&straight_rgba(img)[row * w * 4..(row + 1) * w * 4]);
         }
     }
-    let file = std::fs::File::create(path).unwrap();
-    let mut enc = png::Encoder::new(std::io::BufWriter::new(file), u32::try_from(w * images.len()).unwrap(), first.height);
-    enc.set_color(png::ColorType::Rgba);
-    enc.set_depth(png::BitDepth::Eight);
-    enc.write_header().unwrap().write_image_data(&rgba).unwrap();
+    anim_testkit::write_png(&path, u32::try_from(w * images.len()).unwrap(), first.height, &rgba).unwrap();
 }
 
 fn render(p: &Puppet, pose: &PuppetPose) -> Image {

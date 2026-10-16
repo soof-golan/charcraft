@@ -27,8 +27,6 @@
 )]
 
 use std::error::Error;
-use std::fs::File;
-use std::io::BufWriter;
 use std::path::Path;
 
 use anim_core::{FrameRate, Size, Tick, Vec2};
@@ -74,13 +72,7 @@ fn write_sheet(path: &str, tiles: &[anim_export::RgbaFrame], columns: usize) -> 
             pixels[at..at + tw * 4].copy_from_slice(src);
         }
     }
-    if let Some(parent) = Path::new(path).parent().filter(|p| !p.as_os_str().is_empty()) {
-        std::fs::create_dir_all(parent)?;
-    }
-    let mut encoder = png::Encoder::new(BufWriter::new(File::create(path)?), w as u32, h as u32);
-    encoder.set_color(png::ColorType::Rgba);
-    encoder.set_depth(png::BitDepth::Eight);
-    encoder.write_header()?.write_image_data(&pixels)?;
+    anim_testkit::write_png(Path::new(path), w as u32, h as u32, &pixels)?;
     println!("wrote {path} ({w}x{h})");
     Ok(())
 }

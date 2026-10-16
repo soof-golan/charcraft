@@ -25,7 +25,6 @@
 )]
 
 use std::collections::BTreeSet;
-use std::io::BufWriter;
 use std::path::PathBuf;
 
 use anim_artwork::{ArtNode, ArtworkTree};
@@ -53,12 +52,7 @@ fn scratch() -> Option<PathBuf> {
 
 fn write_png(name: &str, w: u32, h: u32, rgba: &[u8]) {
     let Some(dir) = scratch() else { return };
-    std::fs::create_dir_all(&dir).unwrap();
-    let file = std::fs::File::create(dir.join(format!("{name}.png"))).unwrap();
-    let mut encoder = png::Encoder::new(BufWriter::new(file), w, h);
-    encoder.set_color(png::ColorType::Rgba);
-    encoder.set_depth(png::BitDepth::Eight);
-    encoder.write_header().unwrap().write_image_data(rgba).unwrap();
+    anim_testkit::write_png(&dir.join(format!("{name}.png")), w, h, rgba).unwrap();
 }
 
 /// Frames side by side, `columns` per row, on a light grey ground.

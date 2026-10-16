@@ -25,27 +25,28 @@ charcraft-maker = { path = "crates/maker" }
 
 # Shared engine crates from anicraft-libs, pinned to the v0.1.0 commit. To move to newer engine work, change every
 # rev below to the new commit and run `cargo update`.
-anim-core = { git = "https://github.com/soof-golan/anicraft-libs", rev = "7b3bc39d02c9b062a832f4b130e506cd317db748" }
-anim-display = { git = "https://github.com/soof-golan/anicraft-libs", rev = "7b3bc39d02c9b062a832f4b130e506cd317db748" }
-anim-archive = { git = "https://github.com/soof-golan/anicraft-libs", rev = "7b3bc39d02c9b062a832f4b130e506cd317db748" }
-anim-shape = { git = "https://github.com/soof-golan/anicraft-libs", rev = "7b3bc39d02c9b062a832f4b130e506cd317db748" }
-anim-scene = { git = "https://github.com/soof-golan/anicraft-libs", rev = "7b3bc39d02c9b062a832f4b130e506cd317db748" }
-anim-morph = { git = "https://github.com/soof-golan/anicraft-libs", rev = "7b3bc39d02c9b062a832f4b130e506cd317db748" }
-anim-text = { git = "https://github.com/soof-golan/anicraft-libs", rev = "7b3bc39d02c9b062a832f4b130e506cd317db748" }
-anim-timeline = { git = "https://github.com/soof-golan/anicraft-libs", rev = "7b3bc39d02c9b062a832f4b130e506cd317db748" }
-anim-render = { git = "https://github.com/soof-golan/anicraft-libs", rev = "7b3bc39d02c9b062a832f4b130e506cd317db748" }
-anim-rig = { git = "https://github.com/soof-golan/anicraft-libs", rev = "7b3bc39d02c9b062a832f4b130e506cd317db748" }
-anim-audio = { git = "https://github.com/soof-golan/anicraft-libs", rev = "7b3bc39d02c9b062a832f4b130e506cd317db748" }
-anim-lipsync = { git = "https://github.com/soof-golan/anicraft-libs", rev = "7b3bc39d02c9b062a832f4b130e506cd317db748" }
-anim-artwork = { git = "https://github.com/soof-golan/anicraft-libs", rev = "7b3bc39d02c9b062a832f4b130e506cd317db748" }
-anim-export = { git = "https://github.com/soof-golan/anicraft-libs", rev = "7b3bc39d02c9b062a832f4b130e506cd317db748" }
-anim-video = { git = "https://github.com/soof-golan/anicraft-libs", rev = "7b3bc39d02c9b062a832f4b130e506cd317db748" }
-anim-ui = { git = "https://github.com/soof-golan/anicraft-libs", rev = "7b3bc39d02c9b062a832f4b130e506cd317db748" }
+anim-core = { git = "https://github.com/soof-golan/anicraft-libs", rev = "ce5219b26b094a60a196da117ffdad85233a9eab" }
+anim-display = { git = "https://github.com/soof-golan/anicraft-libs", rev = "ce5219b26b094a60a196da117ffdad85233a9eab" }
+anim-archive = { git = "https://github.com/soof-golan/anicraft-libs", rev = "ce5219b26b094a60a196da117ffdad85233a9eab" }
+anim-shape = { git = "https://github.com/soof-golan/anicraft-libs", rev = "ce5219b26b094a60a196da117ffdad85233a9eab" }
+anim-scene = { git = "https://github.com/soof-golan/anicraft-libs", rev = "ce5219b26b094a60a196da117ffdad85233a9eab" }
+anim-morph = { git = "https://github.com/soof-golan/anicraft-libs", rev = "ce5219b26b094a60a196da117ffdad85233a9eab" }
+anim-text = { git = "https://github.com/soof-golan/anicraft-libs", rev = "ce5219b26b094a60a196da117ffdad85233a9eab" }
+anim-timeline = { git = "https://github.com/soof-golan/anicraft-libs", rev = "ce5219b26b094a60a196da117ffdad85233a9eab" }
+anim-render = { git = "https://github.com/soof-golan/anicraft-libs", rev = "ce5219b26b094a60a196da117ffdad85233a9eab" }
+anim-rig = { git = "https://github.com/soof-golan/anicraft-libs", rev = "ce5219b26b094a60a196da117ffdad85233a9eab" }
+anim-audio = { git = "https://github.com/soof-golan/anicraft-libs", rev = "ce5219b26b094a60a196da117ffdad85233a9eab" }
+anim-lipsync = { git = "https://github.com/soof-golan/anicraft-libs", rev = "ce5219b26b094a60a196da117ffdad85233a9eab" }
+anim-artwork = { git = "https://github.com/soof-golan/anicraft-libs", rev = "ce5219b26b094a60a196da117ffdad85233a9eab" }
+anim-export = { git = "https://github.com/soof-golan/anicraft-libs", rev = "ce5219b26b094a60a196da117ffdad85233a9eab" }
+anim-video = { git = "https://github.com/soof-golan/anicraft-libs", rev = "ce5219b26b094a60a196da117ffdad85233a9eab" }
+anim-ui = { git = "https://github.com/soof-golan/anicraft-libs", rev = "ce5219b26b094a60a196da117ffdad85233a9eab" }
+anim-testkit = { git = "https://github.com/soof-golan/anicraft-libs", rev = "ce5219b26b094a60a196da117ffdad85233a9eab" }
 # The docking model anim-ui builds on (same rev as anim-ui's own): the app builds its workspace layouts from it.
 craft-ui = { git = "https://github.com/storytold/craft-libs", rev = "5c874d51eeb3de70e735c8ce87a59a7dedd47675", features = ["serde"] }
-anim-session = { git = "https://github.com/soof-golan/anicraft-libs", rev = "7b3bc39d02c9b062a832f4b130e506cd317db748" }
+anim-session = { git = "https://github.com/soof-golan/anicraft-libs", rev = "ce5219b26b094a60a196da117ffdad85233a9eab" }
 # MCP without the streamable-HTTP front-end: the app serves stdio and the loopback control channel.
-anim-mcp = { git = "https://github.com/soof-golan/anicraft-libs", rev = "7b3bc39d02c9b062a832f4b130e506cd317db748", default-features = false }
+anim-mcp = { git = "https://github.com/soof-golan/anicraft-libs", rev = "ce5219b26b094a60a196da117ffdad85233a9eab", default-features = false }
 
 # External crates (versions match anicraft-libs so the lockfiles agree).
 kurbo = { version = "0.13", features = ["serde"] }
