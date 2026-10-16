@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::Error;
 use crate::tags::{self, Viseme, ids};
-use crate::warp::{Blend, Warp};
+use crate::warp::Warp;
 
 /// Index of a layer in [`Puppet::layers`]. Layer 0 is the artwork root, which is the puppet itself.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
@@ -160,7 +160,6 @@ pub struct Puppet {
     pub(crate) contents: Vec<Content>,
     pub(crate) images: ImageStore,
     pub(crate) warps: Vec<Warp>,
-    pub(crate) blends: Vec<Blend>,
     /// Swap sets from the project data.
     pub swap_sets: Vec<SwapSet>,
     /// Things that could not be carried over (project layers missing from the artwork, meshes that failed).

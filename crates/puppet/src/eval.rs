@@ -6,7 +6,7 @@ use anim_display::{DisplayList, Group, Mesh, Node};
 use crate::model::{HandleKind, Layer, LayerId, LayerKind, Puppet};
 use crate::pose::{PuppetPose, Xform};
 use crate::tags::{self, ids};
-use crate::warp::{self, Blend, Warp, Weld};
+use crate::warp::{self, Warp, Weld};
 
 /// Deepest layer nesting evaluated.
 const MAX_DEPTH: usize = 128;
@@ -267,9 +267,6 @@ impl Frame<'_> {
         if let Some((warp, positions)) = self.solved_warp(layer) {
             return self.apply_warp(&warp.mesh, positions, &warp.welded, entries);
         }
-        if let Some((blend, positions)) = self.solved_blend(layer) {
-            return self.apply_warp(&blend.mesh, &positions, &[], entries);
-        }
         entries.into_iter().map(|e| e.node).collect()
     }
 
@@ -283,7 +280,7 @@ impl Frame<'_> {
     fn solve_warp(&self, warp: &Warp) -> Option<Vec<Point>> {
         let layer = self.puppet.layer(warp.group)?;
         let mut moved = false;
-        let mut targets: Vec<Point> = warp
+        let targets: Vec<Point> = warp
             .handle_indices
             .iter()
             .filter_map(|&i| layer.handles.get(i))
@@ -293,39 +290,18 @@ impl Frame<'_> {
                 h.position + d
             })
             .collect();
-        let mut welds_idle = true;
-        for &weld in &warp.welded {
-            let Some(child) = self.puppet.layer(weld.child) else {
-                targets.push(Point::ORIGIN);
-                continue;
-            };
-            let active = self.is_visible(child.id) && !self.puppet.group_xform(child.id, self.pose).is_identity();
-            moved |= active;
-            welds_idle &= !active;
-            targets.push(if active { self.attach_point(warp, weld, child) } else { child.origin });
-        }
-        moved.then(|| warp.solve(&targets, welds_idle))
+        let matrices: Vec<Option<Affine>> = warp.welded.iter().map(|&weld| self.weld_matrix(warp, weld)).collect();
+        moved |= matrices.iter().any(Option::is_some);
+        moved.then(|| warp.solve(&targets, &matrices))
     }
 
-    /// Where a welded group's attach point is in the pose, in the space of the mesh it is welded to.
-    fn attach_point(&self, warp: &Warp, weld: Weld, child: &Layer) -> Point {
-        let posed = self.puppet.group_matrix(child.id, self.pose) * child.origin;
-        if weld.sibling { self.puppet.group_matrix(warp.group, self.pose).inverse() * posed } else { posed }
-    }
-
-    /// The blend mesh of a welded group and its deformed vertices, when the pose moves the group and the mesh it is
-    /// welded to: vertices near its attach point follow that mesh, the rest follow the group's own pose.
-    fn solved_blend(&self, layer: &Layer) -> Option<(&Blend, Vec<Point>)> {
-        let blend = self.puppet.blends.iter().find(|b| b.group == layer.id)?;
-        if self.puppet.group_xform(layer.id, self.pose).is_identity() {
+    /// How the pose moves a welded group, in the space of the mesh it is welded to (`None` when it stays).
+    fn weld_matrix(&self, warp: &Warp, weld: Weld) -> Option<Affine> {
+        if !self.is_visible(weld.child) || self.puppet.group_xform(weld.child, self.pose).is_identity() {
             return None;
         }
-        let i = self.puppet.warps.iter().position(|w| w.group == blend.parent)?;
-        let parent = &self.puppet.warps.get(i)?.mesh;
-        let moved = self.solved.get(i)?.as_deref()?;
-        let to_local = self.puppet.group_matrix(layer.id, self.pose).inverse();
-        let parent_space = if blend.sibling { self.puppet.group_matrix(blend.parent, self.pose) } else { Affine::IDENTITY };
-        Some((blend, blend.solve(|x| to_local * (parent_space * (x + warp::displacement(parent, moved, x))))))
+        let posed = self.puppet.group_matrix(weld.child, self.pose);
+        Some(if weld.sibling { self.puppet.group_matrix(warp.group, self.pose).inverse() * posed } else { posed })
     }
 
     fn apply_warp(&self, warp_mesh: &anim_rig::Mesh, positions: &[Point], welded: &[Weld], entries: Vec<Emitted>) -> Vec<Node> {
