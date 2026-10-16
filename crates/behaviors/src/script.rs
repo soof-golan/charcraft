@@ -38,6 +38,13 @@ pub enum ScriptEvent {
         /// The shape.
         viseme: Option<VoiceViseme>,
     },
+    /// The scene's own audio makes a mouth shape (`None`: it goes quiet).
+    SceneVoice {
+        /// Frame the event happens on.
+        frame: u32,
+        /// The shape.
+        viseme: Option<VoiceViseme>,
+    },
     /// A pointer is at a place, down or up.
     Pointer {
         /// Frame the event happens on.
@@ -77,6 +84,7 @@ impl ScriptEvent {
             Self::Face { frame, .. }
             | Self::NoFace { frame }
             | Self::Voice { frame, .. }
+            | Self::SceneVoice { frame, .. }
             | Self::Pointer { frame, .. }
             | Self::PointerGone { frame, .. }
             | Self::Key { frame, .. } => *frame,
@@ -134,6 +142,7 @@ impl Script {
 
         let mut face = None;
         let mut viseme = None;
+        let mut scene_viseme = None;
         let mut pointers: BTreeMap<u32, Pointer> = BTreeMap::new();
         let mut keys = std::collections::BTreeSet::new();
         let mut out = Vec::with_capacity(usize::try_from(self.frames).unwrap_or(0));
@@ -143,6 +152,7 @@ impl Script {
                     ScriptEvent::Face { face: f, .. } => face = Some(*f),
                     ScriptEvent::NoFace { .. } => face = None,
                     ScriptEvent::Voice { viseme: v, .. } => viseme = *v,
+                    ScriptEvent::SceneVoice { viseme: v, .. } => scene_viseme = *v,
                     ScriptEvent::Pointer { id, x, y, down, .. } => {
                         pointers.insert(*id, Pointer { id: *id, position: Point::new(*x, *y), down: *down });
                     }
@@ -163,6 +173,7 @@ impl Script {
                 time: rate.tick_of(i64::from(frame)),
                 face,
                 viseme,
+                scene_viseme,
                 pointers: pointers.values().copied().collect(),
                 keys: keys.clone(),
                 ..Inputs::default()

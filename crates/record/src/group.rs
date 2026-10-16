@@ -149,7 +149,8 @@ impl Frame {
             frame.face = Some(kept);
         }
         if groups.contains(&ParamGroup::Voice) {
-            frame.viseme = inputs.viseme;
+            // The voice take keeps whatever the mouth was doing, whether the microphone or the scene's sound drove it.
+            frame.viseme = inputs.viseme.or(inputs.scene_viseme);
         }
         if groups.contains(&ParamGroup::Pointer) {
             frame.pointers = inputs.pointers.iter().filter(|p| p.position.x.is_finite() && p.position.y.is_finite()).take(MAX_POINTERS).copied().collect();

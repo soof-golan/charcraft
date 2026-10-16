@@ -15,8 +15,10 @@ This is version 0.1.0, a pre-release; see [Known gaps](#known-gaps).
 - **Files**: read and write `.puppet`; read `.chproj` project folders (scenes, puppets, media); build a puppet from a
   `.psd` or `.ai` file, with rigging tags read from layer names (`+Head`, `Left Eye`, viseme names, `+Draggable` and
   so on, verbatim, including right-to-left names).
-- **Behaviors**: Face, Lip Sync, Eye Gaze, Auto Blink, Dragger, Physics/Dangle, Breathe, Walk, Triggers and Transform,
-  with per-scene overrides; ARAP mesh deformation for handles.
+- **Behaviors**: Face (with pose-to-pose), Head Turner, Lip Sync (microphone or scene audio), Eye Gaze, Auto Blink,
+  Dragger, Physics (dangle, gravity, wind, collide, squash and stretch), Breathe, Walk (strut, prance, sneak, march,
+  run, shuffle; pinned feet), Motion Trigger, Cycle Layers, Triggers and Transform, with per-scene overrides; ARAP
+  mesh deformation for handles.
 - **Lip sync**: speech audio (WAV, MP3, AAC, FLAC, Ogg) turned into the 13 viseme mouth shapes; puppets with only a
   Flappy Chin jaw get the jaw driven instead.
 - **Live input**: webcam face tracking (camera and ONNX Runtime, built into the release packages) and microphone, as

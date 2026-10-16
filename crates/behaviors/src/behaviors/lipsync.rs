@@ -62,13 +62,26 @@ pub struct LipSyncParams {
     /// Kept for compatibility; the in-between mouth shapes are not generated.
     #[serde(rename = "useTransitionMouthShapes")]
     pub use_transition_mouth_shapes: bool,
+    /// Where the voice comes from: `microphone`, `scene` (the sound clips of the scene) or `both` (the microphone
+    /// when it is on, the scene's sound otherwise).
+    #[serde(rename = "audioSource")]
+    pub audio_source: String,
 }
 
 impl LipSyncParams {
     /// Created from the defaults Character Animator stores (everything 0 except the two below).
     #[must_use]
     pub fn stock() -> Self {
-        Self { face_tracker_set_mouth_silence_duration_thresh_in_milliseconds: 500.0, jaw_factor: 100.0, ..Self::default() }
+        Self { face_tracker_set_mouth_silence_duration_thresh_in_milliseconds: 500.0, jaw_factor: 100.0, audio_source: "both".to_owned(), ..Self::default() }
+    }
+
+    /// The voice mouth shape this behavior listens to.
+    fn voice(&self, inputs: &crate::input::Inputs) -> Option<Voice> {
+        match self.audio_source.as_str() {
+            "microphone" => inputs.viseme,
+            "scene" => inputs.scene_viseme,
+            _ => inputs.viseme.or(inputs.scene_viseme),
+        }
     }
 
     const fn trim_ms(&self, v: Viseme) -> f64 {
@@ -95,6 +108,7 @@ const DOCS: &[ParamDoc] = docs! {
     "faceTrackerSetMouthSilenceDurationThreshInMilliseconds", "ms", "Silence this long hands the mouth back to the Face behavior.";
     "jawFactor", "%", "Jaw drop strength for a layer tagged Jaw.";
     "useTransitionMouthShapes", "", "Accepted and stored; transition shapes are not generated.";
+    "audioSource", "", "Where the voice comes from.", ["microphone", "scene", "both"];
 };
 
 /// The puppet's mouth shape for a voice shape.
@@ -170,7 +184,7 @@ impl Behavior for LipSync {
 
     fn step(&mut self, cx: &Cx<'_>, pose: &mut PuppetPose) {
         let t = cx.time;
-        let Some(voice) = cx.inputs.viseme else {
+        let Some(voice) = self.params.voice(cx.inputs) else {
             self.jaw.update(0.0, cx.dt, 0.04);
             return;
         };

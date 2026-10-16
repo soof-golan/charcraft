@@ -149,6 +149,13 @@ pub fn add_group(pose: &mut PuppetPose, key: &str, extra: &Xform) {
     *slot = slot.then(extra);
 }
 
+/// Shows the layers of `chosen` and hides the rest of `all` (layer paths), overriding the artwork's visibility.
+pub fn show_only(pose: &mut PuppetPose, all: &[&String], chosen: &[String]) {
+    for path in all {
+        pose.visibility.insert((*path).clone(), chosen.contains(path));
+    }
+}
+
 /// Removes group entries that ended up as the identity, so a neutral input leaves a neutral pose.
 pub fn prune_identity(pose: &mut PuppetPose) {
     pose.groups.retain(|_, x| !x.is_identity());

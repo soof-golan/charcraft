@@ -9,12 +9,15 @@ use crate::error::{Error, Result};
 pub mod arm_ik;
 pub mod blinker;
 pub mod breathe;
+pub mod cycle_layers;
 pub mod dragger;
 pub mod dynamics;
 pub mod eye_gaze;
 pub mod face;
 pub mod handle_fixer;
+pub mod head_turner;
 pub mod lipsync;
+pub mod motion_trigger;
 pub mod transform;
 pub mod triggers;
 pub mod walk;
@@ -22,12 +25,15 @@ pub mod walk;
 pub use arm_ik::{ArmIk, ArmIkParams};
 pub use blinker::{Blinker, BlinkerParams};
 pub use breathe::{Breathe, BreatheParams};
+pub use cycle_layers::{CycleLayers, CycleLayersParams};
 pub use dragger::{Dragger, DraggerParams};
 pub use dynamics::{Dynamics, DynamicsParams};
 pub use eye_gaze::{EyeGaze, EyeGazeParams};
 pub use face::{Face, FaceParams};
 pub use handle_fixer::{HandleFixer, HandleFixerParams};
+pub use head_turner::{HeadTurner, HeadTurnerParams};
 pub use lipsync::{LipSync, LipSyncParams};
+pub use motion_trigger::{MotionTrigger, MotionTriggerParams};
 pub use transform::{Transform, TransformParams};
 pub use triggers::{SwapChoice, TriggerMode, TriggerRule, Triggers, TriggersParams};
 pub use walk::{Walk, WalkParams};
@@ -38,13 +44,16 @@ pub use walk::{Walk, WalkParams};
 /// because they move handles of groups the earlier behaviors have already posed.
 pub const IDS: &[&str] = &[
     "Adobe.FaceTracker2.js",
+    "Adobe.HeadTurner.js",
     "Adobe.LipSync2.js",
     "Adobe.EyeGaze.js",
     "Adobe.Blinker.js",
     "Adobe.Transform.js",
     "Charcraft.Walk.js",
     "Charcraft.Breathe.js",
+    "Adobe.MotionTrigger.js",
     "Adobe.Triggers.js",
+    "Adobe.CycleLayers.js",
     "Adobe.ArmIK.js",
     "Adobe.HandleFixer.js",
     "Adobe.Dragger3.js",
@@ -59,6 +68,9 @@ pub const IDS: &[&str] = &[
 pub fn create(id: &str) -> Result<Box<dyn Behavior>> {
     Ok(match id {
         "Adobe.FaceTracker2.js" => Box::<Face>::default(),
+        "Adobe.HeadTurner.js" => Box::<HeadTurner>::default(),
+        "Adobe.MotionTrigger.js" => Box::<MotionTrigger>::default(),
+        "Adobe.CycleLayers.js" => Box::<CycleLayers>::default(),
         "Adobe.LipSync2.js" => Box::<LipSync>::default(),
         "Adobe.EyeGaze.js" => Box::<EyeGaze>::default(),
         "Adobe.Blinker.js" => Box::<Blinker>::default(),

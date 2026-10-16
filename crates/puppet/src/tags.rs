@@ -30,6 +30,25 @@ pub mod ids {
     pub const SMILE_MOUTH: &str = "Adobe.Face.SmileMouth";
     pub const SURPRISED_MOUTH: &str = "Adobe.Face.SurprisedMouth";
     pub const JAW: &str = "Adobe.FlappyChin.Jaw";
+    /// A group whose children the Cycle Layers behavior shows one after the other.
+    pub const CYCLE: &str = "Adobe.CycleLayers.Cycle";
+    /// Head Turner views.
+    pub const LEFT_PROFILE: &str = "Adobe.Face.LeftProfile";
+    pub const LEFT_QUARTER: &str = "Adobe.Face.LeftQuarter";
+    pub const FRONT: &str = "Adobe.Face.Front";
+    pub const RIGHT_QUARTER: &str = "Adobe.Face.RightQuarter";
+    pub const RIGHT_PROFILE: &str = "Adobe.Face.RightProfile";
+    pub const UPWARD: &str = "Adobe.Face.Upward";
+    pub const DOWNWARD: &str = "Adobe.Face.Downward";
+    /// Motion Trigger states.
+    pub const AT_REST: &str = "Adobe.MotionTrigger.AtRest";
+    pub const MOVING_LEFT: &str = "Adobe.MotionTrigger.MovingLeft";
+    pub const MOVING_RIGHT: &str = "Adobe.MotionTrigger.MovingRight";
+    pub const MOVING_UP: &str = "Adobe.MotionTrigger.MovingUp";
+    pub const MOVING_DOWN: &str = "Adobe.MotionTrigger.MovingDown";
+    pub const IN_TRANSITION: &str = "Adobe.MotionTrigger.InTransition";
+    /// Layers that dangling handles bounce off.
+    pub const COLLIDE: &str = "Adobe.Physics.Collide";
     pub const DRAGGABLE: &str = "Adobe.Dragger.Draggable";
     pub const FIXED: &str = "Adobe.HandleFixer.Fixed";
     pub const DANGLE: &str = "Adobe.RigDynamics.Dangle";
@@ -121,6 +140,7 @@ pub const AUTO_TAGS: &[AutoTag] = &[
     layer("Adobe.Face.RightProfile", &["rightprofile"]),
     layer("Adobe.Face.Upward", &["upward"]),
     layer("Adobe.Face.Downward", &["downward"]),
+    layer(ids::CYCLE, &["cyclelayers", "cycle"]),
     layer("Adobe.MotionTrigger.AtRest", &["atrest"]),
     layer("Adobe.MotionTrigger.MovingLeft", &["movingleft"]),
     layer("Adobe.MotionTrigger.MovingRight", &["movingright"]),

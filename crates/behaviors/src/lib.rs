@@ -10,6 +10,9 @@
 //! | behavior | id | does |
 //! |---|---|---|
 //! | [`Face`] | `Adobe.FaceTracker2.js` | head, eyebrows, blink, eye gaze and (optionally) mouth from the face, smoothed |
+//! | [`HeadTurner`] | `Adobe.HeadTurner.js` | frontal, quarter, profile, upward and downward views swapped by head yaw and pitch |
+//! | [`MotionTrigger`] | `Adobe.MotionTrigger.js` | at rest, moving left, right, up, down and in transition layers swapped by how the puppet moves |
+//! | [`CycleLayers`] | `Adobe.CycleLayers.js` | the children of groups tagged Cycle shown in turn, looping, ping-ponging or once |
 //! | [`LipSync`] | `Adobe.LipSync2.js` | mouth shape from the voice, hold trims, hand-back to Face after silence, jaw |
 //! | [`EyeGaze`] | `Adobe.EyeGaze.js` | eyes follow the mouse, the arrow keys or the tracked gaze, optionally darting |
 //! | [`Blinker`] | `Adobe.Blinker.js` | random blinks |
@@ -55,9 +58,9 @@ pub mod stack;
 pub mod util;
 
 pub use behavior::{Behavior, Cx, ParamDoc};
-pub use behaviors::{ArmIk, Blinker, Breathe, Dragger, Dynamics, EyeGaze, Face, LipSync, Transform, Triggers, Walk};
+pub use behaviors::{ArmIk, Blinker, Breathe, CycleLayers, Dragger, Dynamics, EyeGaze, Face, HeadTurner, LipSync, MotionTrigger, Transform, Triggers, Walk};
 pub use error::{Error, Result};
 pub use input::{FaceInput, HandleTarget, Inputs, Pointer};
-pub use rig::{ChainLink, Rig, RigHandle};
+pub use rig::{ChainLink, CycleGroup, Rig, RigHandle};
 pub use script::{Script, ScriptEvent, SimFrame, simulate};
 pub use stack::{BehaviorStack, Slot};

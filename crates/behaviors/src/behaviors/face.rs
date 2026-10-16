@@ -1,5 +1,7 @@
 //! Face (`Adobe.FaceTracker2.js`): moves the head, eyebrows, eyes and mouth with the tracked face.
 
+use std::collections::VecDeque;
+
 use anim_core::Vec2;
 use charcraft_puppet::tags::ids;
 use charcraft_puppet::{PuppetPose, Viseme, Xform};
@@ -25,7 +27,7 @@ pub struct FaceParams {
     /// Tilt of an eyebrow when it is lowered, degrees.
     #[serde(rename = "downEyebrowsTilt")]
     pub down_eyebrows_tilt: f64,
-    /// Shows the pose-to-pose settings (a UI switch; no effect on the result).
+    /// Shows the pose-to-pose settings (a switch of the editor; the settings always apply when the level is above 0).
     #[serde(rename = "enablePoseToPoseAdvancedParams")]
     pub enable_pose_to_pose_advanced_params: bool,
     /// Eye strength, percent: how much of the tracked blink and gaze reaches the puppet.
@@ -34,22 +36,26 @@ pub struct FaceParams {
     /// Eyebrow strength, percent.
     #[serde(rename = "eyebrowFactor")]
     pub eyebrow_factor: f64,
-    /// Pose-to-pose threshold (kept, unused).
+    /// Pose-to-pose: how far the eyebrows have to move from the held pose (a fraction of their range) before a new
+    /// pose is taken, at a filtering level of 50.
     #[serde(rename = "eyebrowPosMeanThresh")]
     pub eyebrow_pos_mean_thresh: f64,
-    /// Pose-to-pose threshold (kept, unused).
+    /// Pose-to-pose: the least eyebrow movement (a fraction of their range) that still forces a new pose after the
+    /// longest interval.
     #[serde(rename = "eyebrowPosVarThresh")]
     pub eyebrow_pos_var_thresh: f64,
-    /// Pose-to-pose filter length in samples (kept, unused).
+    /// Pose-to-pose: a new pose is the mean of this many recent readings.
     #[serde(rename = "filterNumSamples")]
     pub filter_num_samples: f64,
     /// Head position strength, percent.
     #[serde(rename = "headPosFactor")]
     pub head_pos_factor: f64,
-    /// Pose-to-pose threshold (kept, unused).
+    /// Pose-to-pose: how far the head position and scale have to move from the held pose (a fraction of their
+    /// range) before a new pose is taken, at a filtering level of 50.
     #[serde(rename = "headPosMeanThresh")]
     pub head_pos_mean_thresh: f64,
-    /// Pose-to-pose threshold (kept, unused).
+    /// Pose-to-pose: the least head movement (a fraction of the range) that still forces a new pose after the
+    /// longest interval.
     #[serde(rename = "headPosVarThresh")]
     pub head_pos_var_thresh: f64,
     /// Vertical head position strength, percent.
@@ -58,22 +64,25 @@ pub struct FaceParams {
     /// Head rotation strength, percent.
     #[serde(rename = "headRotFactor")]
     pub head_rot_factor: f64,
-    /// Pose-to-pose threshold (kept, unused).
+    /// Pose-to-pose: how far the head angles have to turn from the held pose (a fraction of 30 degrees) before a
+    /// new pose is taken, at a filtering level of 50.
     #[serde(rename = "headRotMeanThresh")]
     pub head_rot_mean_thresh: f64,
-    /// Pose-to-pose threshold (kept, unused).
+    /// Pose-to-pose: the least head turn (a fraction of 30 degrees) that still forces a new pose after the longest
+    /// interval.
     #[serde(rename = "headRotVarThresh")]
     pub head_rot_var_thresh: f64,
     /// Head scale strength, percent.
     #[serde(rename = "headScaleFactor")]
     pub head_scale_factor: f64,
-    /// Pose-to-pose longest hold, seconds (kept, unused).
+    /// Pose-to-pose longest hold, seconds: after this long any movement over the var threshold takes a new pose.
     #[serde(rename = "maxInterval")]
     pub max_interval: f64,
-    /// Pose-to-pose shortest gap, seconds (kept, unused).
+    /// Pose-to-pose shortest gap between poses, seconds.
     #[serde(rename = "minInterval")]
     pub min_interval: f64,
-    /// Pose-to-pose shortest pose, seconds (kept, unused).
+    /// Pose-to-pose: how long a pose is held, seconds, at a filtering level of 100 (half that at 50), on top of
+    /// the shortest gap.
     #[serde(rename = "minPoseDuration")]
     pub min_pose_duration: f64,
     /// Mouth strength, percent: how much the tracked mouth picks the mouth shape. 0 leaves it to Lip Sync.
@@ -85,7 +94,9 @@ pub struct FaceParams {
     /// Parallax strength, percent: how much a head turn shifts the head sideways.
     #[serde(rename = "parallaxFactor")]
     pub parallax_factor: f64,
-    /// Pose-to-pose filtering level (kept, unused).
+    /// Pose-to-pose filtering level, 0 to 100: 0 follows the face continuously; above it the head and eyebrows
+    /// jump from one held pose to the next, and the higher the level the larger the move and the longer the hold
+    /// that a new pose needs.
     #[serde(rename = "poseFilteringLevel")]
     pub pose_filtering_level: f64,
     /// Smoothing: the lag of the tracking, in hundredths of a second.
@@ -140,14 +151,21 @@ const DOCS: &[ParamDoc] = docs! {
     "mouthFactor", "%", "Strength of the tracked mouth picking Smile, Surprised, Ah, Oh or Ee. 0 leaves the mouth to Lip Sync.";
     "moveEyebrowsTogether", "", "Both eyebrows follow the mean of the two.";
     "parallaxFactor", "%", "Strength of the sideways shift a head turn causes.";
+    "poseFilteringLevel", "", "Pose-to-pose: 0 follows the face; above it the head and eyebrows hold limited poses.";
+    "headRotMeanThresh", "", "Pose-to-pose: head turn (fraction of 30 degrees) that takes a new pose.";
+    "headPosMeanThresh", "", "Pose-to-pose: head position or scale change (fraction of the range) that takes a new pose.";
+    "eyebrowPosMeanThresh", "", "Pose-to-pose: eyebrow change (fraction of the range) that takes a new pose.";
+    "minInterval", "s", "Pose-to-pose: shortest gap between poses.";
+    "maxInterval", "s", "Pose-to-pose: longest hold before any small move takes a new pose.";
+    "minPoseDuration", "s", "Pose-to-pose: hold of a pose at level 100.";
+    "filterNumSamples", "", "Pose-to-pose: a new pose is the mean of this many readings.";
     "smoothingRate", "1/100 s", "Time constant of the low-pass filter on every tracked signal; 0 follows the camera exactly.";
     "upEyebrowsTilt", "deg", "Eyebrow tilt at full raise (left eyebrow; the right mirrors it).";
 };
 
 /// Drives the head, eyebrows, eyes and mouth from [`crate::FaceInput`].
 ///
-/// Head turns (yaw and pitch) have no turn layers to show yet, so they only shift the head by the parallax
-/// amount. When the face is lost the puppet relaxes to neutral at the smoothing rate.
+/// Head turns (yaw and pitch) shift the head by the parallax amount; the Head Turner behavior swaps the views. When the face is lost the puppet relaxes to neutral at the smoothing rate.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Face {
     /// The parameters.
@@ -165,6 +183,83 @@ pub struct Face {
     mouth_open: Smoother,
     mouth_wide: Smoother,
     smile: Smoother,
+    head_hold: PoseHold,
+    brow_hold: PoseHold,
+}
+
+/// The size of the full range of each head signal (yaw, pitch, roll in degrees, then the two positions and the
+/// scale), which the pose-to-pose thresholds are fractions of.
+const HEAD_RANGES: [f64; 6] = [30.0, 30.0, 30.0, 0.5, 0.5, 0.5];
+
+/// The pose-to-pose settings, read off the parameters.
+struct HoldConfig {
+    /// Filtering level as a fraction of the stock one (0 off, 1 at 50%, 2 at 100%).
+    level: f64,
+    min_hold: f64,
+    max_interval: f64,
+    samples: usize,
+}
+
+impl HoldConfig {
+    fn of(p: &FaceParams) -> Self {
+        let level = if p.pose_filtering_level.is_finite() { p.pose_filtering_level.clamp(0.0, 100.0) / 50.0 } else { 0.0 };
+        Self {
+            level,
+            min_hold: p.min_interval.max(0.0) + p.min_pose_duration.max(0.0) * level / 2.0,
+            max_interval: p.max_interval.max(0.0),
+            samples: usize::try_from(anim_core::num::round_f64_to_u32(p.filter_num_samples.clamp(1.0, 120.0))).unwrap_or(1).max(1),
+        }
+    }
+}
+
+/// Holds a set of signals as limited poses: the pose changes only when the signals have moved far enough from it
+/// and it has been held long enough (or has been held longest-interval long and something moved at all), and the new
+/// pose is the mean of the recent readings.
+#[derive(Debug, Clone, PartialEq, Default)]
+struct PoseHold {
+    held: Option<Vec<f64>>,
+    recent: VecDeque<Vec<f64>>,
+    since: f64,
+}
+
+impl PoseHold {
+    /// `ranges` is the size of each signal's full range and `thresholds` the fraction of it that counts as a move.
+    fn update(&mut self, now: f64, current: &[f64], ranges: &[f64], thresholds: &[f64], var_thresh: f64, cfg: &HoldConfig) -> Vec<f64> {
+        self.recent.push_back(current.to_vec());
+        while self.recent.len() > cfg.samples {
+            self.recent.pop_front();
+        }
+        let Some(held) = self.held.as_ref() else {
+            self.held = Some(current.to_vec());
+            self.since = now;
+            return current.to_vec();
+        };
+        // The largest move, as a multiple of what counts as a move, and as a fraction of the full range.
+        let measure = |a: &[f64], b: &[f64]| {
+            let mut moved = 0.0_f64;
+            let mut fraction = 0.0_f64;
+            for (i, (x, y)) in a.iter().zip(b).enumerate() {
+                let range = ranges.get(i).copied().unwrap_or(1.0).max(1e-9);
+                let thresh = (thresholds.get(i).copied().unwrap_or(0.25).max(1e-9)) * cfg.level;
+                let d = (x - y).abs() / range;
+                moved = moved.max(d / thresh);
+                fraction = fraction.max(d);
+            }
+            (moved, fraction)
+        };
+        let (moved, fraction) = measure(current, held);
+        let age = now - self.since;
+        if (age >= cfg.min_hold && moved >= 1.0) || (age >= cfg.max_interval && fraction >= var_thresh.max(0.0)) {
+            // The new pose is the mean of the recent readings that still agree with the current one, so a quick
+            // turn is not dragged back by what the head did before it.
+            let near: Vec<&Vec<f64>> = self.recent.iter().filter(|r| measure(r, current).0 < 1.0).collect();
+            let n = anim_core::num::usize_to_f64(near.len().max(1));
+            let mean: Vec<f64> = (0..current.len()).map(|i| near.iter().filter_map(|r| r.get(i)).sum::<f64>() / n).collect();
+            self.held = Some(mean);
+            self.since = now;
+        }
+        self.held.clone().unwrap_or_else(|| current.to_vec())
+    }
 }
 
 impl Face {
@@ -210,6 +305,31 @@ impl Behavior for Face {
         let roll = self.roll.update(face.head_roll, dt, tau);
         let tr = self.translation.update(face.head_translation, dt, tau);
         let scale = self.scale.update(face.head_scale, dt, tau);
+        let cfg = HoldConfig::of(p);
+        let (yaw, pitch, roll, tr, scale) = if cfg.level > 0.0 {
+            let units = [
+                p.head_rot_mean_thresh,
+                p.head_rot_mean_thresh,
+                p.head_rot_mean_thresh,
+                p.head_pos_mean_thresh,
+                p.head_pos_mean_thresh,
+                p.head_pos_mean_thresh,
+            ];
+            let held = self.head_hold.update(
+                cx.time,
+                &[yaw, pitch, roll, tr.x, tr.y, scale],
+                &HEAD_RANGES,
+                &units,
+                p.head_pos_var_thresh.min(p.head_rot_var_thresh),
+                &cfg,
+            );
+            match held.as_slice() {
+                &[yaw, pitch, roll, x, y, scale] => (yaw, pitch, roll, Vec2::new(x, y), scale),
+                _ => (yaw, pitch, roll, tr, scale),
+            }
+        } else {
+            (yaw, pitch, roll, tr, scale)
+        };
 
         let stage = cx.rig.stage;
         let parallax = percent(p.parallax_factor) * PARALLAX_TRAVEL;
@@ -224,6 +344,16 @@ impl Behavior for Face {
         pose.head = pose.head.then(&head);
 
         let (bl, br) = (self.brow_left.update(face.eyebrow_left, dt, tau), self.brow_right.update(face.eyebrow_right, dt, tau));
+        let (bl, br) = if cfg.level > 0.0 {
+            let posed =
+                self.brow_hold.update(cx.time, &[bl, br], &[1.0, 1.0], &[p.eyebrow_pos_mean_thresh, p.eyebrow_pos_mean_thresh], p.eyebrow_pos_var_thresh, &cfg);
+            match posed.as_slice() {
+                &[l, r] => (l, r),
+                _ => (bl, br),
+            }
+        } else {
+            (bl, br)
+        };
         let k = percent(p.eyebrow_factor);
         let (mut bl, mut br) = (bl * k, br * k);
         if p.move_eyebrows_together {

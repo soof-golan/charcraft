@@ -2,17 +2,23 @@
 
 use std::collections::BTreeMap;
 
-use anim_core::{Point, Vec2};
-use charcraft_puppet::{HandleKind, PuppetPose};
+use anim_core::{Point, Rect, Vec2};
+use charcraft_puppet::{HandleKind, PuppetPose, Xform};
 use serde::{Deserialize, Serialize};
 
 use crate::behavior::{Behavior, Cx, ParamDoc, behavior_common, docs};
-use crate::util::{Rng, compass, percent};
+use crate::util::{Rng, add_group, compass, percent};
 
 /// Natural frequency of a dangling handle at stiffness 100% and gravity 10, in hertz.
 pub const BASE_FREQUENCY: f64 = 2.0;
 /// Wind acceleration in stage pixels per second squared per unit of wind strength.
 pub const WIND_ACCELERATION: f64 = 40.0;
+/// Gravity in stage pixels per second squared per unit of gravity strength.
+pub const GRAVITY_ACCELERATION: f64 = 40.0;
+/// Speed, stage pixels per second, at which squash and stretch reach their full effect.
+pub const SQUASH_SPEED: f64 = 400.0;
+/// Longest stretch at full squashiness, as a fraction.
+pub const SQUASH_MAX: f64 = 0.5;
 /// Longest step the integrator takes, seconds.
 pub const MAX_SUBSTEP: f64 = 1.0 / 240.0;
 
@@ -40,7 +46,7 @@ pub struct DynamicsParams {
     pub motor_strength: f64,
     /// Bounciness on reaching the end of the swing, percent.
     pub restitution: f64,
-    /// Squash and stretch (stored, no effect).
+    /// Squash and stretch, percent: a fast-moving handle stretches its group along the motion and thins it across.
     pub squashiness: f64,
     /// When physics starts (stored, no effect: it always runs).
     #[serde(rename = "startWhen")]
@@ -86,12 +92,13 @@ impl Default for DynamicsParams {
 const DOCS: &[ParamDoc] = docs! {
     "stiffness", "%", "How hard a dangling handle is pulled back to its rest position.";
     "gravityStrength", "", "With stiffness, sets the swing frequency (10 at stiffness 100 swings twice a second).";
-    "gravityDirection", "deg", "Compass direction of gravity; the artwork is assumed to hang the way gravity pulls.";
+    "gravityDirection", "deg", "Compass direction of gravity. The artwork hangs the way it was drawn (180, down); any other direction pulls handles away from that rest, by the gravity strength.";
+    "squashiness", "%", "How much a moving handle's group stretches along its motion and thins across it (volume stays the same).";
     "damping", "%", "Damping, added to friction.";
     "friction", "%", "Friction, added to damping.";
     "density", "%", "Heavier handles are pushed less by wind.";
     "restitution", "%", "Bounce at the end of the reach.";
-    "wallCollide", "", "Handles stop at their full reach and bounce.";
+    "wallCollide", "", "Handles stop at their full reach and bounce. Layers tagged Collide are solid whatever this says.";
     "windStrength", "", "Steady push on every dangling handle.";
     "windDirection", "deg", "Compass direction of the wind.";
     "windVariation", "%", "Gust depth.";
@@ -146,6 +153,8 @@ impl Behavior for Dynamics {
         let h = if dt > 0.0 { dt / steps_f } else { 0.0 };
 
         let wind = self.wind_at(cx.time);
+        let gravity = self.gravity();
+        let squash = percent(self.params.squashiness).clamp(0.0, 1.0);
         for handle in cx.rig.handles_of(HandleKind::Dangle) {
             let driven = handle.driven_position(pose);
             let mass = self.masses.entry(handle.key.clone()).or_insert_with(|| Mass { position: driven, velocity: Vec2::ZERO, driven });
@@ -155,9 +164,18 @@ impl Behavior for Dynamics {
                     let frac = f64::from(i) / steps_f;
                     let anchor = mass.driven + (driven - mass.driven) * frac;
                     let rel = mass.position - anchor;
-                    let accel = -rel * (omega * omega) - (mass.velocity - anchor_velocity) * (2.0 * zeta * omega) + wind;
+                    let accel = -rel * (omega * omega) - (mass.velocity - anchor_velocity) * (2.0 * zeta * omega) + wind + gravity;
                     mass.velocity += accel * h;
                     mass.position += mass.velocity * h;
+                    for rect in &cx.rig.colliders {
+                        if let Some((out, normal)) = push_out(*rect, mass.position) {
+                            mass.position = out;
+                            let into = mass.velocity.dot(normal);
+                            if into < 0.0 {
+                                mass.velocity -= normal * (into * (1.0 + restitution));
+                            }
+                        }
+                    }
                     let rel = mass.position - anchor;
                     let reach = handle.reach.max(1.0);
                     if rel.hypot() > reach {
@@ -181,6 +199,13 @@ impl Behavior for Dynamics {
                 mass.velocity = Vec2::ZERO;
                 continue;
             }
+            if squash > 0.0 {
+                let v = mass.velocity;
+                let stretch = 1.0 + (v.hypot() / SQUASH_SPEED).min(1.0) * squash * SQUASH_MAX;
+                let (sx, sy) = if v.x.abs() >= v.y.abs() { (stretch, stretch.recip()) } else { (stretch.recip(), stretch) };
+                let group = handle.key.split('/').next().unwrap_or_default();
+                add_group(pose, group, &Xform { scale: Vec2::new(sx, sy), ..Xform::IDENTITY });
+            }
             let local = handle.to_group_space(pose, offset);
             if local != Vec2::ZERO {
                 pose.drag.insert(handle.key.clone(), pose.drag_of(&handle.key) + local);
@@ -197,7 +222,27 @@ impl Behavior for Dynamics {
     }
 }
 
+/// The point of `rect` nearest to a position inside it, with the outward normal there, when the position is inside.
+fn push_out(rect: Rect, p: Point) -> Option<(Point, Vec2)> {
+    if !(p.x > rect.x0 && p.x < rect.x1 && p.y > rect.y0 && p.y < rect.y1) {
+        return None;
+    }
+    let sides = [
+        (p.x - rect.x0, Point::new(rect.x0, p.y), Vec2::new(-1.0, 0.0)),
+        (rect.x1 - p.x, Point::new(rect.x1, p.y), Vec2::new(1.0, 0.0)),
+        (p.y - rect.y0, Point::new(p.x, rect.y0), Vec2::new(0.0, -1.0)),
+        (rect.y1 - p.y, Point::new(p.x, rect.y1), Vec2::new(0.0, 1.0)),
+    ];
+    sides.into_iter().min_by(|a, b| a.0.total_cmp(&b.0)).map(|(_, out, normal)| (out, normal))
+}
+
 impl Dynamics {
+    /// The pull of gravity beyond the one the artwork already hangs under (straight down).
+    fn gravity(&self) -> Vec2 {
+        let p = &self.params;
+        (compass(p.gravity_direction) - compass(180.0)) * (p.gravity_strength.max(0.0) * GRAVITY_ACCELERATION)
+    }
+
     fn wind_at(&self, t: f64) -> Vec2 {
         if self.params.wind_strength == 0.0 { Vec2::ZERO } else { self.wind(t) }
     }

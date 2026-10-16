@@ -3,7 +3,7 @@
 //! A [`Rig`] is plain data. [`Rig::from_puppet`] reads it off a built puppet; tests and tools can also build one
 //! by hand, so behaviors never need the artwork itself.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use anim_core::{Affine, Point, Rect, Size, Vec2};
 use charcraft_puppet::tags::{self, ids};
@@ -125,6 +125,25 @@ pub struct Rig {
     pub handles: Vec<RigHandle>,
     /// Every tag id any layer has.
     pub tags: BTreeSet<String>,
+    /// The layer paths that carry each tag id, for behaviors that show one layer of several (Head Turner, Motion
+    /// Trigger).
+    #[serde(default)]
+    pub tagged: BTreeMap<String, Vec<String>>,
+    /// Groups tagged for Cycle Layers, with the paths of the layers they hold, bottom-most first.
+    #[serde(default)]
+    pub cycles: Vec<CycleGroup>,
+    /// Stage rectangles of the layers tagged `Collide`, which dangling handles bounce off.
+    #[serde(default)]
+    pub colliders: Vec<Rect>,
+}
+
+/// A group whose children Cycle Layers shows in turn.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CycleGroup {
+    /// The group's layer path.
+    pub path: String,
+    /// The paths of its children, bottom-most first.
+    pub frames: Vec<String>,
 }
 
 impl Default for Rig {
@@ -137,7 +156,43 @@ impl Rig {
     /// A rig with a stage and nothing on it. The eyes sit at the middle of the stage.
     #[must_use]
     pub fn new(stage: Size) -> Self {
-        Self { stage, eyes_center: Point::new(stage.width / 2.0, stage.height / 2.0), handles: Vec::new(), tags: BTreeSet::new() }
+        Self {
+            stage,
+            eyes_center: Point::new(stage.width / 2.0, stage.height / 2.0),
+            handles: Vec::new(),
+            tags: BTreeSet::new(),
+            tagged: BTreeMap::new(),
+            cycles: Vec::new(),
+            colliders: Vec::new(),
+        }
+    }
+
+    /// Declares that the layer at `path` carries `tag` (what [`Rig::from_puppet`] does for every layer).
+    #[must_use]
+    pub fn with_tagged(mut self, tag: &str, path: &str) -> Self {
+        self.tags.insert(tag.to_owned());
+        self.tagged.entry(tag.to_owned()).or_default().push(path.to_owned());
+        self
+    }
+
+    /// Adds a group for Cycle Layers.
+    #[must_use]
+    pub fn with_cycle(mut self, path: &str, frames: &[&str]) -> Self {
+        self.cycles.push(CycleGroup { path: path.to_owned(), frames: frames.iter().map(|f| (*f).to_owned()).collect() });
+        self
+    }
+
+    /// Adds a rectangle dangling handles bounce off.
+    #[must_use]
+    pub fn with_collider(mut self, rect: Rect) -> Self {
+        self.colliders.push(rect);
+        self
+    }
+
+    /// The paths of the layers with a tag.
+    #[must_use]
+    pub fn paths_of(&self, tag: &str) -> &[String] {
+        self.tagged.get(tag).map_or(&[], Vec::as_slice)
     }
 
     /// Adds a handle.
@@ -153,6 +208,21 @@ impl Rig {
         let mut rig = Self::new(puppet.size);
         for layer in puppet.layers() {
             rig.tags.extend(layer.tags.iter().cloned());
+            if layer.id == LayerId::ROOT {
+                continue;
+            }
+            for tag in &layer.tags {
+                rig.tagged.entry(tag.clone()).or_default().push(layer.path.clone());
+            }
+            if layer.has_tag(ids::COLLIDE)
+                && let Some(b) = layer.bounds
+            {
+                rig.colliders.push(b);
+            }
+            if layer.has_tag(ids::CYCLE) && layer.children.len() > 1 {
+                let frames: Vec<String> = layer.children.iter().filter_map(|c| puppet.layer(*c)).map(|c| c.path.clone()).collect();
+                rig.cycles.push(CycleGroup { path: layer.path.clone(), frames });
+            }
         }
         let eyes: Vec<Rect> = [ids::LEFT_EYE, ids::RIGHT_EYE].iter().flat_map(|t| puppet.with_tag(t)).filter_map(|id| puppet.layer(id)?.bounds).collect();
         let mut union = eyes.iter().copied();

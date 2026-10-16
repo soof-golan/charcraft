@@ -124,6 +124,8 @@ pub struct Inputs {
     pub face: Option<FaceInput>,
     /// The mouth shape the voice currently makes (from `anim-lipsync`), if a microphone or track is on.
     pub viseme: Option<VoiceViseme>,
+    /// The mouth shape of the scene's audio (a sound clip on an audio track) at this time, if there is any.
+    pub scene_viseme: Option<VoiceViseme>,
     /// Mice and fingers.
     pub pointers: Vec<Pointer>,
     /// Draggable handles held directly (recorded drags).
@@ -150,6 +152,13 @@ impl Inputs {
     #[must_use]
     pub const fn with_viseme(mut self, viseme: VoiceViseme) -> Self {
         self.viseme = Some(viseme);
+        self
+    }
+
+    /// Adds the mouth shape of the scene's audio.
+    #[must_use]
+    pub const fn with_scene_viseme(mut self, viseme: VoiceViseme) -> Self {
+        self.scene_viseme = Some(viseme);
         self
     }
 

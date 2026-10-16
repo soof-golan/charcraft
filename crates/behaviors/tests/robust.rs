@@ -62,6 +62,7 @@ fn any_inputs() -> impl Strategy<Value = Inputs> {
             time,
             face,
             viseme,
+            scene_viseme: viseme,
             pointers: pointers.into_iter().map(|(id, x, y, down)| Pointer { id, position: Point::new(x, y), down }).collect(),
             handle_targets: targets
                 .into_iter()

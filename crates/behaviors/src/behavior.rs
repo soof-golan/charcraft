@@ -32,6 +32,8 @@ pub struct ParamDoc {
     pub unit: &'static str,
     /// What it does here.
     pub doc: &'static str,
+    /// For a parameter that holds one of a few words: the words it accepts. Empty for everything else.
+    pub choices: &'static [&'static str],
 }
 
 /// A behavior: a deterministic function of its parameters, its own state and the inputs, adding to a pose.
@@ -133,8 +135,8 @@ pub(crate) use behavior_common;
 
 /// Shorthand for building a [`ParamDoc`] table.
 macro_rules! docs {
-    ($($name:literal, $unit:literal, $doc:literal;)*) => {
-        &[$($crate::behavior::ParamDoc { name: $name, unit: $unit, doc: $doc }),*]
+    ($($name:literal, $unit:literal, $doc:literal $(, [$($choice:literal),* $(,)?])?;)*) => {
+        &[$($crate::behavior::ParamDoc { name: $name, unit: $unit, doc: $doc, choices: &[$($($choice),*)?] }),*]
     };
 }
 pub(crate) use docs;
