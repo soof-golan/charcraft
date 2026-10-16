@@ -12,6 +12,7 @@ use crate::export::Format;
 use crate::state::Mode;
 use crate::view::{Action, Ctx, Prompt, View};
 
+pub mod edit;
 pub mod panels;
 pub mod record;
 pub mod rig;
@@ -167,6 +168,7 @@ fn prompt(ui: &Ui, view: &mut View, actions: &mut Vec<Action>) {
         Prompt::Open => "Open or import",
         Prompt::Save => "Save document",
         Prompt::Export => "Export",
+        Prompt::Audio => "Import audio",
     };
     let mut keep = true;
     let mut close = false;
@@ -203,6 +205,7 @@ fn prompt(ui: &Ui, view: &mut View, actions: &mut Vec<Action>) {
                 Prompt::Open => "Open",
                 Prompt::Save => "Save",
                 Prompt::Export => "Export",
+                Prompt::Audio => "Import",
             };
             if ui.button(ok_label).clicked() || enter {
                 let path = PathBuf::from(text.trim());
@@ -210,6 +213,7 @@ fn prompt(ui: &Ui, view: &mut View, actions: &mut Vec<Action>) {
                     Prompt::Open => Action::Open(path),
                     Prompt::Save => Action::Save(path),
                     Prompt::Export => Action::Export(view.export_format, path),
+                    Prompt::Audio => Action::Run("audio.import", serde_json::json!({ "path": path.display().to_string(), "start_seconds": view.playhead.max(0.0) })),
                 });
                 close = true;
             }

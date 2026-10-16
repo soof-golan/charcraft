@@ -19,7 +19,7 @@ use anim_session::{CommandError, CommandRegistry, CommandSpec, RegistryError, Si
 use charcraft_behaviors::Inputs;
 use charcraft_puppet::{Puppet, PuppetOp};
 use charcraft_record::RecordDoc;
-use charcraft_record::{AudioClip, ParamGroup, Recorder};
+use charcraft_record::{AudioClip, AudioTrack, ParamGroup, Recorder};
 use crossbeam_channel::{Receiver, Sender};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -471,6 +471,47 @@ fn ui_set(doc: &mut AppDoc, params: &Value) -> Result<Value, CommandError> {
     Ok(json!({ "requested": set }))
 }
 
+// --- import a sound file onto an audio track ---------------------------------------------------------------------
+
+#[derive(Deserialize)]
+#[serde(default, deny_unknown_fields)]
+struct AudioImport {
+    path: String,
+    track: usize,
+    start_seconds: f64,
+    media: Option<String>,
+}
+
+impl Default for AudioImport {
+    fn default() -> Self {
+        Self { path: String::new(), track: 0, start_seconds: 0.0, media: None }
+    }
+}
+
+/// Reads a sound file and places it as a clip on an audio track (the track is added when the scene has none).
+fn audio_import(doc: &mut AppDoc, params: &Value) -> Result<Value, CommandError> {
+    let p: AudioImport = serde_json::from_value(params.clone()).map_err(|e| CommandError::invalid_params(e.to_string()))?;
+    if p.path.is_empty() {
+        return Err(CommandError::invalid_params("`path` is required (a WAV, MP3, FLAC, Ogg or AAC file)"));
+    }
+    if !p.start_seconds.is_finite() || p.start_seconds < 0.0 {
+        return Err(CommandError::invalid_params("start_seconds must be zero or more"));
+    }
+    let audio = anim_audio::decode_path(std::path::Path::new(&p.path)).map_err(|e| CommandError::failed(format!("{}: {e}", p.path)))?;
+    let name = p.media.unwrap_or_else(|| media_name_for(&p.path));
+    if !charcraft_record::valid_media_name(&name) {
+        return Err(CommandError::invalid_params(format!("{name:?} is not a usable media name (letters, digits, space, . _ -)")));
+    }
+    if doc.rec.scene.audio.is_empty() {
+        doc.rec.scene.audio.push(AudioTrack::new("Audio 1"));
+    }
+    let seconds = audio.seconds();
+    let clip = AudioClip::new(&name, &name, Tick::from_seconds_f64(p.start_seconds));
+    let index = doc.rec.scene.add_clip(p.track, clip).map_err(|e| CommandError::failed(e.to_string()))?;
+    doc.links.sounds.send((name.clone(), audio)).map_err(|_| CommandError::failed("the media store is gone"))?;
+    Ok(json!({ "media": name, "track": p.track, "clip": index, "seconds": seconds }))
+}
+
 // --- lip sync from a sound file ----------------------------------------------------------------------------------
 
 #[derive(Deserialize)]
@@ -565,6 +606,9 @@ fn app_commands() -> Vec<CommandSpec<AppDoc>> {
             .transient()
             .describe("The layers of a puppet (path, label, independent group) and the cast keys of the loaded puppets.")
             .with_schema(r#"{"type":"object","properties":{"puppet":{"type":"string"}}}"#),
+        CommandSpec::new("audio.import", "Import a sound file", audio_import)
+            .describe("Read a sound file (WAV, MP3, FLAC, Ogg, AAC) and place it as a clip on audio track 'track' (default 0; an audio track is added when the scene has none) starting at start_seconds. 'media' names the sound (default: the file name). Move, trim and split the clip with audio.move_clip, audio.set_clip and audio.split_clip, and make a lip sync take from it with lipsync.from_clip.")
+            .with_schema(r#"{"type":"object","required":["path"],"properties":{"path":{"type":"string"},"track":{"type":"integer","minimum":0},"start_seconds":{"type":"number","minimum":0},"media":{"type":"string"}},"additionalProperties":false}"#),
         CommandSpec::new("lipsync.record", "Lip sync a sound file", lipsync_record)
             .describe("Read a sound file (WAV, MP3, FLAC, Ogg, AAC), find the mouth shapes in it the way Lip Sync does, record them as a new voice take on puppet track 'track' starting at start_seconds, and place the sound on audio track 'audio_track' (add_audio false skips the sound; 'media' names it). One undo step. Render or export the scene to see and hear the result.")
             .with_schema(r#"{"type":"object","required":["path"],"properties":{"path":{"type":"string","description":"The sound file."},"track":{"type":"integer","minimum":0,"description":"Puppet track (default 0)."},"start_seconds":{"type":"number","minimum":0},"add_audio":{"type":"boolean","description":"Also place the sound on an audio track (default true)."},"audio_track":{"type":"integer","minimum":0},"media":{"type":"string","description":"Media name for the sound (default: the file name)."}},"additionalProperties":false}"#),

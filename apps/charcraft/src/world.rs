@@ -92,7 +92,14 @@ struct Saved {
     format: String,
     version: u32,
     source: Option<String>,
+    /// The first scene of the project.
     scene: Scene,
+    /// The scenes after the first, in order.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    more_scenes: Vec<Scene>,
+    /// Which scene was open.
+    #[serde(default)]
+    active_scene: usize,
     arming: Vec<charcraft_record::ParamGroup>,
     rig: Vec<RigEdit>,
     /// WAV files (32-bit float) by media name, base64.
@@ -259,9 +266,14 @@ impl World {
             Some(source) => Self::open(source)?,
             None => Self::demo()?,
         };
-        let mut scene = saved.scene;
-        scene.sanitize().map_err(|e| WorldError::of("checking the scene", e))?;
-        opened.rec.scene = scene;
+        let mut all = vec![saved.scene];
+        all.extend(saved.more_scenes);
+        for scene in &mut all {
+            scene.sanitize().map_err(|e| WorldError::of("checking the scene", e))?;
+        }
+        let templates = std::mem::take(&mut opened.rec.templates);
+        opened.rec = RecordDoc::with_scenes(all, saved.active_scene).map_err(|e| WorldError::of("checking the scenes", e))?;
+        opened.rec.templates = templates;
         opened.rec.arming.groups = saved.arming.into_iter().collect();
         for (name, data) in saved.media {
             let decoded = base64::engine::general_purpose::STANDARD
@@ -283,7 +295,9 @@ impl World {
     /// # Errors
     /// [`WorldError`] if the document cannot be written as JSON.
     pub fn save_bytes(&self, rec: &RecordDoc, rig: &RigLog) -> Result<Vec<u8>, WorldError> {
-        let wanted: std::collections::BTreeSet<&str> = rec.scene.audio.iter().flat_map(|t| &t.clips).map(|c| c.media.as_str()).collect();
+        let wanted: std::collections::BTreeSet<&str> = rec.scenes().flat_map(|s| &s.audio).flat_map(|t| &t.clips).map(|c| c.media.as_str()).collect();
+        let mut scenes = rec.scenes().cloned();
+        let first = scenes.next().unwrap_or_else(|| rec.scene.clone());
         let media = wanted
             .into_iter()
             .filter_map(|name| self.media.get(name).map(|b: &PcmBuffer| (name.to_owned(), base64::engine::general_purpose::STANDARD.encode(wav_bytes(b)))))
@@ -292,7 +306,9 @@ impl World {
             format: FORMAT.to_owned(),
             version: 1,
             source: self.source.as_ref().map(|p| p.to_string_lossy().into_owned()),
-            scene: rec.scene.clone(),
+            scene: first,
+            more_scenes: scenes.collect(),
+            active_scene: rec.active_scene(),
             arming: rec.arming.groups.iter().copied().collect(),
             rig: rig.edits.clone(),
             media,
@@ -391,6 +407,30 @@ mod tests {
         assert_eq!(back.rec.scene, rec.scene);
         assert_eq!(back.rig.edits, rig.edits);
         assert!(World::open(&dir.path().join("junk.txt")).is_err());
+    }
+
+    #[test]
+    fn several_scenes_camera_and_keyframes_survive_save_and_open() {
+        let Opened { world, mut rec, rig } = World::demo().unwrap();
+        let mut second = rec.scene.clone();
+        second.name = "Second".into();
+        rec.add_scene(second, None).unwrap();
+        rec.select_scene(1).unwrap();
+        rec.scene.camera.zoom = 2.0;
+        rec.scene.camera.lanes.push({
+            let mut lane = charcraft_record::Lane::new("zoom");
+            lane.set_key(anim_core::Tick::ZERO, 1.0, None).unwrap();
+            lane.set_key(anim_core::Tick::from_seconds_f64(1.0), 3.0, Some(charcraft_record::Ease::EaseInOut)).unwrap();
+            lane
+        });
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("multi.charcraft");
+        std::fs::write(&file, world.save_bytes(&rec, &rig).unwrap()).unwrap();
+        let back = World::open(&file).unwrap();
+        assert_eq!(back.rec.scene_count(), 2);
+        assert_eq!(back.rec.active_scene(), 1);
+        assert_eq!(back.rec.scene, rec.scene);
+        assert_eq!(back.rec.scene_at(0), rec.scene_at(0));
     }
 
     #[test]

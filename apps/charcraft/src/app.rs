@@ -599,6 +599,23 @@ impl CharCraftApp {
         self.view.playing = true;
     }
 
+    /// Finds the mouth shapes in the sound of a scene clip and makes a voice take from them.
+    fn lipsync_clip(&mut self, track: usize, audio_track: usize, clip: usize) {
+        let media = self.doc.rec.scene.audio.get(audio_track).and_then(|t| t.clips.get(clip)).map(|c| c.media.clone());
+        let Some(media) = media else {
+            "That clip does not exist".clone_into(&mut self.view.status);
+            return;
+        };
+        let Some(buffer) = self.host.hooks_mut().world.media.get(&media) else {
+            self.view.status = format!("The sound {media} is not loaded");
+            return;
+        };
+        let keys = anim_lipsync::analyze(&buffer.to_mono().samples, buffer.sample_rate);
+        let seconds = buffer.seconds();
+        let keys: Vec<Value> = keys.iter().map(|k| json!({ "time_seconds": k.start.seconds(), "viseme": k.viseme.ca_layer_name() })).collect();
+        self.run("lipsync.from_clip", &json!({ "track": track, "audio_track": audio_track, "clip": clip, "keys": keys, "media_seconds": seconds }), None);
+    }
+
     fn stop_record(&mut self) {
         let Some(mut active) = self.view.recording.take() else { return };
         self.live.link().forward_audio(false);
@@ -699,6 +716,7 @@ impl CharCraftApp {
                 Action::Export(format, path) => self.export(ctx, format, &path),
                 Action::StartRecord => self.start_record(),
                 Action::StopRecord => self.stop_record(),
+                Action::LipsyncClip { track, audio_track, clip } => self.lipsync_clip(track, audio_track, clip),
                 Action::Tracking(name, params) => {
                     self.view.status = match self.live.link().tool(name, &params) {
                         Ok(_) => name.to_owned(),

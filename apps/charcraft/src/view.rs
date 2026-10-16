@@ -59,6 +59,15 @@ pub enum Action {
     StartRecord,
     /// Stop recording and keep the take.
     StopRecord,
+    /// Compute a lip sync take on puppet track `track` from clip `clip` of audio track `audio_track`.
+    LipsyncClip {
+        /// The puppet track that gets the take.
+        track: usize,
+        /// The audio track holding the clip.
+        audio_track: usize,
+        /// The clip.
+        clip: usize,
+    },
     /// A `tracking_*` tool.
     Tracking(&'static str, Value),
     /// A microphone action.
@@ -76,6 +85,8 @@ pub enum Prompt {
     Save,
     /// Export; the format is chosen in the prompt.
     Export,
+    /// Import a sound file onto the first audio track at the playhead.
+    Audio,
 }
 
 /// A take being recorded.
@@ -131,6 +142,8 @@ pub struct View {
     pub dark: bool,
     /// Selected puppet track.
     pub track: usize,
+    /// Selected take of the selected track.
+    pub take: usize,
     /// Selected layer path.
     pub layer: Option<String>,
     /// Playhead, seconds.
@@ -193,6 +206,7 @@ impl Default for View {
             mode: Mode::Rig,
             dark: true,
             track: 0,
+            take: 0,
             layer: None,
             playhead: 0.0,
             playing: false,

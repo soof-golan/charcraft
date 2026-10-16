@@ -1,6 +1,5 @@
 //! Record mode: the scene with its transport, the camera and microphone panels, arming, takes and the timeline.
 
-use anim_ui::theme::visual;
 use anim_ui::timeline::LayerEvent;
 use anim_ui::{TimelineEvent, TransportEvent, TransportState};
 use charcraft_record::ParamGroup;
@@ -91,8 +90,11 @@ fn timeline(ui: &mut Ui, view: &mut View, ctx: &Ctx<'_>, actions: &mut Vec<Actio
         match event {
             TimelineEvent::SetFrame(f) => actions.push(Action::Seek(f64::from(f) / fps)),
             TimelineEvent::Layer(LayerEvent::Select { id, .. }) => {
-                if let Some((track, _)) = row_target(id) {
+                if let Some((track, take)) = row_target(id) {
                     actions.push(Action::SelectTrack(track));
+                    if let Some(take) = take {
+                        view.take = take;
+                    }
                 }
             }
             TimelineEvent::Layer(LayerEvent::ToggleVisible(id)) => match row_target(id) {
@@ -116,31 +118,6 @@ fn timeline(ui: &mut Ui, view: &mut View, ctx: &Ctx<'_>, actions: &mut Vec<Actio
     }
 }
 
-fn takes(ui: &mut Ui, view: &View, ctx: &Ctx<'_>, actions: &mut Vec<Action>) {
-    ui.strong("Takes");
-    let Some(track) = ctx.doc.rec.scene.tracks.get(view.track) else {
-        ui.weak("Add a puppet track first.");
-        return;
-    };
-    ui.weak(visual(&track.name).into_owned());
-    if track.takes.is_empty() {
-        ui.weak("Nothing recorded yet. Arm the parts you want, then press Record.");
-    }
-    for (k, take) in track.takes.iter().enumerate() {
-        ui.horizontal(|ui| {
-            let mut on = take.enabled;
-            if ui.checkbox(&mut on, "").changed() {
-                actions.push(Action::Run("take.set", json!({ "track": view.track, "take": k, "enabled": on })));
-            }
-            ui.label(RichText::new(visual(&take.name).into_owned()).strong());
-            ui.weak(format!("{:.1}s at {:.1}s", take.duration.seconds(), take.start.seconds()));
-            if ui.small_button("\u{00D7}").on_hover_text("Delete take").clicked() {
-                actions.push(Action::Run("take.remove", json!({ "track": view.track, "take": k })));
-            }
-        });
-    }
-}
-
 /// Record mode.
 pub fn show(ui: &mut Ui, view: &mut View, ctx: &Ctx<'_>, actions: &mut Vec<Action>) {
     egui::Panel::right("record_inputs").default_size(300.0).min_size(240.0).show(ui, |ui| {
@@ -149,10 +126,11 @@ pub fn show(ui: &mut Ui, view: &mut View, ctx: &Ctx<'_>, actions: &mut Vec<Actio
             ui.separator();
             microphone(ui, view, actions);
             ui.separator();
-            takes(ui, view, ctx, actions);
+            super::edit::panels(ui, view, ctx, actions);
         });
     });
     egui::Panel::bottom("record_timeline").resizable(true).default_size(250.0).min_size(150.0).show(ui, |ui| {
+        super::edit::scene_bar(ui, ctx, actions);
         arming(ui, view, ctx, actions);
         ui.separator();
         timeline(ui, view, ctx, actions);
