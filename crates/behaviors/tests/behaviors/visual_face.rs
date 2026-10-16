@@ -16,7 +16,7 @@
     reason = "test code"
 )]
 
-mod common;
+use crate::common;
 
 use anim_core::{Point, Vec2};
 use charcraft_puppet::{Puppet, PuppetPose, Viseme, Xform};

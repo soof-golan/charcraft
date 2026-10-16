@@ -21,7 +21,7 @@
     reason = "test code"
 )]
 
-mod common;
+use crate::common;
 
 use std::path::PathBuf;
 

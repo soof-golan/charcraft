@@ -17,7 +17,7 @@
     reason = "test code"
 )]
 
-mod common;
+use crate::common;
 
 use anim_artwork::ArtNode;
 use anim_core::{Point, Tick, Vec2};

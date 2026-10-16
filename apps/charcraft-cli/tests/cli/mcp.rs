@@ -13,7 +13,7 @@
     reason = "test code"
 )]
 
-mod common;
+use crate::common;
 
 use std::io::{BufRead, BufReader, Write};
 use std::path::Path;
