@@ -7,6 +7,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::tags::Viseme;
 
+/// The smallest scale magnitude kept, so a collapsed group still has an invertible matrix.
+const MIN_SCALE: f64 = 1e-6;
+
 /// A 2D transform about a group's origin: move, then rotate and scale about the origin.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct Xform {
@@ -46,11 +49,16 @@ impl Xform {
         self.sanitized() == Self::IDENTITY
     }
 
-    /// Replaces non-finite parts with the identity's and keeps scales away from zero.
+    /// Replaces non-finite parts with the identity's and keeps scales away from zero: a scale of 0 (or nearly) is
+    /// a collapsed group, so it becomes the smallest scale of the same sign, never "no scale".
     #[must_use]
     pub fn sanitized(&self) -> Self {
         let ok = |v: f64, fallback: f64| if v.is_finite() { v } else { fallback };
-        let scale = |v: f64| if v.is_finite() && v.abs() > 1e-6 { v } else { 1.0 };
+        let scale = |v: f64| match v {
+            v if !v.is_finite() => 1.0,
+            v if v.abs() > MIN_SCALE => v,
+            v => MIN_SCALE.copysign(v),
+        };
         Self {
             translation: Vec2::new(ok(self.translation.x, 0.0), ok(self.translation.y, 0.0)),
             rotation: ok(self.rotation, 0.0),
@@ -187,8 +195,15 @@ mod tests {
 
     #[test]
     fn non_finite_parts_are_ignored() {
-        let x = Xform { translation: Vec2::new(f64::NAN, 3.0), rotation: f64::INFINITY, scale: Vec2::new(0.0, f64::NAN) };
+        let x = Xform { translation: Vec2::new(f64::NAN, 3.0), rotation: f64::INFINITY, scale: Vec2::new(f64::INFINITY, f64::NAN) };
         assert_eq!(x.sanitized(), Xform::moved(0.0, 3.0));
+    }
+
+    #[test]
+    fn a_zero_scale_collapses_instead_of_vanishing() {
+        let x = Xform { scale: Vec2::new(0.0, -0.0), ..Xform::IDENTITY }.sanitized();
+        assert_eq!(x.scale, Vec2::new(MIN_SCALE, -MIN_SCALE));
+        assert!(!Xform { scale: Vec2::new(0.0, 1.0), ..Xform::IDENTITY }.is_identity());
     }
 
     #[test]

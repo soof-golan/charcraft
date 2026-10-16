@@ -63,6 +63,10 @@ impl Puppet {
                 let shapes = self.mouth_shapes(group);
                 let chosen =
                     shapes.iter().find(|(v, _)| *v == wanted).or_else(|| shapes.iter().find(|(v, _)| *v == crate::tags::Viseme::Neutral)).map(|(_, id)| *id);
+                // Neither the shape nor a neutral one exists: keep what the artwork shows rather than an empty mouth.
+                if chosen.is_none() {
+                    continue;
+                }
                 for (_, id) in shapes {
                     set(id, Some(id) == chosen);
                 }

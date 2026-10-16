@@ -32,4 +32,15 @@ artwork's own visible shape (Ah) showing instead of an empty mouth.
 
 ## Verdicts
 
-(filled in after rendering)
+Rendered to `.../scratch/visual/charcraft-puppet-behaviors/blink-viseme-swap.png` (sheet of frames 1..6) with 8x
+crops of the left eye for frames 3 and 6.
+
+- Frames 1-6 all as predicted. 0.49 leaves the eye open, exactly 0.5 closes it (blue band y 69..75, white, pupil
+  and the area under the band all gone: crop of frame 3 is skin with one blue bar). NaN does not blink, 2.0 does.
+  Under a 90 degree head turn the lids and mouth land at the mapped positions. Forced lid (frame 6, crop): the
+  band sits over the pupil with the pupil's top and bottom and the white still showing: CONFIRMED.
+  (Frame 2's text above has a typo, the mapped pupil is at (188,170).)
+- BUG FOUND: a mouth group without a Neutral shape, asked for a shape it also lacks (Surprised), came out EMPTY
+  (pixel (120,110) was skin): `Puppet::visibility` hid every shape when no shape matched and no neutral existed.
+  Fixed in `crates/puppet/src/eval.rs`: with no match the artwork's own shape stays. After: CONFIRMED (shows Ah);
+  a shape that exists still wins: CONFIRMED.

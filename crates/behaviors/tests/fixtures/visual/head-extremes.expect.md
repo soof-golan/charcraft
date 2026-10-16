@@ -27,4 +27,15 @@ Poses (probe only points that land inside the canvas):
 
 ## Verdicts
 
-(filled in after rendering)
+Rendered to `.../scratch/visual/charcraft-puppet-behaviors/head-extremes.png` (rot180, rot-450, rot1e9, scale3) and
+`head-extremes-b.png` (scale0.2, mirror, flip, mixed).
+
+- Points 1-7: all feature probes land on their transformed centres (the sheets show the head upside down below the
+  neck, turned left, tilted, 3x filling the top, tiny on the neck, mirrored, flipped below, sheared); NaN equals the
+  neutral render; the head 1e6 px away leaves no skin or black pixel: CONFIRMED.
+- BUG FOUND (point 8): head scale (0,0) left the head at full size. Root cause: `Xform::sanitized` replaced any
+  scale with magnitude <= 1e-6 by 1.0, so "collapse the group" meant "no scale". Fixed in
+  `crates/puppet/src/pose.rs`: a collapsed scale becomes the smallest scale of the same sign. After: no skin
+  pixel: CONFIRMED.
+- Point 9 (neck weld): test `the_neck_stays_attached` is `#[ignore]` until the weld fix lands on main (other
+  agent); not judged here.
