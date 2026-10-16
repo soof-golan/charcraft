@@ -66,7 +66,12 @@ impl Puppet {
             out.push(ImportIssue {
                 kind: IssueKind::UnnamedGroup,
                 layer: None,
-                message: format!("{unnamed} group{} ha{} no name, so names cannot give {} tags", plural(unnamed), if unnamed == 1 { "s" } else { "ve" }, if unnamed == 1 { "it" } else { "them" }),
+                message: format!(
+                    "{unnamed} group{} ha{} no name, so names cannot give {} tags",
+                    plural(unnamed),
+                    if unnamed == 1 { "s" } else { "ve" },
+                    if unnamed == 1 { "it" } else { "them" }
+                ),
             });
         }
         for w in &self.warnings {
@@ -91,7 +96,11 @@ impl Puppet {
                     out.push(ImportIssue {
                         kind: IssueKind::DuplicateName,
                         layer: Some(child.path.clone()),
-                        message: format!("more than one layer is called \"{}\" in \"{}\"", child.label, if parent.name.is_empty() { "the artwork" } else { parent.label.as_str() }),
+                        message: format!(
+                            "more than one layer is called \"{}\" in \"{}\"",
+                            child.label,
+                            if parent.name.is_empty() { "the artwork" } else { parent.label.as_str() }
+                        ),
                     });
                 }
             }
@@ -130,7 +139,11 @@ impl Puppet {
                 out.push(ImportIssue {
                     kind: IssueKind::NotIndependent,
                     layer: Some(layer.path.clone()),
-                    message: format!("\"{}\" would be a {} but is not an independent group: start its name with +", layer.label, tag.id.rsplit('.').next().unwrap_or(tag.id)),
+                    message: format!(
+                        "\"{}\" would be a {} but is not an independent group: start its name with +",
+                        layer.label,
+                        tag.id.rsplit('.').next().unwrap_or(tag.id)
+                    ),
                 });
             }
         }
