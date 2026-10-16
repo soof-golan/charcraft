@@ -10,9 +10,8 @@ Three repositories, one family:
 
 The engine crates are described in the `anicraft-libs` ARCHITECTURE.md (display lists, CPU renderer, rig/ARAP
 deformation, audio, lip sync, artwork import, export, shared egui widgets, session framework). CharCraft depends on
-them with `anim-x = { git = "https://github.com/soof-golan/anicraft-libs", branch = "main" }` while we build
-(`Cargo.lock` pins the commit; `cargo update -p anim-x` picks up new work) and switches to `rev = "..."` pins for
-releases.
+them with `anim-x = { git = "https://github.com/soof-golan/anicraft-libs", rev = "..." }`, pinned to a release
+commit; to pick up newer engine work, change the revs and run `cargo update`.
 
 ## Data flow
 

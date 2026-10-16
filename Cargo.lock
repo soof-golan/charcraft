@@ -261,7 +261,7 @@ checksum = "4b46cbb362ab8752921c97e041f5e366ee6297bd428a31275b9fcf1e380f7299"
 [[package]]
 name = "anim-archive"
 version = "0.1.0"
-source = "git+https://github.com/soof-golan/anicraft-libs?branch=main#51ea7162391e8bd569f65197246e7b4def3138fe"
+source = "git+https://github.com/soof-golan/anicraft-libs?rev=7b3bc39d02c9b062a832f4b130e506cd317db748#7b3bc39d02c9b062a832f4b130e506cd317db748"
 dependencies = [
  "crc32fast",
  "encoding_rs",
@@ -274,7 +274,7 @@ dependencies = [
 [[package]]
 name = "anim-artwork"
 version = "0.1.0"
-source = "git+https://github.com/soof-golan/anicraft-libs?branch=main#51ea7162391e8bd569f65197246e7b4def3138fe"
+source = "git+https://github.com/soof-golan/anicraft-libs?rev=7b3bc39d02c9b062a832f4b130e506cd317db748#7b3bc39d02c9b062a832f4b130e506cd317db748"
 dependencies = [
  "anim-core",
  "anim-display",
@@ -294,7 +294,7 @@ dependencies = [
 [[package]]
 name = "anim-audio"
 version = "0.1.0"
-source = "git+https://github.com/soof-golan/anicraft-libs?branch=main#51ea7162391e8bd569f65197246e7b4def3138fe"
+source = "git+https://github.com/soof-golan/anicraft-libs?rev=7b3bc39d02c9b062a832f4b130e506cd317db748#7b3bc39d02c9b062a832f4b130e506cd317db748"
 dependencies = [
  "anim-core",
  "cpal",
@@ -306,7 +306,7 @@ dependencies = [
 [[package]]
 name = "anim-core"
 version = "0.1.0"
-source = "git+https://github.com/soof-golan/anicraft-libs?branch=main#51ea7162391e8bd569f65197246e7b4def3138fe"
+source = "git+https://github.com/soof-golan/anicraft-libs?rev=7b3bc39d02c9b062a832f4b130e506cd317db748#7b3bc39d02c9b062a832f4b130e506cd317db748"
 dependencies = [
  "filmcraft-time",
  "kurbo",
@@ -317,7 +317,7 @@ dependencies = [
 [[package]]
 name = "anim-display"
 version = "0.1.0"
-source = "git+https://github.com/soof-golan/anicraft-libs?branch=main#51ea7162391e8bd569f65197246e7b4def3138fe"
+source = "git+https://github.com/soof-golan/anicraft-libs?rev=7b3bc39d02c9b062a832f4b130e506cd317db748#7b3bc39d02c9b062a832f4b130e506cd317db748"
 dependencies = [
  "anim-core",
  "kurbo",
@@ -328,7 +328,7 @@ dependencies = [
 [[package]]
 name = "anim-export"
 version = "0.1.0"
-source = "git+https://github.com/soof-golan/anicraft-libs?branch=main#51ea7162391e8bd569f65197246e7b4def3138fe"
+source = "git+https://github.com/soof-golan/anicraft-libs?rev=7b3bc39d02c9b062a832f4b130e506cd317db748#7b3bc39d02c9b062a832f4b130e506cd317db748"
 dependencies = [
  "anim-core",
  "anim-display",
@@ -344,7 +344,7 @@ dependencies = [
 [[package]]
 name = "anim-lipsync"
 version = "0.1.0"
-source = "git+https://github.com/soof-golan/anicraft-libs?branch=main#51ea7162391e8bd569f65197246e7b4def3138fe"
+source = "git+https://github.com/soof-golan/anicraft-libs?rev=7b3bc39d02c9b062a832f4b130e506cd317db748#7b3bc39d02c9b062a832f4b130e506cd317db748"
 dependencies = [
  "anim-core",
  "rustfft",
@@ -354,7 +354,7 @@ dependencies = [
 [[package]]
 name = "anim-mcp"
 version = "0.1.0"
-source = "git+https://github.com/soof-golan/anicraft-libs?branch=main#51ea7162391e8bd569f65197246e7b4def3138fe"
+source = "git+https://github.com/soof-golan/anicraft-libs?rev=7b3bc39d02c9b062a832f4b130e506cd317db748#7b3bc39d02c9b062a832f4b130e506cd317db748"
 dependencies = [
  "anim-session",
  "base64 0.22.1",
@@ -374,7 +374,7 @@ dependencies = [
 [[package]]
 name = "anim-render"
 version = "0.1.0"
-source = "git+https://github.com/soof-golan/anicraft-libs?branch=main#51ea7162391e8bd569f65197246e7b4def3138fe"
+source = "git+https://github.com/soof-golan/anicraft-libs?rev=7b3bc39d02c9b062a832f4b130e506cd317db748#7b3bc39d02c9b062a832f4b130e506cd317db748"
 dependencies = [
  "anim-core",
  "anim-display",
@@ -387,7 +387,7 @@ dependencies = [
 [[package]]
 name = "anim-rig"
 version = "0.1.0"
-source = "git+https://github.com/soof-golan/anicraft-libs?branch=main#51ea7162391e8bd569f65197246e7b4def3138fe"
+source = "git+https://github.com/soof-golan/anicraft-libs?rev=7b3bc39d02c9b062a832f4b130e506cd317db748#7b3bc39d02c9b062a832f4b130e506cd317db748"
 dependencies = [
  "anim-core",
  "serde",
@@ -398,7 +398,7 @@ dependencies = [
 [[package]]
 name = "anim-session"
 version = "0.1.0"
-source = "git+https://github.com/soof-golan/anicraft-libs?branch=main#51ea7162391e8bd569f65197246e7b4def3138fe"
+source = "git+https://github.com/soof-golan/anicraft-libs?rev=7b3bc39d02c9b062a832f4b130e506cd317db748#7b3bc39d02c9b062a832f4b130e506cd317db748"
 dependencies = [
  "craft-atomic",
  "craft-settings",
@@ -411,7 +411,7 @@ dependencies = [
 [[package]]
 name = "anim-ui"
 version = "0.1.0"
-source = "git+https://github.com/soof-golan/anicraft-libs?branch=main#51ea7162391e8bd569f65197246e7b4def3138fe"
+source = "git+https://github.com/soof-golan/anicraft-libs?rev=7b3bc39d02c9b062a832f4b130e506cd317db748#7b3bc39d02c9b062a832f4b130e506cd317db748"
 dependencies = [
  "anim-core",
  "craft-ui",
@@ -425,7 +425,7 @@ dependencies = [
 [[package]]
 name = "anim-video"
 version = "0.1.0"
-source = "git+https://github.com/soof-golan/anicraft-libs?branch=main#51ea7162391e8bd569f65197246e7b4def3138fe"
+source = "git+https://github.com/soof-golan/anicraft-libs?rev=7b3bc39d02c9b062a832f4b130e506cd317db748#7b3bc39d02c9b062a832f4b130e506cd317db748"
 dependencies = [
  "anim-core",
  "anim-display",

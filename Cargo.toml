@@ -19,27 +19,27 @@ charcraft-behaviors = { path = "crates/behaviors" }
 charcraft-tracking = { path = "crates/tracking" }
 charcraft-record = { path = "crates/record" }
 
-# Shared engine crates from anicraft-libs. While we build they follow main (Cargo.lock pins the commit; run
-# `cargo update -p anim-x` to pick up new work); releases switch to `rev = "..."` pins.
-anim-core = { git = "https://github.com/soof-golan/anicraft-libs", branch = "main" }
-anim-display = { git = "https://github.com/soof-golan/anicraft-libs", branch = "main" }
-anim-archive = { git = "https://github.com/soof-golan/anicraft-libs", branch = "main" }
-anim-shape = { git = "https://github.com/soof-golan/anicraft-libs", branch = "main" }
-anim-scene = { git = "https://github.com/soof-golan/anicraft-libs", branch = "main" }
-anim-morph = { git = "https://github.com/soof-golan/anicraft-libs", branch = "main" }
-anim-text = { git = "https://github.com/soof-golan/anicraft-libs", branch = "main" }
-anim-timeline = { git = "https://github.com/soof-golan/anicraft-libs", branch = "main" }
-anim-render = { git = "https://github.com/soof-golan/anicraft-libs", branch = "main" }
-anim-rig = { git = "https://github.com/soof-golan/anicraft-libs", branch = "main" }
-anim-audio = { git = "https://github.com/soof-golan/anicraft-libs", branch = "main" }
-anim-lipsync = { git = "https://github.com/soof-golan/anicraft-libs", branch = "main" }
-anim-artwork = { git = "https://github.com/soof-golan/anicraft-libs", branch = "main" }
-anim-export = { git = "https://github.com/soof-golan/anicraft-libs", branch = "main" }
-anim-video = { git = "https://github.com/soof-golan/anicraft-libs", branch = "main" }
-anim-ui = { git = "https://github.com/soof-golan/anicraft-libs", branch = "main" }
-anim-session = { git = "https://github.com/soof-golan/anicraft-libs", branch = "main" }
+# Shared engine crates from anicraft-libs, pinned to the v0.1.0 commit. To move to newer engine work, change every
+# rev below to the new commit and run `cargo update`.
+anim-core = { git = "https://github.com/soof-golan/anicraft-libs", rev = "7b3bc39d02c9b062a832f4b130e506cd317db748" }
+anim-display = { git = "https://github.com/soof-golan/anicraft-libs", rev = "7b3bc39d02c9b062a832f4b130e506cd317db748" }
+anim-archive = { git = "https://github.com/soof-golan/anicraft-libs", rev = "7b3bc39d02c9b062a832f4b130e506cd317db748" }
+anim-shape = { git = "https://github.com/soof-golan/anicraft-libs", rev = "7b3bc39d02c9b062a832f4b130e506cd317db748" }
+anim-scene = { git = "https://github.com/soof-golan/anicraft-libs", rev = "7b3bc39d02c9b062a832f4b130e506cd317db748" }
+anim-morph = { git = "https://github.com/soof-golan/anicraft-libs", rev = "7b3bc39d02c9b062a832f4b130e506cd317db748" }
+anim-text = { git = "https://github.com/soof-golan/anicraft-libs", rev = "7b3bc39d02c9b062a832f4b130e506cd317db748" }
+anim-timeline = { git = "https://github.com/soof-golan/anicraft-libs", rev = "7b3bc39d02c9b062a832f4b130e506cd317db748" }
+anim-render = { git = "https://github.com/soof-golan/anicraft-libs", rev = "7b3bc39d02c9b062a832f4b130e506cd317db748" }
+anim-rig = { git = "https://github.com/soof-golan/anicraft-libs", rev = "7b3bc39d02c9b062a832f4b130e506cd317db748" }
+anim-audio = { git = "https://github.com/soof-golan/anicraft-libs", rev = "7b3bc39d02c9b062a832f4b130e506cd317db748" }
+anim-lipsync = { git = "https://github.com/soof-golan/anicraft-libs", rev = "7b3bc39d02c9b062a832f4b130e506cd317db748" }
+anim-artwork = { git = "https://github.com/soof-golan/anicraft-libs", rev = "7b3bc39d02c9b062a832f4b130e506cd317db748" }
+anim-export = { git = "https://github.com/soof-golan/anicraft-libs", rev = "7b3bc39d02c9b062a832f4b130e506cd317db748" }
+anim-video = { git = "https://github.com/soof-golan/anicraft-libs", rev = "7b3bc39d02c9b062a832f4b130e506cd317db748" }
+anim-ui = { git = "https://github.com/soof-golan/anicraft-libs", rev = "7b3bc39d02c9b062a832f4b130e506cd317db748" }
+anim-session = { git = "https://github.com/soof-golan/anicraft-libs", rev = "7b3bc39d02c9b062a832f4b130e506cd317db748" }
 # MCP without the streamable-HTTP front-end: the app serves stdio and the loopback control channel.
-anim-mcp = { git = "https://github.com/soof-golan/anicraft-libs", branch = "main", default-features = false }
+anim-mcp = { git = "https://github.com/soof-golan/anicraft-libs", rev = "7b3bc39d02c9b062a832f4b130e506cd317db748", default-features = false }
 
 # External crates (versions match anicraft-libs so the lockfiles agree).
 kurbo = { version = "0.13", features = ["serde"] }
