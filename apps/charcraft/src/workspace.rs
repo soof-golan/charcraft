@@ -254,7 +254,9 @@ pub fn ago(seconds: u64) -> String {
 pub enum StarterSource {
     /// The puppet drawn in code.
     Demo,
-    /// A `.puppet` or project the user keeps in the starters folder.
+    /// One of the Puppet Maker's built-in templates, by id.
+    Template(&'static str),
+    /// A `.puppet` the user keeps in the starters folder.
     File(PathBuf),
 }
 
@@ -269,23 +271,24 @@ pub struct Starter {
     pub source: StarterSource,
 }
 
-/// The starters: the built-in puppet, then every `.puppet` and project folder in `dir` (the `starters` folder of the
-/// settings, or the folder named by `CHARCRAFT_STARTERS`).
+/// The starters: the Puppet Maker's built-in templates, then every `.puppet` file in `dir`.
+///
+/// `dir` is the `starters` folder of the settings, or the folder named by `CHARCRAFT_STARTERS`. Projects and other
+/// folders are not starters.
 #[must_use]
 pub fn starters(dir: Option<&Path>) -> Vec<Starter> {
-    let mut out = vec![Starter {
-        name: "Demo puppet".to_owned(),
-        about: "A face drawn in code with eyes, brows, mouth shapes and a swap set".to_owned(),
-        source: StarterSource::Demo,
-    }];
+    let mut out: Vec<Starter> = charcraft_maker::templates()
+        .into_iter()
+        .map(|t| Starter { name: t.title.to_owned(), about: t.about.to_owned(), source: StarterSource::Template(t.id) })
+        .collect();
     let Some(dir) = dir else { return out };
     let mut files: Vec<PathBuf> = std::fs::read_dir(dir).into_iter().flatten().flatten().map(|e| e.path()).collect();
     files.sort();
     for path in files {
         let ext = path.extension().and_then(|e| e.to_str()).map(str::to_lowercase).unwrap_or_default();
-        if ext == "puppet" || ext == "chproj" || path.is_dir() {
+        if ext == "puppet" && path.is_file() {
             let name = path.file_stem().map_or_else(|| "Puppet".to_owned(), |s| s.to_string_lossy().into_owned());
-            let about = if ext == "puppet" { "A puppet file".to_owned() } else { "A project".to_owned() };
+            let about = "A puppet file".to_owned();
             out.push(Starter { name, about, source: StarterSource::File(path) });
         }
     }
@@ -360,14 +363,17 @@ mod tests {
     }
 
     #[test]
-    fn the_gallery_has_the_demo_and_the_files_in_the_folder() {
+    fn the_gallery_has_the_templates_and_only_puppet_files_from_the_folder() {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join("Hero.puppet"), b"x").unwrap();
         std::fs::write(dir.path().join("notes.txt"), b"x").unwrap();
+        std::fs::create_dir(dir.path().join("a_project")).unwrap();
+        std::fs::write(dir.path().join("Old.chproj"), b"x").unwrap();
+        let templates = charcraft_maker::templates().len();
         let list = starters(Some(dir.path()));
-        assert_eq!(list.len(), 2);
-        assert_eq!(list[0].source, StarterSource::Demo);
-        assert_eq!(list[1].name, "Hero");
-        assert_eq!(starters(None).len(), 1);
+        assert_eq!(list.len(), templates + 1);
+        assert!(matches!(list[0].source, StarterSource::Template(_)));
+        assert_eq!(list[templates].name, "Hero");
+        assert_eq!(starters(None).len(), templates);
     }
 }

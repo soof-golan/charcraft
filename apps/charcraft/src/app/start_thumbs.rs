@@ -8,16 +8,22 @@ use charcraft_puppet::PuppetPose;
 use crossbeam_channel::{Receiver, unbounded};
 
 use crate::compose::{Picture, Stage};
+use crate::workspace::StarterSource;
 use crate::world::World;
 
 /// Height of the pictures, in pixels.
 const HEIGHT: f64 = 160.0;
 
-/// One thing to draw: the name the picture is stored under and the file (`None` for the demo puppet).
-pub type Job = (String, Option<PathBuf>);
+/// One thing to draw: the name the picture is stored under and where the puppet comes from.
+pub type Job = (String, StarterSource);
 
-fn draw(file: Option<&PathBuf>) -> Option<Picture> {
-    let opened = file.map_or_else(World::demo, |p| World::open(p)).ok()?;
+fn draw(source: &StarterSource) -> Option<Picture> {
+    let opened = match source {
+        StarterSource::Demo => World::demo(),
+        StarterSource::Template(id) => World::from_spec(charcraft_maker::template(id)?.spec),
+        StarterSource::File(path) => World::open(path),
+    }
+    .ok()?;
     let cast = opened.world.cast;
     let key = cast.keys().next()?.to_owned();
     let height = cast.get(&key)?.puppet.size.height.max(1.0);
@@ -31,21 +37,17 @@ impl super::CharCraftApp {
     pub(super) fn spawn_start_thumbs(&mut self) {
         let mut jobs: Vec<Job> = Vec::new();
         for (i, starter) in self.view.start_info.starters.iter().enumerate() {
-            let file = match &starter.source {
-                crate::workspace::StarterSource::Demo => None,
-                crate::workspace::StarterSource::File(path) => Some(path.clone()),
-            };
-            jobs.push((format!("starter:{i}"), file));
+            jobs.push((format!("starter:{i}"), starter.source.clone()));
         }
         for path in self.view.prefs.common.recent.iter().take(8) {
-            jobs.push((format!("recent:{}", path.display()), Some(path.to_path_buf())));
+            jobs.push((format!("recent:{}", path.display()), StarterSource::File(PathBuf::from(path))));
         }
         let names: Vec<String> = jobs.iter().map(|(n, _)| n.clone()).collect();
         if names == self.thumbs.start_jobs {
             return;
         }
         self.thumbs.start_jobs = names;
-        self.thumbs.start_rx = Some(spawn(jobs, || {}));
+        self.thumbs.start_rx = Some(spawn(jobs));
     }
 
     /// Takes in the pictures that are done.
@@ -63,15 +65,14 @@ impl super::CharCraftApp {
 
 /// Starts drawing the jobs one after the other; the pictures arrive as they are done (`None`: it could not be drawn).
 #[must_use]
-pub fn spawn(jobs: Vec<Job>, wake: impl Fn() + Send + 'static) -> Receiver<(String, Option<Picture>)> {
+pub fn spawn(jobs: Vec<Job>) -> Receiver<(String, Option<Picture>)> {
     let (tx, rx) = unbounded();
     let _ = std::thread::Builder::new().name("charcraft-start-thumbs".into()).spawn(move || {
-        for (name, file) in jobs {
-            let picture = draw(file.as_ref());
+        for (name, source) in jobs {
+            let picture = draw(&source);
             if tx.send((name, picture)).is_err() {
                 return;
             }
-            wake();
         }
     });
     rx

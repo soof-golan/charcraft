@@ -278,7 +278,7 @@ impl CharCraftApp {
                 self.open(&path);
                 self.host.session_mut().set_path(None);
                 self.ws.recovered = true;
-                self.view.start = false;
+                self.set_mode(Mode::Rig);
                 "Recovered unsaved work: save it to keep it".clone_into(&mut self.view.status);
                 let _ = std::fs::remove_file(&path);
                 self.refresh_start_info();
@@ -294,11 +294,17 @@ impl CharCraftApp {
                         if let Err(e) = self.call(Request::New {}) {
                             self.view.status = format!("New failed: {e}");
                         }
-                        self.view.start = false;
+                        self.set_mode(Mode::Rig);
+                    }
+                    Some(StarterSource::Template(id)) => {
+                        if let Some(template) = charcraft_maker::template(id) {
+                            self.new_made(template.spec);
+                        }
+                        self.set_mode(Mode::Rig);
                     }
                     Some(StarterSource::File(path)) => {
                         self.open(&path);
-                        self.view.start = false;
+                        self.set_mode(Mode::Rig);
                     }
                     None => {}
                 }
