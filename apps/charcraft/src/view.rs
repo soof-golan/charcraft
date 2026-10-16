@@ -183,6 +183,8 @@ pub struct View {
     pub pointer: Option<(f64, f64, bool)>,
     /// Layers whose children are collapsed in the tree.
     pub collapsed: std::collections::BTreeSet<String>,
+    /// The rig tools.
+    pub rig: crate::ui::rigtools::RigUi,
 }
 
 impl Default for View {
@@ -217,6 +219,7 @@ impl Default for View {
             peaks: BTreeMap::new(),
             pointer: None,
             collapsed: std::collections::BTreeSet::new(),
+            rig: crate::ui::rigtools::RigUi::default(),
         }
     }
 }

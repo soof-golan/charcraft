@@ -41,6 +41,12 @@ pub struct SkelLayer {
     pub label: String,
     /// An independent group.
     pub independent: bool,
+    /// Holds layers of its own (a layer cycle needs at least two).
+    #[serde(default)]
+    pub children: usize,
+    /// The keys of its handles.
+    #[serde(default)]
+    pub handles: Vec<String>,
 }
 
 /// The layer names of a puppet, so a rig edit can be checked without the pictures.
@@ -48,13 +54,69 @@ pub struct SkelLayer {
 pub struct Skeleton {
     /// Layers, root first.
     pub layers: Vec<SkelLayer>,
+    /// The names of the swap sets.
+    #[serde(default)]
+    pub swap_sets: Vec<String>,
 }
 
 impl Skeleton {
     /// The skeleton of a puppet.
     #[must_use]
     pub fn of(puppet: &Puppet) -> Self {
-        Self { layers: puppet.layers().iter().map(|l| SkelLayer { path: l.path.clone(), label: l.label.clone(), independent: l.independent }).collect() }
+        Self {
+            layers: puppet
+                .layers()
+                .iter()
+                .map(|l| SkelLayer {
+                    path: l.path.clone(),
+                    label: l.label.clone(),
+                    independent: l.independent,
+                    children: l.children.len(),
+                    handles: l.handles.iter().map(|h| h.key.clone()).collect(),
+                })
+                .collect(),
+            swap_sets: puppet.swap_sets.iter().map(|s| s.name.clone()).collect(),
+        }
+    }
+
+    /// Follows a checked edit, so the next one is checked against what the first did.
+    pub fn follow(&mut self, op: &PuppetOp) {
+        let index = |s: &Self, name: &str| s.resolve(name).and_then(|l| s.layers.iter().position(|o| o.path == l.path));
+        match op {
+            PuppetOp::SetIndependent { layer, independent } => {
+                if let Some(l) = index(self, layer).and_then(|i| self.layers.get_mut(i)).filter(|l| !l.path.is_empty()) {
+                    l.independent = *independent;
+                    if !*independent {
+                        l.handles.clear();
+                    }
+                }
+            }
+            PuppetOp::AddHandle { group, name, .. } => {
+                if let Some(l) = index(self, group).and_then(|i| self.layers.get_mut(i)) {
+                    let key = format!("{}/{name}", l.label);
+                    if !l.handles.contains(&key) {
+                        l.handles.push(key);
+                    }
+                }
+            }
+            PuppetOp::RemoveHandle { group, key } => {
+                if let Some(l) = index(self, group).and_then(|i| self.layers.get_mut(i)) {
+                    l.handles.retain(|k| k != key);
+                }
+            }
+            PuppetOp::AddSwapSet { name, .. } => {
+                if !self.swap_sets.contains(name) {
+                    self.swap_sets.push(name.clone());
+                }
+            }
+            PuppetOp::RemoveSwapSet { name } => self.swap_sets.retain(|s| s != name),
+            PuppetOp::RenameSwapSet { name, new_name } => {
+                if let Some(s) = self.swap_sets.iter_mut().find(|s| *s == name) {
+                    s.clone_from(new_name);
+                }
+            }
+            _ => {}
+        }
     }
 
     /// The layer a path or label names: the path wins, then the first label (as `Puppet::resolve` does).
@@ -219,11 +281,61 @@ fn check_edit(skeleton: &Skeleton, op: &PuppetOp) -> Result<Option<String>, Comm
             text("tag", tag)?;
             Ok(None)
         }
-        PuppetOp::AddHandle { group, name, position, .. } => {
+        PuppetOp::AddHandle { group, name, position, end, .. } => {
             let g = skeleton.need_group(group)?;
             text("handle name", name)?;
             finite("position", position)?;
+            end.as_ref().map_or(Ok(()), |e| finite("end", e))?;
             Ok(Some(format!("{}/{name}", g.label)))
+        }
+        PuppetOp::MoveHandle { group, key, position, end } => {
+            let g = skeleton.need_group(group)?;
+            finite("position", position)?;
+            end.as_ref().map_or(Ok(()), |e| finite("end", e))?;
+            if !g.handles.contains(key) {
+                return Err(CommandError::invalid_params(format!("{group:?} has no handle {key:?} (it has {:?})", g.handles)));
+            }
+            Ok(None)
+        }
+        PuppetOp::SetIndependent { layer, .. } => {
+            if skeleton.need(layer)?.path.is_empty() {
+                return Err(CommandError::invalid_params("the puppet itself is always an independent group"));
+            }
+            Ok(None)
+        }
+        PuppetOp::SetAttachStyle { group, .. } | PuppetOp::SetWarpIndependent { group, .. } => {
+            skeleton.need_group(group)?;
+            Ok(None)
+        }
+        PuppetOp::SetMeshDensity { group, density } => {
+            skeleton.need_group(group)?;
+            if !density.is_finite() || *density <= 0.0 {
+                return Err(CommandError::invalid_params("density must be a positive number"));
+            }
+            Ok(None)
+        }
+        PuppetOp::SetCycle { layer, cycle } => {
+            let l = skeleton.need(layer)?;
+            if cycle.is_some() && l.children < 2 {
+                return Err(CommandError::invalid_params(format!("{layer:?} needs at least two layers inside to cycle")));
+            }
+            Ok(None)
+        }
+        PuppetOp::RemoveSwapSet { name } => {
+            if !skeleton.swap_sets.contains(name) {
+                return Err(CommandError::invalid_params(format!("no swap set {name:?} (there are {:?})", skeleton.swap_sets)));
+            }
+            Ok(None)
+        }
+        PuppetOp::RenameSwapSet { name, new_name } => {
+            text("swap set name", new_name)?;
+            if !skeleton.swap_sets.contains(name) {
+                return Err(CommandError::invalid_params(format!("no swap set {name:?}")));
+            }
+            if skeleton.swap_sets.contains(new_name) {
+                return Err(CommandError::invalid_params(format!("a swap set {new_name:?} exists already")));
+            }
+            Ok(None)
         }
         PuppetOp::RemoveHandle { group, key } => {
             skeleton.need_group(group)?;
@@ -250,7 +362,7 @@ fn check_edit(skeleton: &Skeleton, op: &PuppetOp) -> Result<Option<String>, Comm
             }
             Ok(None)
         }
-        PuppetOp::SetVisible { layer, .. } => {
+        PuppetOp::SetVisible { layer, .. } | PuppetOp::SetHideOthers { layer, .. } => {
             skeleton.need(layer)?;
             Ok(None)
         }
@@ -273,6 +385,21 @@ fn rig_edit(doc: &mut AppDoc, params: &Value) -> Result<Value, CommandError> {
     if doc.rig.edits.len() >= MAX_RIG_EDITS {
         return Err(CommandError::failed("too many rig edits"));
     }
+    if let Some(skeleton) = doc.rig.skeletons.get_mut(&key) {
+        skeleton.follow(&op);
+    }
+    // A drag is many moves of the same thing: the last one is the one worth keeping.
+    let repeats = |last: &RigEdit| {
+        last.puppet == key
+            && match (&last.op, &op) {
+                (PuppetOp::MoveHandle { group: g, key: k, .. }, PuppetOp::MoveHandle { group, key: handle, .. }) => g == group && k == handle,
+                (PuppetOp::SetOrigin { group: g, .. }, PuppetOp::SetOrigin { group, .. }) => g == group,
+                _ => false,
+            }
+    };
+    if doc.rig.edits.last().is_some_and(repeats) {
+        doc.rig.edits.pop();
+    }
     doc.rig.edits.push(RigEdit { puppet: key.clone(), op });
     Ok(json!({ "puppet": key, "key": handle_key, "edits": doc.rig.edits.len() }))
 }
@@ -287,7 +414,8 @@ fn rig_layers(doc: &mut AppDoc, params: &Value) -> Result<Value, CommandError> {
     Ok(json!({
         "puppet": key,
         "puppets": doc.rig.skeletons.keys().collect::<Vec<_>>(),
-        "layers": skeleton.layers.iter().map(|l| json!({ "path": l.path, "label": l.label, "independent": l.independent })).collect::<Vec<_>>(),
+        "layers": skeleton.layers.iter().map(|l| json!({ "path": l.path, "label": l.label, "independent": l.independent, "children": l.children, "handles": l.handles })).collect::<Vec<_>>(),
+        "swap_sets": skeleton.swap_sets,
         "edits": doc.rig.edits.iter().filter(|e| e.puppet == key).count(),
     }))
 }
@@ -558,6 +686,31 @@ mod tests {
         assert_eq!(session.doc().rig.edits.len(), 1, "failed edits leave nothing behind");
         session.undo().unwrap();
         assert!(session.doc().rig.edits.is_empty());
+    }
+
+    #[test]
+    fn rig_tool_edits_move_handles_and_define_swap_sets() {
+        let mut session = Session::new(doc(), registry().unwrap());
+        let run = |s: &mut Session<AppDoc>, op: Value| s.execute("rig.edit", &op);
+        run(&mut session, json!({ "op": "add_handle", "group": "Head", "name": "Chin", "kind": "Draggable", "position": [320.0, 400.0] })).unwrap();
+        for x in [330.0, 340.0, 350.0] {
+            run(&mut session, json!({ "op": "move_handle", "group": "Head", "key": "Head/Chin", "position": [x, 400.0] })).unwrap();
+        }
+        assert_eq!(session.doc().rig.edits.len(), 2, "a drag keeps only its last move");
+        assert!(run(&mut session, json!({ "op": "move_handle", "group": "Head", "key": "Head/Nope", "position": [1.0, 1.0] })).is_err());
+        run(&mut session, json!({ "op": "set_attach_style", "group": "Head", "style": "hinge" })).unwrap();
+        run(&mut session, json!({ "op": "set_warp_independent", "group": "Head", "on": true })).unwrap();
+        run(&mut session, json!({ "op": "set_mesh_density", "group": "Head", "density": 2.0 })).unwrap();
+        assert!(run(&mut session, json!({ "op": "set_mesh_density", "group": "Head", "density": 0.0 })).is_err());
+        run(&mut session, json!({ "op": "set_independent", "layer": "Head/Nose", "independent": true })).unwrap();
+        run(&mut session, json!({ "op": "set_key_trigger", "layer": "Head/Fringe", "key": "f" })).unwrap();
+        run(&mut session, json!({ "op": "set_hide_others", "layer": "Head/Fringe", "on": true })).unwrap();
+        run(&mut session, json!({ "op": "add_swap_set", "name": "Hair", "members": ["Head/Fringe", "Head/Hair back"] })).unwrap();
+        run(&mut session, json!({ "op": "rename_swap_set", "name": "Hair", "new_name": "Do" })).unwrap();
+        assert!(run(&mut session, json!({ "op": "remove_swap_set", "name": "Hair" })).is_err(), "renamed away");
+        run(&mut session, json!({ "op": "remove_swap_set", "name": "Do" })).unwrap();
+        let layers = session.execute("rig.layers", &json!({})).unwrap();
+        assert_eq!(layers["swap_sets"], json!([]));
     }
 
     #[test]

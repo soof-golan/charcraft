@@ -15,6 +15,7 @@ use crate::view::{Action, Ctx, Prompt, View};
 pub mod panels;
 pub mod record;
 pub mod rig;
+pub mod rigtools;
 pub mod stream;
 pub mod timeline;
 

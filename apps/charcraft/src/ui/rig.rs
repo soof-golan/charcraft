@@ -1,31 +1,34 @@
-//! Rig mode: the puppet tree with tags, the artwork with its handles and mesh regions, and the inspector with the
-//! selected layer's tags and handles and the behaviors with their parameters.
+//! Rig mode.
+//!
+//! The puppet tree with tags, the rig toolbar, the artwork with its handles and mesh, and the right panel with the
+//! Properties, Triggers and Behaviors tabs (the tools themselves live in [`super::rigtools`]).
 
 use anim_core::num::f64_to_f32;
 use anim_ui::StageEvent;
-use anim_ui::stage::{MarkerShape, Overlay, OverlayStyle, PointerPhase};
+use anim_ui::stage::{Overlay, OverlayStyle};
 use anim_ui::theme::visual;
 use charcraft_behaviors::api::StackOp;
-use charcraft_puppet::{HandleKind, Layer, LayerId, Puppet, Viseme};
+use charcraft_puppet::{Layer, LayerId, Puppet, Viseme};
 use egui::{Color32, Pos2, Rect, RichText, Ui, pos2, vec2};
 use serde_json::{Value, json};
 
+use super::rigtools::{self, Tab};
 use crate::view::{Action, Ctx, View};
 
-const ACCENT: Color32 = Color32::from_rgb(0x4f, 0x9d, 0xff);
-const HANDLE: Color32 = Color32::from_rgb(0xff, 0x9f, 0x1c);
-const ORIGIN: Color32 = Color32::from_rgb(0xe5, 0x39, 0x35);
+pub(super) const ACCENT: Color32 = Color32::from_rgb(0x4f, 0x9d, 0xff);
+pub(super) const HANDLE: Color32 = Color32::from_rgb(0xff, 0x9f, 0x1c);
+pub(super) const ORIGIN: Color32 = Color32::from_rgb(0xe5, 0x39, 0x35);
 
 /// The last segment of a tag id (`Adobe.LipSynch.Ah` is shown as `Ah`).
-fn short(tag: &str) -> &str {
+pub(super) fn short(tag: &str) -> &str {
     tag.rsplit('.').next().unwrap_or(tag)
 }
 
-const fn point(p: anim_core::Point) -> Pos2 {
+pub(super) const fn point(p: anim_core::Point) -> Pos2 {
     pos2(f64_to_f32(p.x), f64_to_f32(p.y))
 }
 
-const fn rect_of(r: anim_core::Rect) -> Rect {
+pub(super) const fn rect_of(r: anim_core::Rect) -> Rect {
     Rect::from_min_max(pos2(f64_to_f32(r.x0), f64_to_f32(r.y0)), pos2(f64_to_f32(r.x1), f64_to_f32(r.y1)))
 }
 
@@ -54,7 +57,7 @@ fn rows<'a>(puppet: &'a Puppet, collapsed: &std::collections::BTreeSet<String>) 
 }
 
 /// The smallest layer whose bounds contain `at` (artwork pixels).
-fn pick(puppet: &Puppet, at: Pos2) -> Option<String> {
+pub(super) fn pick(puppet: &Puppet, at: Pos2) -> Option<String> {
     puppet
         .layers()
         .iter()
@@ -66,8 +69,13 @@ fn pick(puppet: &Puppet, at: Pos2) -> Option<String> {
 }
 
 fn tree(ui: &mut Ui, puppet: &Puppet, view: &mut View, actions: &mut Vec<Action>) {
+    ui.add(egui::TextEdit::singleline(&mut view.rig.layer_filter).hint_text("Filter by name or tag").desired_width(f32::INFINITY));
+    let keep = rigtools::visible_paths(puppet, &view.rig.layer_filter);
     egui::ScrollArea::both().auto_shrink([false, false]).show(ui, |ui| {
         for (layer, depth) in rows(puppet, &view.collapsed) {
+            if keep.as_ref().is_some_and(|k| !k.contains(&layer.path)) {
+                continue;
+            }
             ui.horizontal(|ui| {
                 ui.add_space(f32::from(u16::try_from(depth.saturating_mul(14)).unwrap_or(0)));
                 if layer.children.is_empty() {
@@ -100,37 +108,38 @@ fn tree(ui: &mut Ui, puppet: &Puppet, view: &mut View, actions: &mut Vec<Action>
                 if layer.tags.len() > 3 {
                     ui.label(RichText::new(format!("+{}", layer.tags.len().saturating_sub(3))).size(10.0).weak());
                 }
+                if let Some(key) = &layer.key_trigger {
+                    ui.label(RichText::new(format!("[{key}]")).size(10.0).color(HANDLE));
+                }
             });
         }
     });
 }
 
-/// Handles, origins, the selected layer's box and a grid over the regions that warp.
-fn overlays(puppet: &Puppet, selected: Option<&str>) -> Vec<Overlay> {
+/// The selected layer's box and a grid over the regions that warp, then what the rig tools draw.
+fn overlays(puppet: &Puppet, key: &str, view: &mut View, edits: usize) -> Vec<Overlay> {
     let mut out = Vec::new();
+    let selected = view.layer.as_deref();
     if let Some(layer) = selected.and_then(|p| puppet.find_path(p)).and_then(|id| puppet.layer(id))
         && let Some(bounds) = layer.bounds
     {
         out.push(Overlay::Rect { rect: rect_of(bounds), style: OverlayStyle::dashed(ACCENT) });
     }
-    for id in puppet.warped_groups() {
-        let Some(bounds) = puppet.layer(id).and_then(|l| l.bounds).map(rect_of) else { continue };
-        let line = OverlayStyle::line(ACCENT.gamma_multiply(0.35));
-        for i in 0..=8_u8 {
-            let t = f32::from(i) / 8.0;
-            let x = bounds.left() + bounds.width() * t;
-            let y = bounds.top() + bounds.height() * t;
-            out.push(Overlay::Line { a: pos2(x, bounds.top()), b: pos2(x, bounds.bottom()), style: line });
-            out.push(Overlay::Line { a: pos2(bounds.left(), y), b: pos2(bounds.right(), y), style: line });
+    let wire = if view.rig.show_mesh || view.rig.tool == rigtools::Tool::Mesh { rigtools::mesh_wire(puppet, key, edits, view) } else { Vec::new() };
+    if wire.is_empty() {
+        for id in puppet.warped_groups() {
+            let Some(bounds) = puppet.layer(id).and_then(|l| l.bounds).map(rect_of) else { continue };
+            let line = OverlayStyle::line(ACCENT.gamma_multiply(0.35));
+            for i in 0..=8_u8 {
+                let t = f32::from(i) / 8.0;
+                let x = bounds.left() + bounds.width() * t;
+                let y = bounds.top() + bounds.height() * t;
+                out.push(Overlay::Line { a: pos2(x, bounds.top()), b: pos2(x, bounds.bottom()), style: line });
+                out.push(Overlay::Line { a: pos2(bounds.left(), y), b: pos2(bounds.right(), y), style: line });
+            }
         }
     }
-    for layer in puppet.independent_groups().filter(|l| !l.path.is_empty()) {
-        out.push(Overlay::Marker { pos: point(layer.origin), shape: MarkerShape::Diamond, color: ORIGIN, filled: true });
-        for handle in &layer.handles {
-            out.push(Overlay::Marker { pos: point(handle.position), shape: MarkerShape::Circle, color: HANDLE, filled: handle.kind.pins_mesh() });
-            out.push(Overlay::Text { pos: point(handle.position) + vec2(8.0, -8.0), text: handle.name.clone(), color: HANDLE });
-        }
-    }
+    out.extend(rigtools::overlays(puppet, view, &wire));
     out
 }
 
@@ -150,8 +159,8 @@ fn pose_bar(ui: &mut Ui, view: &mut View) {
     });
 }
 
-fn stage(ui: &mut Ui, puppet: &Puppet, view: &mut View, ctx: &Ctx<'_>, actions: &mut Vec<Action>) {
-    view.rig_stage.overlays = overlays(puppet, view.layer.as_deref());
+fn stage(ui: &mut Ui, puppet: &Puppet, key: &str, view: &mut View, ctx: &Ctx<'_>, actions: &mut Vec<Action>) {
+    view.rig_stage.overlays = overlays(puppet, key, view, ctx.doc.rig.edits.len());
     view.rig_stage.doc_size = vec2(f64_to_f32(puppet.size.width), f64_to_f32(puppet.size.height));
     view.rig_stage.stage_color = if view.dark { Color32::from_rgb(0xec, 0xee, 0xf4) } else { Color32::WHITE };
     let texture = ctx.texture.map(|(t, _)| t);
@@ -161,18 +170,13 @@ fn stage(ui: &mut Ui, puppet: &Puppet, view: &mut View, ctx: &Ctx<'_>, actions: 
                 view.rig_stage.view = v;
                 view.rig_stage.fit_request = false;
             }
-            StageEvent::Pointer(p) => match p.phase {
-                PointerPhase::Click => actions.push(Action::SelectLayer(pick(puppet, p.pos))),
-                PointerPhase::Down | PointerPhase::Drag => view.pointer = Some((f64::from(p.pos.x), f64::from(p.pos.y), true)),
-                PointerPhase::Move => view.pointer = Some((f64::from(p.pos.x), f64::from(p.pos.y), false)),
-                PointerPhase::Up | PointerPhase::DoubleClick => view.pointer = view.pointer.map(|(x, y, _)| (x, y, false)),
-            },
+            StageEvent::Pointer(p) => rigtools::pointer(puppet, key, view, &p, actions),
             _ => {}
         }
     }
 }
 
-fn rig_edit(key: &str, op: Value) -> Action {
+pub(super) fn rig_edit(key: &str, op: Value) -> Action {
     let mut params = op;
     if let Some(map) = params.as_object_mut() {
         map.insert("puppet".to_owned(), json!(key));
@@ -180,100 +184,7 @@ fn rig_edit(key: &str, op: Value) -> Action {
     Action::Run("rig.edit", params)
 }
 
-fn inspector_layer(ui: &mut Ui, puppet: &Puppet, key: &str, view: &mut View, actions: &mut Vec<Action>) {
-    let Some(layer) = view.layer.as_deref().and_then(|p| puppet.find_path(p)).and_then(|id| puppet.layer(id)) else {
-        ui.weak("Select a layer in the tree or click the artwork.");
-        return;
-    };
-    ui.label(RichText::new(visual(&layer.path).into_owned()).strong());
-    ui.weak(format!("{:?}{}", layer.kind, if layer.independent { ", independent group" } else { "" }));
-    let mut visible = layer.visible;
-    if ui.checkbox(&mut visible, "Visible by default").changed() {
-        actions.push(rig_edit(key, json!({ "op": "set_visible", "layer": layer.path, "visible": visible })));
-    }
-    ui.separator();
-    ui.label(RichText::new("Tags").strong());
-    ui.horizontal_wrapped(|ui| {
-        for tag in &layer.tags {
-            ui.label(RichText::new(short(tag)).color(ACCENT)).on_hover_text(tag);
-            if ui.small_button("\u{00D7}").on_hover_text("Remove tag").clicked() {
-                actions.push(rig_edit(key, json!({ "op": "remove_tag", "layer": layer.path, "tag": tag })));
-            }
-        }
-    });
-    ui.horizontal(|ui| {
-        let response = ui.add(egui::TextEdit::singleline(&mut view.new_tag).hint_text("Adobe.Draggable").desired_width(150.0));
-        let submit = response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
-        if (ui.button("Add tag").clicked() || submit) && !view.new_tag.trim().is_empty() {
-            actions.push(rig_edit(key, json!({ "op": "add_tag", "layer": layer.path, "tag": view.new_tag.trim() })));
-            view.new_tag.clear();
-        }
-    });
-    if layer.independent {
-        ui.separator();
-        ui.label(RichText::new("Handles").strong());
-        ui.weak(format!("origin {:.0}, {:.0}", layer.origin.x, layer.origin.y));
-        for handle in &layer.handles {
-            ui.horizontal(|ui| {
-                ui.label(format!("{} ({:?}) {:.0}, {:.0}", visual(&handle.name), handle.kind, handle.position.x, handle.position.y));
-                if ui.small_button("\u{00D7}").on_hover_text("Remove handle").clicked() {
-                    actions.push(rig_edit(key, json!({ "op": "remove_handle", "group": layer.path, "key": handle.key })));
-                }
-            });
-        }
-        ui.horizontal(|ui| {
-            ui.add(egui::TextEdit::singleline(&mut view.new_handle).desired_width(90.0));
-            egui::ComboBox::from_id_salt("handle_kind").selected_text(view.handle_kind).width(90.0).show_ui(ui, |ui| {
-                for kind in ["fixed", "draggable", "dangle", "attach", "stick", "walk"] {
-                    ui.selectable_value(&mut view.handle_kind, kind, kind);
-                }
-            });
-        });
-        if ui.button("Add handle at the origin").clicked() && !view.new_handle.trim().is_empty() {
-            let kind = match view.handle_kind {
-                "fixed" => HandleKind::Fixed,
-                "dangle" => HandleKind::Dangle,
-                "attach" => HandleKind::Attach,
-                "stick" => HandleKind::Stick,
-                "walk" => HandleKind::Walk,
-                _ => HandleKind::Draggable,
-            };
-            actions.push(rig_edit(
-                key,
-                json!({ "op": "add_handle", "group": layer.path, "name": view.new_handle.trim(), "kind": serde_json::to_value(kind).unwrap_or(Value::Null), "position": [layer.origin.x, layer.origin.y] }),
-            ));
-        }
-    }
-}
-
-fn behaviors(ui: &mut Ui, view: &View, ctx: &Ctx<'_>, actions: &mut Vec<Action>) {
-    let Some(stack) = ctx.stack else {
-        ui.weak("No track selected.");
-        return;
-    };
-    for info in &stack.behaviors {
-        let id = ui.make_persistent_id(("behavior", info.index));
-        egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), id, false)
-            .show_header(ui, |ui| {
-                let mut enabled = info.enabled;
-                if ui.checkbox(&mut enabled, "").changed() {
-                    actions.push(Action::Run("track.behavior", json!({ "track": view.track, "op": StackOp::SetEnabled { index: info.index, enabled } })));
-                }
-                ui.label(RichText::new(&info.name).strong());
-            })
-            .body(|ui| {
-                let Some(map) = info.params.as_object() else { return };
-                for (name, value) in map {
-                    ui.horizontal(|ui| {
-                        ui.add_sized([130.0, 16.0], egui::Label::new(RichText::new(name).size(11.0)).truncate());
-                        param_editor(ui, view.track, info.index, name, value, actions);
-                    });
-                }
-            });
-    }
-}
-
-fn param_editor(ui: &mut Ui, track: usize, index: usize, name: &str, value: &Value, actions: &mut Vec<Action>) {
+pub(super) fn param_editor(ui: &mut Ui, track: usize, index: usize, name: &str, value: &Value, actions: &mut Vec<Action>) {
     let set = |value: Value| Action::Run("track.behavior", json!({ "track": track, "op": StackOp::SetParam { index, name: name.to_owned(), value } }));
     match value {
         Value::Bool(b) => {
@@ -314,6 +225,7 @@ pub fn show(ui: &mut Ui, view: &mut View, ctx: &Ctx<'_>, actions: &mut Vec<Actio
         return;
     };
     let puppet = &member.puppet;
+    rigtools::keys(ui, puppet, key, view, actions);
     egui::Panel::left("rig_tree").default_size(290.0).min_size(200.0).show(ui, |ui| {
         ui.horizontal(|ui| {
             ui.strong(visual(key).into_owned());
@@ -323,12 +235,23 @@ pub fn show(ui: &mut Ui, view: &mut View, ctx: &Ctx<'_>, actions: &mut Vec<Actio
         tree(ui, puppet, view, actions);
     });
     egui::Panel::right("rig_inspector").default_size(330.0).min_size(240.0).show(ui, |ui| {
+        ui.horizontal(|ui| {
+            for (tab, label) in [(Tab::Properties, "Properties"), (Tab::Triggers, "Triggers"), (Tab::Behaviors, "Behaviors")] {
+                if ui.selectable_label(view.rig.tab == tab, label).clicked() {
+                    view.rig.tab = tab;
+                }
+            }
+        });
+        ui.separator();
         egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
-            inspector_layer(ui, puppet, key, view, actions);
-            ui.separator();
-            ui.label(RichText::new("Behaviors").strong());
-            ui.weak("Parameters of the selected track, as the scene plays them.");
-            behaviors(ui, view, ctx, actions);
+            match view.rig.tab {
+                Tab::Properties => rigtools::properties(ui, puppet, key, view, actions),
+                Tab::Triggers => rigtools::triggers(ui, puppet, key, view, actions),
+                Tab::Behaviors => {
+                    ui.weak("Parameters of the selected track, as the scene plays them.");
+                    rigtools::behaviors(ui, puppet, view, ctx, actions);
+                }
+            }
             if !ctx.world.warnings.is_empty() {
                 ui.separator();
                 ui.label(RichText::new("Warnings").strong());
@@ -338,8 +261,9 @@ pub fn show(ui: &mut Ui, view: &mut View, ctx: &Ctx<'_>, actions: &mut Vec<Actio
             }
         });
     });
+    rigtools::toolbar(ui, puppet, key, view, actions);
     egui::Panel::bottom("rig_pose").show(ui, |ui| pose_bar(ui, view));
-    egui::CentralPanel::default().show(ui, |ui| stage(ui, puppet, view, ctx, actions));
+    egui::CentralPanel::default().show(ui, |ui| stage(ui, puppet, key, view, ctx, actions));
 }
 
 #[cfg(test)]
