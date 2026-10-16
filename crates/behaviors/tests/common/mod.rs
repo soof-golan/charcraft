@@ -36,8 +36,17 @@ pub const RED: [u8; 3] = [200, 30, 30];
 pub const GREEN: [u8; 3] = [30, 170, 60];
 pub const PURPLE: [u8; 3] = [130, 40, 160];
 
-/// Where renders for inspection go.
-pub const SCRATCH: &str = "/mnt/data/anim/scratch/visual/charcraft-puppet-behaviors";
+/// Where renders for inspection go: `$ANICRAFT_VISUAL_OUT/charcraft-puppet-behaviors`, or nowhere when it is unset (CI).
+pub fn scratch() -> Option<PathBuf> {
+    std::env::var_os("ANICRAFT_VISUAL_OUT").map(|root| PathBuf::from(root).join("charcraft-puppet-behaviors"))
+}
+
+/// Writes a PNG into [`scratch`] when there is one.
+fn save_png(name: &str, w: u32, h: u32, rgba: &[u8]) {
+    if let Some(dir) = scratch() {
+        write_png(&dir.join(format!("{name}.png")), w, h, rgba);
+    }
+}
 
 pub fn rect(name: &str, x: f64, y: f64, w: u32, h: u32, rgb: [u8; 3]) -> ArtNode {
     let n = usize::try_from(w * h).unwrap();
@@ -226,10 +235,10 @@ pub fn sheet(imgs: &[&Image]) -> (u32, u32, Vec<u8>) {
     (w, h, out)
 }
 
-/// Saves a contact sheet of renders for inspection under [`SCRATCH`].
+/// Saves a contact sheet of renders for inspection under [`scratch`].
 pub fn save_sheet(name: &str, imgs: &[&Image]) {
     let (w, h, rgba) = sheet(imgs);
-    write_png(&PathBuf::from(SCRATCH).join(format!("{name}.png")), w, h, &rgba);
+    save_png(name, w, h, &rgba);
 }
 
 /// Saves a crop scaled up with nearest-neighbour sampling.
@@ -248,7 +257,7 @@ pub fn save_zoom(name: &str, img: &Image, x: u32, y: u32, w: u32, h: u32, k: u32
             }
         }
     }
-    write_png(&PathBuf::from(SCRATCH).join(format!("{name}.png")), w * k, h * k, &out);
+    save_png(name, w * k, h * k, &out);
 }
 
 fn golden_dir() -> PathBuf {
@@ -271,7 +280,7 @@ pub fn golden(name: &str, imgs: &[&Image]) {
     assert_eq!((info.width, info.height), (w, h), "golden {name} has another size");
     let bad = buf.iter().zip(&rgba).filter(|(a, b)| a.abs_diff(**b) > 4).count();
     if bad > (rgba.len() / 2000).max(16) {
-        write_png(&PathBuf::from(SCRATCH).join(format!("{name}.new.png")), w, h, &rgba);
-        panic!("golden {name}: {bad} channel values differ (new render saved under {SCRATCH})");
+        save_png(&format!("{name}.new"), w, h, &rgba);
+        panic!("golden {name}: {bad} channel values differ (new render saved under $ANICRAFT_VISUAL_OUT when it is set)");
     }
 }

@@ -49,17 +49,13 @@ fn samples() -> Option<PathBuf> {
     std::env::var_os("ANICRAFT_SAMPLES").map(PathBuf::from)
 }
 
-/// Where sample renders go for the owner to look at.
+/// Where sample renders go for the owner to look at: `$ANICRAFT_VISUAL_OUT/charcraft-cli`, else the temp folder (the
+/// tests read the files back, so they need somewhere to write).
 fn scratch() -> PathBuf {
-    let dir = Path::new("/mnt/data/anim/scratch/charcraft-cli");
-    if dir.parent().is_some_and(Path::is_dir) {
-        std::fs::create_dir_all(dir).unwrap();
-        dir.to_path_buf()
-    } else {
-        let dir = std::env::temp_dir().join("charcraft-cli-tests");
-        std::fs::create_dir_all(&dir).unwrap();
-        dir
-    }
+    let dir = std::env::var_os("ANICRAFT_VISUAL_OUT")
+        .map_or_else(|| std::env::temp_dir().join("charcraft-cli-tests"), |root| PathBuf::from(root).join("charcraft-cli"));
+    std::fs::create_dir_all(&dir).unwrap();
+    dir
 }
 
 struct Png {
