@@ -195,7 +195,11 @@ impl World {
             let paths: Vec<&str> = model.root_puppets().map(|p| p.path.as_str()).collect();
             let (cast, cast_warnings) = Cast::from_project(&project, &model, paths.iter().copied());
             warnings.extend(cast_warnings);
-            let key = paths.iter().find(|p| cast.get(p).is_some()).copied().ok_or_else(|| WorldError(format!("{} holds no puppet that can be built ({})", path.display(), warnings.join("; "))))?;
+            let key = paths
+                .iter()
+                .find(|p| cast.get(p).is_some())
+                .copied()
+                .ok_or_else(|| WorldError(format!("{} holds no puppet that can be built ({})", path.display(), warnings.join("; "))))?;
             let member = cast.get(key).cloned().ok_or_else(|| WorldError("lost the puppet".to_owned()))?;
             let scene = single_scene(&title, key, &member);
             (cast, scene, MediaStore::new())
@@ -346,7 +350,8 @@ mod tests {
     #[test]
     fn rig_edits_replay_and_undo_from_the_pristine_puppet() {
         let Opened { mut world, mut rig, .. } = World::demo().unwrap();
-        let head_tags = |w: &World| w.cast.get(DEMO_KEY).and_then(|m| m.puppet.find_path("Head").and_then(|id| m.puppet.layer(id)).map(|l| l.tags.len())).unwrap();
+        let head_tags =
+            |w: &World| w.cast.get(DEMO_KEY).and_then(|m| m.puppet.find_path("Head").and_then(|id| m.puppet.layer(id)).map(|l| l.tags.len())).unwrap();
         let before = head_tags(&world);
         rig.edits.push(RigEdit { puppet: DEMO_KEY.into(), op: PuppetOp::AddTag { layer: "Head".into(), tag: "Custom.Tag".into() } });
         assert!(world.sync(&rig));

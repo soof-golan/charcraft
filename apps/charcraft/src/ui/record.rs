@@ -24,7 +24,13 @@ const GROUPS: [(ParamGroup, &str); 7] = [
 fn transport(ui: &mut Ui, view: &View, ctx: &Ctx<'_>, actions: &mut Vec<Action>) {
     let scene = &ctx.doc.rec.scene;
     let frames = scene.frame_count().max(1);
-    let state = TransportState { playing: view.playing, looping: view.looping, fps: anim_core::num::f64_to_f32(scene.fps_f64()), frame: ctx.frame.min(frames.saturating_sub(1)), frame_count: frames };
+    let state = TransportState {
+        playing: view.playing,
+        looping: view.looping,
+        fps: anim_core::num::f64_to_f32(scene.fps_f64()),
+        frame: ctx.frame.min(frames.saturating_sub(1)),
+        frame_count: frames,
+    };
     for event in anim_ui::transport_bar(ui, &state) {
         let fps = scene.fps_f64().max(1.0);
         let last = f64::from(frames.saturating_sub(1)) / fps;

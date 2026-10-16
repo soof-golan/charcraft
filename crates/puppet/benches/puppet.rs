@@ -82,7 +82,10 @@ fn stress_tree(arms: u32) -> ArtworkTree {
     for i in 0..arms {
         let side = if i % 2 == 0 { 0.0 } else { 600.0 };
         let y = 520.0 + f64::from(i / 2) * 130.0;
-        body.push(ArtNode::group(format!("+ Arm {i}"), vec![rect("Sleeve", 200.0 + side, y, 200, 110, [30, 60, 220]), rect("Hand", 150.0 + side, y + 20.0, 70, 70, [240, 190, 160])]));
+        body.push(ArtNode::group(
+            format!("+ Arm {i}"),
+            vec![rect("Sleeve", 200.0 + side, y, 200, 110, [30, 60, 220]), rect("Hand", 150.0 + side, y + 20.0, 70, 70, [240, 190, 160])],
+        ));
     }
     let body = ArtNode::group("Body", body);
     ArtworkTree { size: Size::new(1000.0, 1400.0), root: ArtNode::group("", vec![body, head]), warnings: Vec::new() }

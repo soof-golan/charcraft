@@ -128,7 +128,11 @@ fn dirs_home() -> Option<PathBuf> {
 fn listing(text: &str) -> Vec<(String, bool)> {
     let path = Path::new(text);
     let dir = if text.ends_with(std::path::MAIN_SEPARATOR) || path.is_dir() { path } else { path.parent().unwrap_or(path) };
-    let prefix = if path.is_dir() || text.ends_with(std::path::MAIN_SEPARATOR) { String::new() } else { path.file_name().map(|n| n.to_string_lossy().to_lowercase()).unwrap_or_default() };
+    let prefix = if path.is_dir() || text.ends_with(std::path::MAIN_SEPARATOR) {
+        String::new()
+    } else {
+        path.file_name().map(|n| n.to_string_lossy().to_lowercase()).unwrap_or_default()
+    };
     let mut out: Vec<(String, bool)> = std::fs::read_dir(dir)
         .map(|entries| {
             entries
@@ -170,7 +174,11 @@ fn prompt(ui: &Ui, view: &mut View, actions: &mut Vec<Action>) {
             for (name, is_dir) in listing(&text) {
                 let label = if is_dir { format!("{name}{}", std::path::MAIN_SEPARATOR) } else { name.clone() };
                 if ui.selectable_label(false, visual(&label).into_owned()).clicked() {
-                    let base = if text.ends_with(std::path::MAIN_SEPARATOR) || Path::new(&text).is_dir() { PathBuf::from(&text) } else { Path::new(&text).parent().map(Path::to_path_buf).unwrap_or_default() };
+                    let base = if text.ends_with(std::path::MAIN_SEPARATOR) || Path::new(&text).is_dir() {
+                        PathBuf::from(&text)
+                    } else {
+                        Path::new(&text).parent().map(Path::to_path_buf).unwrap_or_default()
+                    };
                     text = base.join(&name).display().to_string();
                     if is_dir && !text.ends_with(std::path::MAIN_SEPARATOR) {
                         text.push(std::path::MAIN_SEPARATOR);

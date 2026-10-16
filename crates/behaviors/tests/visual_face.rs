@@ -255,7 +255,6 @@ fn head_extremes() {
     // Non-finite parts are ignored.
     let nan = Xform { translation: Vec2::new(f64::NAN, 0.0), rotation: f64::NAN, scale: Vec2::new(f64::NAN, f64::INFINITY) };
     assert_eq!(render(&p, &at(nan)), neutral);
-
 }
 
 /// A scale of zero collapses the head instead of meaning "no scale" (the sanitizer bug is fixed). With the weld the
@@ -279,7 +278,8 @@ fn a_zero_scale_head_collapses() {
 fn the_neck_stays_attached() {
     // No eyes: a white eye with a pupil in it is a hole with an island, which would count as extra components.
     use anim_artwork::ArtNode;
-    let head = ArtNode::group("Head", vec![rect("Face", 40.0, 20.0, 160, 120, SKIN), mouth_with(&charcraft_puppet::Viseme::ALL, charcraft_puppet::Viseme::Neutral)]);
+    let head =
+        ArtNode::group("Head", vec![rect("Face", 40.0, 20.0, 160, 120, SKIN), mouth_with(&charcraft_puppet::Viseme::ALL, charcraft_puppet::Viseme::Neutral)]);
     let body = ArtNode::group("Body", vec![rect("Torso", 60.0, 120.0, 120, 120, GRAY)]);
     let p = Puppet::from_artwork(&tree(240, 240, vec![body, head])).unwrap();
     for (deg, dx) in [(40.0, 30.0), (-40.0, -30.0), (15.0, 0.0), (0.0, 25.0), (90.0, 0.0), (-90.0, 0.0), (180.0, 0.0)] {

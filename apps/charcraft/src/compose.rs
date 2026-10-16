@@ -166,7 +166,14 @@ impl Stage {
     ///
     /// # Errors
     /// [`RenderError`] for sizes the renderer refuses; `Ok(None)` when the cast has no such puppet.
-    pub fn render_puppet(&self, renderer: &mut Renderer, key: &str, pose: &PuppetPose, scale: f64, background: Option<Rgba8>) -> Result<Option<Picture>, RenderError> {
+    pub fn render_puppet(
+        &self,
+        renderer: &mut Renderer,
+        key: &str,
+        pose: &PuppetPose,
+        scale: f64,
+        background: Option<Rgba8>,
+    ) -> Result<Option<Picture>, RenderError> {
         let Some(member) = self.cast.get(key) else { return Ok(None) };
         let size: Size = member.puppet.size;
         let backdrop = background.map_or(Background::Transparent, Background::Solid);

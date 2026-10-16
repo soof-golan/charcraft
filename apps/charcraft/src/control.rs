@@ -116,7 +116,8 @@ impl Control {
         }
         let server = match args.control_port {
             Some(port) => {
-                let server = ControlServer::start(&ControlConfig { port, token_file: args.token_file.clone() }, wake).map_err(|e| format!("control server: {e}"))?;
+                let server =
+                    ControlServer::start(&ControlConfig { port, token_file: args.token_file.clone() }, wake).map_err(|e| format!("control server: {e}"))?;
                 summary.push(format!("control channel on {}", server.addr()));
                 Some(server)
             }

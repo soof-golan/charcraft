@@ -225,7 +225,8 @@ impl CharCraftApp {
     /// Records a scripted performance on the first track (a lively first look, and the content of screenshots).
     fn demo_performance(&mut self) {
         let session = self.host.session_mut();
-        let setup = [("record.arm", json!({ "groups": ["head", "brows", "eyes", "mouth", "voice"], "only": true })), ("scene.set", json!({ "duration_seconds": 8.0 }))];
+        let setup =
+            [("record.arm", json!({ "groups": ["head", "brows", "eyes", "mouth", "voice"], "only": true })), ("scene.set", json!({ "duration_seconds": 8.0 }))];
         for (id, params) in setup {
             if let Err(e) = session.execute(id, &params) {
                 self.view.status = format!("{id}: {e}");
@@ -514,7 +515,8 @@ impl CharCraftApp {
                 (quantise(width / scene.size.width.max(1.0)).min(1.0), pose, scene.frame_at(Tick::from_seconds_f64(self.view.playhead)).max(0))
             }
         };
-        let desc = Desc { record, key: key.clone(), pose: pose.clone(), frame, scale: anim_core::num::round_f64_to_i64(scale * 1000.0), rev: self.rev, generation };
+        let desc =
+            Desc { record, key: key.clone(), pose: pose.clone(), frame, scale: anim_core::num::round_f64_to_i64(scale * 1000.0), rev: self.rev, generation };
         if self.pending.is_some() || self.last.as_ref() == Some(&desc) {
             return;
         }
@@ -522,7 +524,11 @@ impl CharCraftApp {
         self.next_id = self.next_id.saturating_add(1);
         self.pending = Some(id);
         if record {
-            let live = if self.view.monitor && (self.view.live.tracking || self.view.live.mic || self.view.live.demo_voice || self.view.recording.is_some()) { vec![(self.view.track, pose)] } else { Vec::new() };
+            let live = if self.view.monitor && (self.view.live.tracking || self.view.live.mic || self.view.live.demo_voice || self.view.recording.is_some()) {
+                vec![(self.view.track, pose)]
+            } else {
+                Vec::new()
+            };
             self.render.send(RenderRequest::Scene { id, scene: self.doc.rec.scene.clone(), frame, live, scale });
         } else {
             self.render.send(RenderRequest::Puppet { id, key, pose, scale, background: None });
@@ -759,7 +765,8 @@ impl CharCraftApp {
             }
             let Some(at) = self.awaiting.iter().position(|(t, _)| *t == token) else { continue };
             let (_, pending) = self.awaiting.remove(at);
-            let reply = Reply::value(json!({ "width": width, "height": height, "note": "the whole window; panel crops are not supported" })).with_png_rgba(width, height, &raw);
+            let reply = Reply::value(json!({ "width": width, "height": height, "note": "the whole window; panel crops are not supported" }))
+                .with_png_rgba(width, height, &raw);
             match reply {
                 Ok(reply) => {
                     if let (Some(path), Some(image)) = (pending.request.save_to.as_ref(), reply.images.first())

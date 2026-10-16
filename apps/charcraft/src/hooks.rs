@@ -97,11 +97,9 @@ impl Hooks {
         params.get("puppet").and_then(Value::as_str).map_or_else(
             || self.world.cast.keys().next().map(str::to_owned).ok_or_else(|| ControlError::failed("no puppet is loaded")),
             |key| {
-                self.world
-                    .cast
-                    .get(key)
-                    .map(|_| key.to_owned())
-                    .ok_or_else(|| ControlError::new(ErrorKind::NotFound, format!("no puppet {key:?}; the cast is {:?}", self.world.cast.keys().collect::<Vec<_>>())))
+                self.world.cast.get(key).map(|_| key.to_owned()).ok_or_else(|| {
+                    ControlError::new(ErrorKind::NotFound, format!("no puppet {key:?}; the cast is {:?}", self.world.cast.keys().collect::<Vec<_>>()))
+                })
             },
         )
     }
@@ -133,8 +131,10 @@ impl AppHooks<AppDoc> for Hooks {
 
     fn queries(&self) -> Vec<QuerySpec> {
         vec![
-            QuerySpec::new("puppet_summary", "Summary of a puppet: layers, independent groups, tags, handles, mouth shapes, swap sets.").with_schema(object(&puppet_param())),
-            QuerySpec::new("puppet_outline", "The puppet's layer tree as indented text, one line per layer with its tags.").with_schema(object(&puppet_param())),
+            QuerySpec::new("puppet_summary", "Summary of a puppet: layers, independent groups, tags, handles, mouth shapes, swap sets.")
+                .with_schema(object(&puppet_param())),
+            QuerySpec::new("puppet_outline", "The puppet's layer tree as indented text, one line per layer with its tags.")
+                .with_schema(object(&puppet_param())),
             QuerySpec::new("puppet_layer", "One layer of a puppet by path or label: kind, tags, bounds, origin, handles, children.").with_schema(json!({
                 "type": "object", "required": ["layer"],
                 "properties": { "puppet": { "type": "string" }, "layer": { "type": "string", "description": "Path (Head/Left Eye) or label." } }
@@ -169,7 +169,10 @@ impl AppHooks<AppDoc> for Hooks {
             "behaviors_catalog" => json!({ "behaviors": serde_json::to_value(catalog()).map_err(failed)? }),
             "behaviors_stack" => {
                 let doc = session.doc();
-                let index = params.get("track").and_then(Value::as_u64).map_or(Ok(self.view.track), |t| usize::try_from(t).map_err(|_| ControlError::invalid("track is too large")))?;
+                let index = params
+                    .get("track")
+                    .and_then(Value::as_u64)
+                    .map_or(Ok(self.view.track), |t| usize::try_from(t).map_err(|_| ControlError::invalid("track is too large")))?;
                 let track = doc.rec.scene.tracks.get(index).ok_or_else(|| ControlError::new(ErrorKind::NotFound, format!("no track {index}")))?;
                 let stack = track_stack(&doc.rec.scene, &doc.rec.templates, index, track).map_err(failed)?;
                 json!({ "track": index, "puppet": track.puppet, "stack": serde_json::to_value(stack_info(&stack)).map_err(failed)? })
@@ -208,13 +211,30 @@ impl AppHooks<AppDoc> for Hooks {
                     node.insert("puppet".into(), json!(t.puppet));
                     node.insert("enabled".into(), json!(t.enabled));
                     if depth >= 2 {
-                        node.insert("takes".into(), json!(t.takes.iter().map(|k| json!({ "number": k.number, "name": k.name, "groups": k.groups, "samples": k.samples.len() })).collect::<Vec<_>>()));
+                        node.insert(
+                            "takes".into(),
+                            json!(
+                                t.takes
+                                    .iter()
+                                    .map(|k| json!({ "number": k.number, "name": k.name, "groups": k.groups, "samples": k.samples.len() }))
+                                    .collect::<Vec<_>>()
+                            ),
+                        );
                     }
                     Value::Object(node)
                 })
                 .collect();
             root.insert("tracks".into(), Value::Array(tracks));
-            root.insert("audio".into(), json!(scene.audio.iter().map(|a| json!({ "name": a.name, "clips": a.clips.iter().map(|c| c.name.clone()).collect::<Vec<_>>() })).collect::<Vec<_>>()));
+            root.insert(
+                "audio".into(),
+                json!(
+                    scene
+                        .audio
+                        .iter()
+                        .map(|a| json!({ "name": a.name, "clips": a.clips.iter().map(|c| c.name.clone()).collect::<Vec<_>>() }))
+                        .collect::<Vec<_>>()
+                ),
+            );
         }
         Ok(Value::Object(root))
     }
@@ -267,7 +287,10 @@ impl AppHooks<AppDoc> for Hooks {
                 pose = pose.with_blink(1.0);
             }
             let stage = self.stage();
-            let picture = stage.render_puppet(&mut renderer, key, &pose, scale, Some(anim_core::Rgba8::WHITE)).map_err(failed)?.ok_or_else(|| ControlError::new(ErrorKind::NotFound, format!("no puppet {key:?}")))?;
+            let picture = stage
+                .render_puppet(&mut renderer, key, &pose, scale, Some(anim_core::Rgba8::WHITE))
+                .map_err(failed)?
+                .ok_or_else(|| ControlError::new(ErrorKind::NotFound, format!("no puppet {key:?}")))?;
             (picture, serde_json::Map::from_iter([("puppet".to_owned(), json!(key))]))
         } else {
             let frame = request.frame.unwrap_or_else(|| doc.rec.scene.frame_at(anim_core::Tick::from_seconds_f64(self.view.playhead_seconds)));
@@ -322,8 +345,13 @@ impl AppHooks<AppDoc> for Hooks {
 
     fn export(&mut self, doc: &AppDoc, request: &ExportRequest, ticket: &Ticket) -> HookResult {
         let format = Format::parse(&request.format).ok_or_else(|| ControlError::new(ErrorKind::NotFound, format!("no export format {:?}", request.format)))?;
-        let options: export::Options = if request.options.is_null() { export::Options::default() } else { serde_json::from_value(request.options.clone()).map_err(|e| ControlError::invalid(format!("export options: {e}")))? };
-        let job = Job { cast: self.world.cast.clone(), scene: doc.rec.scene.clone(), media: self.world.media.clone(), format, path: request.path.clone(), options };
+        let options: export::Options = if request.options.is_null() {
+            export::Options::default()
+        } else {
+            serde_json::from_value(request.options.clone()).map_err(|e| ControlError::invalid(format!("export options: {e}")))?
+        };
+        let job =
+            Job { cast: self.world.cast.clone(), scene: doc.rec.scene.clone(), media: self.world.media.clone(), format, path: request.path.clone(), options };
         run_job(ticket, "export", move |ticket| {
             let value = export::run(job, &mut |fraction, message| {
                 ticket.progress(fraction, message);
@@ -425,8 +453,16 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let session = headless();
         let backend = session.backend();
-        backend.call(Request::CommandRun { id: "scene.set".into(), params: json!({ "width": 320, "height": 180, "duration_seconds": 0.2 }), merge_key: None }).unwrap();
-        backend.call(Request::CommandRun { id: "rig.edit".into(), params: json!({ "op": "set_visible", "layer": "Head/Nose", "visible": false }), merge_key: None }).unwrap();
+        backend
+            .call(Request::CommandRun { id: "scene.set".into(), params: json!({ "width": 320, "height": 180, "duration_seconds": 0.2 }), merge_key: None })
+            .unwrap();
+        backend
+            .call(Request::CommandRun {
+                id: "rig.edit".into(),
+                params: json!({ "op": "set_visible", "layer": "Head/Nose", "visible": false }),
+                merge_key: None,
+            })
+            .unwrap();
         let rendered = backend.call(Request::Render { frame: Some(0), scale: Some(1.0), path: None, options: json!({}) }).unwrap();
         assert_eq!(rendered.images.len(), 1);
         assert_eq!(rendered.value["width"], 320);
@@ -436,7 +472,10 @@ mod tests {
         let out = dir.path().join("seq");
         let mut progress = Vec::new();
         let exported = backend
-            .call_with_progress(Request::Export { format: "png-sequence".into(), path: out.display().to_string(), options: json!({ "scale": 0.5 }) }, &mut progress)
+            .call_with_progress(
+                Request::Export { format: "png-sequence".into(), path: out.display().to_string(), options: json!({ "scale": 0.5 }) },
+                &mut progress,
+            )
             .unwrap();
         assert_eq!(exported.value["frames"], 6);
         assert!(out.join("frame_00001.png").is_file());

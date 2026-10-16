@@ -111,7 +111,11 @@ pub fn camera(ui: &mut Ui, view: &mut View, _ctx: &Ctx<'_>, actions: &mut Vec<Ac
             actions.push(Action::Tracking("tracking_start", json!({})));
         }
         let calibrating = view.live.calibrating.is_some();
-        if ui.add_enabled(view.live.tracking && !calibrating, egui::Button::new(if calibrating { "Calibrating..." } else { "Calibrate" })).on_hover_text("Relax your face, look at the camera, then press.").clicked() {
+        if ui
+            .add_enabled(view.live.tracking && !calibrating, egui::Button::new(if calibrating { "Calibrating..." } else { "Calibrate" }))
+            .on_hover_text("Relax your face, look at the camera, then press.")
+            .clicked()
+        {
             actions.push(Action::Tracking("tracking_calibrate", json!({ "frames": 30 })));
         }
         let mut mirror = view.mirror;

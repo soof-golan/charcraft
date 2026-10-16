@@ -75,7 +75,13 @@ fn script(rig: &Rig) -> Script {
         s = s.with(ScriptEvent::Pointer { frame: start, id, x: h.position.x, y: h.position.y, down: true });
         for k in 1..=12_u32 {
             let t = f64::from(k);
-            s = s.with(ScriptEvent::Pointer { frame: start + k * 15, id, x: h.position.x + 900.0 * (t / 2.0).sin(), y: h.position.y - 700.0 * (t / 3.0).cos(), down: true });
+            s = s.with(ScriptEvent::Pointer {
+                frame: start + k * 15,
+                id,
+                x: h.position.x + 900.0 * (t / 2.0).sin(),
+                y: h.position.y - 700.0 * (t / 3.0).cos(),
+                down: true,
+            });
         }
     }
     s

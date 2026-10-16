@@ -26,7 +26,14 @@
 #![allow(clippy::suboptimal_flops, reason = "no fused multiply-add: poses must be bit-identical on every CPU")]
 #![cfg_attr(
     test,
-    allow(clippy::arithmetic_side_effects, clippy::float_cmp, clippy::assert_is_empty, clippy::unnecessary_wraps, clippy::indexing_slicing, reason = "test code")
+    allow(
+        clippy::arithmetic_side_effects,
+        clippy::float_cmp,
+        clippy::assert_is_empty,
+        clippy::unnecessary_wraps,
+        clippy::indexing_slicing,
+        reason = "test code"
+    )
 )]
 
 pub mod app;

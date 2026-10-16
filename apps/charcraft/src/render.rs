@@ -153,7 +153,15 @@ fn run(requests: &Receiver<RenderRequest>, results: &Sender<Rendered>, wake: &dy
     }
 }
 
-fn draw_scene(stage: &Stage, renderer: &mut Renderer, playback: &mut Option<Playback>, scene: Scene, frame: i64, live: &[(usize, PuppetPose)], scale: f64) -> Result<Picture, String> {
+fn draw_scene(
+    stage: &Stage,
+    renderer: &mut Renderer,
+    playback: &mut Option<Playback>,
+    scene: Scene,
+    frame: i64,
+    live: &[(usize, PuppetPose)],
+    scale: f64,
+) -> Result<Picture, String> {
     if playback.as_ref().is_none_or(|p| p.scene != scene) {
         let evaluator = Evaluator::new(&scene, &stage.cast().templates()).map_err(|e| e.to_string())?;
         *playback = Some(Playback { scene, evaluator });

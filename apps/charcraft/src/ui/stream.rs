@@ -51,8 +51,16 @@ fn hud(ui: &Ui, view: &mut View, actions: &mut Vec<Action>) {
                 }
             });
             ui.horizontal(|ui| {
-                chip(ui, if view.live.tracking { "face tracked" } else { "no camera" }, if view.live.tracking { Color32::from_rgb(0x2e, 0x9e, 0x5b) } else { Color32::from_gray(0x55) });
-                chip(ui, if view.live.mic || view.live.demo_voice { "voice" } else { "silent" }, if view.live.mic || view.live.demo_voice { Color32::from_rgb(0x2e, 0x9e, 0x5b) } else { Color32::from_gray(0x55) });
+                chip(
+                    ui,
+                    if view.live.tracking { "face tracked" } else { "no camera" },
+                    if view.live.tracking { Color32::from_rgb(0x2e, 0x9e, 0x5b) } else { Color32::from_gray(0x55) },
+                );
+                chip(
+                    ui,
+                    if view.live.mic || view.live.demo_voice { "voice" } else { "silent" },
+                    if view.live.mic || view.live.demo_voice { Color32::from_rgb(0x2e, 0x9e, 0x5b) } else { Color32::from_gray(0x55) },
+                );
                 if let Some(v) = view.live.viseme {
                     chip(ui, &format!("{v:?}"), Color32::from_rgb(0x3a, 0x6f, 0xc4));
                 }

@@ -68,7 +68,11 @@ impl Skeleton {
 
     fn need_group(&self, group: &str) -> Result<&SkelLayer, CommandError> {
         let layer = self.need(group)?;
-        if layer.independent { Ok(layer) } else { Err(CommandError::invalid_params(format!("{group:?} is not an independent group (its name must start with +)"))) }
+        if layer.independent {
+            Ok(layer)
+        } else {
+            Err(CommandError::invalid_params(format!("{group:?} is not an independent group (its name must start with +)")))
+        }
     }
 }
 
@@ -239,7 +243,11 @@ fn rig_edit(doc: &mut AppDoc, params: &Value) -> Result<Value, CommandError> {
         Some(key) => key,
         None => doc.rig.skeletons.keys().next().cloned().ok_or_else(|| CommandError::failed("no puppet is loaded"))?,
     };
-    let skeleton = doc.rig.skeletons.get(&key).ok_or_else(|| CommandError::invalid_params(format!("no puppet {key:?} (cast keys: {:?})", doc.rig.skeletons.keys().collect::<Vec<_>>())))?;
+    let skeleton = doc
+        .rig
+        .skeletons
+        .get(&key)
+        .ok_or_else(|| CommandError::invalid_params(format!("no puppet {key:?} (cast keys: {:?})", doc.rig.skeletons.keys().collect::<Vec<_>>())))?;
     let handle_key = check_edit(skeleton, &op)?;
     if doc.rig.edits.len() >= MAX_RIG_EDITS {
         return Err(CommandError::failed("too many rig edits"));
@@ -363,7 +371,12 @@ fn app_commands() -> Vec<CommandSpec<AppDoc>> {
             .with_schema(r#"{"type":"object","properties":{"mode":{"enum":["rig","record","stream"]},"track":{"type":"integer","minimum":0},"layer":{"type":"string"},"seek_seconds":{"type":"number"},"playing":{"type":"boolean"},"mirror":{"type":"boolean"},"dark":{"type":"boolean"},"demo_voice":{"type":"boolean"}}}"#),
     ];
     #[cfg(feature = "live")]
-    all.push(CommandSpec::new("tracking.list_cameras", "List cameras", tracking_cameras).transient().describe("The cameras the system reports.").with_schema(NO_PARAMS));
+    all.push(
+        CommandSpec::new("tracking.list_cameras", "List cameras", tracking_cameras)
+            .transient()
+            .describe("The cameras the system reports.")
+            .with_schema(NO_PARAMS),
+    );
     all
 }
 
@@ -428,7 +441,9 @@ mod tests {
     #[test]
     fn rig_edits_are_checked_and_logged() {
         let mut session = Session::new(doc(), registry().unwrap());
-        let done = session.execute("rig.edit", &json!({ "op": "add_handle", "group": "Head", "name": "Chin", "kind": "Draggable", "position": [320.0, 400.0] })).unwrap();
+        let done = session
+            .execute("rig.edit", &json!({ "op": "add_handle", "group": "Head", "name": "Chin", "kind": "Draggable", "position": [320.0, 400.0] }))
+            .unwrap();
         assert_eq!(done["key"], "Head/Chin");
         assert_eq!(session.doc().rig.edits.len(), 1);
         let bad = session.execute("rig.edit", &json!({ "op": "add_tag", "layer": "No such layer", "tag": "x" }));

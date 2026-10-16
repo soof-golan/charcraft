@@ -153,7 +153,9 @@ pub fn run(job: Job, progress: &mut dyn FnMut(f32, &str) -> bool) -> Result<Valu
                 let picture = crate::compose::Picture { width: image.width, height: image.height, rgba: straight_rgba(&image) };
                 bytes = bytes.saturating_add(write_png(&path.join(format!("frame_{:05}.png", n.saturating_add(1))), &picture)?);
             }
-            Ok(json!({ "format": "png-sequence", "path": path.display().to_string(), "frames": count, "width": width, "height": height, "bytes": bytes, "seconds": started.elapsed().as_secs_f64() }))
+            Ok(
+                json!({ "format": "png-sequence", "path": path.display().to_string(), "frames": count, "width": width, "height": height, "bytes": bytes, "seconds": started.elapsed().as_secs_f64() }),
+            )
         }
         Format::Mp4 | Format::Mov => {
             let fps = FrameRate { num: scene.fps.num.max(1), den: scene.fps.den.max(1) };

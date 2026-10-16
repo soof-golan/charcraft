@@ -124,7 +124,14 @@ pub fn model(view: &mut View, scene: &Scene, media: &MediaStore, playing: bool) 
         row.spans = spans;
         layers.push(row);
     }
-    TimelineModel { layers, frame_count, current_frame: frames_of(scene, view.playhead).min(frame_count.saturating_sub(1)), fps: anim_core::num::f64_to_f32(scene.fps_f64()), playing, ..TimelineModel::default() }
+    TimelineModel {
+        layers,
+        frame_count,
+        current_frame: frames_of(scene, view.playhead).min(frame_count.saturating_sub(1)),
+        fps: anim_core::num::f64_to_f32(scene.fps_f64()),
+        playing,
+        ..TimelineModel::default()
+    }
 }
 
 fn groups_label(groups: &std::collections::BTreeSet<charcraft_record::ParamGroup>) -> String {
