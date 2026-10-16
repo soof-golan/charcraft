@@ -214,7 +214,7 @@ fn mic_toggle(view: &View, actions: &mut Vec<Action>) {
 fn preview(ui: &mut Ui, view: &View) {
     // The live picture with the tracked points drawn on it, about as wide as the panel (but not taller than it is
     // worth in a short panel).
-    video_preview(ui, &view.live, view.mirror, ui.available_width().clamp(60.0, 190.0));
+    video_preview(ui, &view.live, view.mirror, ui.available_width().clamp(60.0, 420.0));
 }
 
 /// Camera & Microphone: the live preview, Set Rest Pose, the camera and microphone switches and the level meter.

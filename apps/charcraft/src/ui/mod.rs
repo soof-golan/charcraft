@@ -252,7 +252,16 @@ fn status_bar(ui: &mut Ui, view: &mut View, ctx: &Ctx<'_>, actions: &mut Vec<Act
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 let count = ctx.world.warning_rows().len();
                 if ui
-                    .add(egui::Button::new(RichText::new(format!("{count} warning{}", if count == 1 { "" } else { "s" })).weak().size(11.0)).frame(false))
+                    .add(
+                        egui::Button::new(
+                            RichText::new(format!("{count} warning{}", if count == 1 { "" } else { "s" }))
+                                .color(if count > 0 { theme::ACCENT } else { theme::TEXT_WEAK })
+                                .underline()
+                                .size(11.0),
+                        )
+                        .frame(false),
+                    )
+                    .on_hover_text("Show the warnings")
                     .clicked()
                 {
                     view.dialog = Some(Dialog::Warnings);

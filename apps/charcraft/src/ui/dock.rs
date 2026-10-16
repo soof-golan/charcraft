@@ -65,7 +65,7 @@ pub const fn title(mode: Mode, panel: PanelId) -> &'static str {
         PanelId::Custom(4) => "Scene & Takes",
         PanelId::Custom(5) => "Puppet",
         PanelId::Tools => "Tools",
-        PanelId::Output => "Stream Output",
+        PanelId::Output => "Output",
         PanelId::Custom(6) => "Scenes",
         PanelId::Custom(_) => "Panel",
     }
@@ -86,7 +86,7 @@ pub fn default_layout(mode: Mode) -> Layout<PanelId> {
     let root = match mode {
         // Project left, Scene centre, Camera & Microphone over Properties on the right, Timeline across the bottom.
         Mode::Record | Mode::Start => {
-            let right = split(Stack, SplitSize::Ratio(0.46), tabs(&[CAMERA]), tabs(&[PROPERTIES, EDIT]));
+            let right = split(Stack, SplitSize::Ratio(0.5), tabs(&[CAMERA]), tabs(&[PROPERTIES, EDIT]));
             let upper = split(Side, SplitSize::FixedSecond(300.0), tabs(&[SCENE]), right);
             let upper = split(Side, SplitSize::FixedFirst(240.0), tabs(&[PROJECT]), upper);
             split(Stack, SplitSize::FixedSecond(260.0), upper, tabs(&[TIMELINE]))
