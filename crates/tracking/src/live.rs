@@ -85,7 +85,7 @@ pub fn spawn() -> TrackingHandle {
 /// A camera hub that opens the real webcam, for the face and body trackers to share.
 #[must_use]
 pub fn camera_hub() -> CameraHub {
-    CameraHub::start(Box::new(|spec| open_frames(spec)))
+    CameraHub::start(Box::new(open_frames))
 }
 
 /// Like [`factory`], reading the shared camera and using an already started ONNX Runtime.
