@@ -110,6 +110,27 @@ fn run() -> Result<(), charcraft_project::Error> {
             for track in &scene.tracks {
                 let items: Vec<String> = track.items.iter().map(|i| i.source.clone().unwrap_or_default()).collect();
                 println!("    {} {} {}", track.id, track.kind.as_deref().unwrap_or("?"), items.join(", "));
+                for item in &track.items {
+                    for behavior in &item.behaviors {
+                        for take in &behavior.takes {
+                            let at = take
+                                .time
+                                .as_ref()
+                                .map_or_else(String::new, |t| format!(" at {:.3}s for {:.3}s trim {:.3}", t.parent_offset, t.duration, t.trim_in));
+                            println!(
+                                "      take {} {:?} {} param {:?} on {} ({}){} <- {}",
+                                take.take_id,
+                                take.name.as_deref().unwrap_or(""),
+                                if take.enabled { "on" } else { "off" },
+                                take.param.as_deref().unwrap_or(""),
+                                behavior.behavior,
+                                behavior.instance_id.as_deref().unwrap_or("?"),
+                                at,
+                                take.source.as_deref().unwrap_or("?")
+                            );
+                        }
+                    }
+                }
             }
         }
     }
