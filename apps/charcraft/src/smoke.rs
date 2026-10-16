@@ -31,7 +31,7 @@ pub struct Report {
 /// # Errors
 /// A message when nothing can be rendered or the picture is blank.
 pub fn run(opened: Opened, png: Option<&Path>) -> Result<Report, String> {
-    let Opened { world, mut rec, rig } = opened;
+    let Opened { world, mut rec, rig, .. } = opened;
     if rec.scene.tracks.is_empty() {
         return Err("the document has no puppet on the stage".to_owned());
     }

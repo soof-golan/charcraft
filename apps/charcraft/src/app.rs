@@ -30,10 +30,17 @@ use crate::state::{Mode, UiSet};
 use crate::view::{Action, ActiveTake, Ctx, PreviewTexture, View};
 use crate::world::Opened;
 
+mod workspace_ops;
+use workspace_ops::WorkspaceState;
+
 /// What the command line asked for.
 #[derive(Debug, Clone)]
 #[allow(clippy::struct_excessive_bools, reason = "one flag per command line switch")]
 pub struct Options {
+    /// Show the start workspace (`Some(true)`), never show it (`Some(false)`), or let the preferences decide.
+    pub start: Option<bool>,
+    /// Open the Preferences window.
+    pub prefs_open: bool,
     /// The mode to start in.
     pub mode: Mode,
     /// Take a screenshot of the window to this file, then exit.
@@ -130,6 +137,7 @@ pub struct CharCraftApp {
     next_shot: u64,
     title: String,
     theme_dirty: bool,
+    ws: WorkspaceState,
 }
 
 fn script_events() -> Vec<charcraft_behaviors::ScriptEvent> {
@@ -168,7 +176,9 @@ impl CharCraftApp {
         if anim_ui::theme::install_fallback_fonts(&ctx) == 0 {
             eprintln!("charcraft: no system font covers Hebrew or Arabic; right-to-left text may show boxes");
         }
-        let theme = if options.dark { Theme::Dark } else { Theme::Light };
+        let ws = WorkspaceState::open();
+        let dark = options.dark && ws.prefs().dark;
+        let theme = if dark { Theme::Dark } else { Theme::Light };
         theme.apply(&ctx);
         let wake = move || ctx.request_repaint();
         let live = LiveHandle::spawn(wake.clone());
@@ -195,7 +205,7 @@ impl CharCraftApp {
             export_tx,
             export_rx,
             done,
-            view: View { mode: options.mode, dark: options.dark, ..View::default() },
+            view: View { mode: options.mode, dark, ..View::default() },
             doc,
             doc_rev: 1,
             rev: 1,
@@ -216,7 +226,10 @@ impl CharCraftApp {
             next_shot: 1,
             title: String::new(),
             theme_dirty: false,
+            ws,
         };
+        app.init_workspace(&cc.egui_ctx, options.start);
+        app.view.prefs_open = options.prefs_open;
         if options.demo_takes {
             app.demo_performance();
         }
@@ -294,6 +307,7 @@ impl CharCraftApp {
             self.refresh_live_status();
         }
         self.pump_render_results(ctx);
+        self.pump_workspace();
         let view = &self.view;
         let hooks = self.host.hooks_mut();
         hooks.view = ViewStatus {
@@ -860,40 +874,14 @@ impl CharCraftApp {
                     self.view.stream.swaps.insert(set, member);
                 }
                 Action::Quit => ctx.send_viewport_cmd(egui::ViewportCommand::Close),
+                Action::Workspace(action) => self.workspace_action(ctx, action),
             }
         }
     }
 
+    /// The keyboard, with the chords from the preferences (see `workspace_ops`).
     fn shortcuts(&mut self, ctx: &Context) -> Vec<Action> {
-        let mut actions = Vec::new();
-        if ctx.egui_wants_keyboard_input() {
-            return actions;
-        }
-        ctx.input_mut(|i| {
-            use egui::{Key, Modifiers};
-            if i.consume_key(Modifiers::COMMAND | Modifiers::SHIFT, Key::Z) {
-                actions.push(Action::Redo);
-            } else if i.consume_key(Modifiers::COMMAND, Key::Z) {
-                actions.push(Action::Undo);
-            }
-            for (n, mode) in [(Key::Num1, Mode::Rig), (Key::Num2, Mode::Record), (Key::Num3, Mode::Stream)] {
-                if i.consume_key(Modifiers::COMMAND, n) {
-                    actions.push(Action::Mode(mode));
-                }
-            }
-            if self.view.mode == Mode::Record {
-                if i.consume_key(Modifiers::NONE, Key::Space) {
-                    actions.push(Action::Play(!self.view.playing));
-                }
-                if i.consume_key(Modifiers::NONE, Key::R) {
-                    actions.push(if self.view.recording.is_some() { Action::StopRecord } else { Action::StartRecord });
-                }
-            }
-            if self.view.mode == Mode::Stream && i.consume_key(Modifiers::NONE, Key::H) {
-                self.view.hud = !self.view.hud;
-            }
-        });
-        actions
+        self.workspace_shortcuts(ctx)
     }
 
     // --- screenshots ------------------------------------------------------------------------------------------------
@@ -986,6 +974,10 @@ impl eframe::App for CharCraftApp {
         if self.view.transparent && self.view.mode == Mode::Stream { [0.0; 4] } else { visuals.panel_fill.to_normalized_gamma_f32() }
     }
 
+    fn on_exit(&mut self) {
+        self.finish_workspace();
+    }
+
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
         if self.theme_dirty {
@@ -1004,6 +996,7 @@ impl eframe::App for CharCraftApp {
         let dirty = self.host.session().is_dirty();
         let time = self.started.elapsed().as_secs_f64();
         let key = self.host.hooks_mut().world.key_for_track(&self.doc.rec, self.view.track);
+        let doc_path = self.host.session().path().map(Path::to_path_buf);
         let hooks = self.host.hooks_mut();
         let ctx_view = Ctx {
             doc: &self.doc,
@@ -1018,6 +1011,8 @@ impl eframe::App for CharCraftApp {
             windowed: true,
             puppet: key.as_deref(),
             frame,
+            rows: self.ws.rows(),
+            doc_path: doc_path.as_deref(),
         };
         actions.extend(crate::ui::draw(ui, &mut self.view, &ctx_view));
         self.apply(&ctx, actions);

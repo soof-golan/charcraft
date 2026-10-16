@@ -18,9 +18,41 @@ use serde_json::Value;
 
 use crate::export::Format;
 use crate::live::MicAction;
+use crate::projectio::PuppetRow;
 use crate::session::AppDoc;
 use crate::state::Mode;
+use crate::workspace::{PanelState, Prefs, Starter};
 use crate::world::World;
+
+/// What the workspace menus and windows ask for. The app applies them (they change the preferences, the window or
+/// the document's file, none of which the drawing code may touch).
+#[derive(Debug, Clone)]
+pub enum WorkspaceAction {
+    /// Save: to the file the document has, or ask where.
+    Save,
+    /// Throw the changes away and read the document again.
+    Revert,
+    /// Show or hide the start workspace.
+    Start(bool),
+    /// The panels changed (open, closed, moved, resized).
+    Panels(PanelState),
+    /// Switch to a saved or built-in workspace.
+    ApplyWorkspace(String),
+    /// Save the current arrangement under a name.
+    SaveWorkspace(String),
+    /// Forget a saved workspace.
+    DeleteWorkspace(String),
+    /// New preferences.
+    SetPrefs(Box<Prefs>),
+    /// Forget the recent files.
+    ClearRecent,
+    /// Open an autosaved document.
+    Recover(PathBuf),
+    /// Delete an autosaved document.
+    Discard(PathBuf),
+    /// Start from a gallery tile.
+    Starter(usize),
+}
 
 /// What the drawing code asks for.
 #[derive(Debug, Clone)]
@@ -86,6 +118,8 @@ pub enum Action {
     Swap(String, String),
     /// Close the window.
     Quit,
+    /// Something about the workspace, preferences or the document's file.
+    Workspace(WorkspaceAction),
 }
 
 /// Which file prompt is open.
@@ -93,12 +127,69 @@ pub enum Action {
 pub enum Prompt {
     /// Open a puppet, project or artwork.
     Open,
-    /// Save the document.
+    /// Save the document; the kind is chosen in the prompt.
     Save,
     /// Export; the format is chosen in the prompt.
     Export,
     /// Import a sound file onto the first audio track at the playhead.
     Audio,
+    /// Import a `.puppet` or project into the open project.
+    ImportPuppet,
+}
+
+/// What Save As writes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SaveKind {
+    /// A `.charcraft` document (the scene, takes, rig edits and sound in one file).
+    Document,
+    /// A Character Animator project folder.
+    Project,
+    /// The selected puppet as a `.puppet` file.
+    Puppet,
+}
+
+impl SaveKind {
+    /// The chooser label.
+    #[must_use]
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Document => ".charcraft document",
+            Self::Project => "Project (.chproj)",
+            Self::Puppet => "Puppet (.puppet)",
+        }
+    }
+
+    /// The file name a path should end with.
+    #[must_use]
+    pub const fn suffix(self) -> &'static str {
+        match self {
+            Self::Document => ".charcraft",
+            Self::Project => ".chproj",
+            Self::Puppet => ".puppet",
+        }
+    }
+}
+
+/// The Project panel's own state.
+#[derive(Debug, Default)]
+pub struct ProjectUi {
+    /// The filter text.
+    pub search: String,
+    /// The puppet the properties section shows.
+    pub selected: Option<String>,
+    /// A rename in progress: the puppet and the text so far.
+    pub renaming: Option<(String, String)>,
+    /// A removal waiting for a click on Remove.
+    pub confirm_remove: Option<String>,
+}
+
+/// Data for the start workspace that the app collects.
+#[derive(Debug, Default)]
+pub struct StartInfo {
+    /// Autosaved documents with their age in seconds.
+    pub recoverable: Vec<(PathBuf, u64)>,
+    /// The gallery.
+    pub starters: Vec<Starter>,
 }
 
 /// A take being recorded.
@@ -307,6 +398,24 @@ pub struct View {
     pub collapsed: std::collections::BTreeSet<String>,
     /// The rig tools.
     pub rig: crate::ui::rigtools::RigUi,
+    /// The preferences (a copy; the app owns the stored ones).
+    pub prefs: Prefs,
+    /// The side panels.
+    pub panels: PanelState,
+    /// The Project panel.
+    pub project: ProjectUi,
+    /// The start workspace is showing.
+    pub start: bool,
+    /// What the start workspace lists.
+    pub start_info: StartInfo,
+    /// The Preferences window is open.
+    pub prefs_open: bool,
+    /// The shortcut waiting for a key press in the Preferences window.
+    pub capturing: Option<&'static str>,
+    /// Text of the new-workspace field.
+    pub new_workspace: String,
+    /// What the Save prompt writes.
+    pub save_kind: SaveKind,
 }
 
 impl Default for View {
@@ -345,6 +454,15 @@ impl Default for View {
             pointer: None,
             collapsed: std::collections::BTreeSet::new(),
             rig: crate::ui::rigtools::RigUi::default(),
+            prefs: Prefs::default(),
+            panels: PanelState::default(),
+            project: ProjectUi::default(),
+            start: false,
+            start_info: StartInfo::default(),
+            prefs_open: false,
+            capturing: None,
+            new_workspace: String::new(),
+            save_kind: SaveKind::Document,
         }
     }
 }
@@ -376,4 +494,8 @@ pub struct Ctx<'a> {
     pub puppet: Option<&'a str>,
     /// The scene's current frame (from the playhead).
     pub frame: u32,
+    /// The puppets of the project, for the Project panel.
+    pub rows: &'a [PuppetRow],
+    /// The `.charcraft` file the document is saved to, when it has one.
+    pub doc_path: Option<&'a std::path::Path>,
 }

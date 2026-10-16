@@ -10,29 +10,44 @@ use egui::{RichText, Ui};
 
 use crate::export::Format;
 use crate::state::Mode;
-use crate::view::{Action, Ctx, Prompt, View};
+use serde_json::json;
+
+use crate::view::{Action, Ctx, Prompt, SaveKind, View, WorkspaceAction};
+use crate::workspace::{builtin_workspaces, chord_text};
 
 pub mod edit;
+pub mod layers;
 pub mod panels;
+pub mod prefs;
+pub mod project;
 pub mod record;
 pub mod rig;
 pub mod rigtools;
+pub mod start;
 pub mod stream;
 pub mod timeline;
 
 /// Draws the whole window and returns what the user asked for.
 pub fn draw(ui: &mut Ui, view: &mut View, ctx: &Ctx<'_>) -> Vec<Action> {
     let mut actions = Vec::new();
-    if view.mode != Mode::Stream || view.hud {
+    if view.mode != Mode::Stream || view.hud || view.start {
         top_bar(ui, view, ctx, &mut actions);
         status_bar(ui, view, ctx);
     }
-    match view.mode {
-        Mode::Rig => rig::show(ui, view, ctx, &mut actions),
-        Mode::Record => record::show(ui, view, ctx, &mut actions),
-        Mode::Stream => stream::show(ui, view, ctx, &mut actions),
+    if view.start {
+        start::show(ui, view, ctx, &mut actions);
+    } else {
+        if view.mode != Mode::Stream && view.panels.project {
+            project::show(ui, view, ctx, &mut actions);
+        }
+        match view.mode {
+            Mode::Rig => rig::show(ui, view, ctx, &mut actions),
+            Mode::Record => record::show(ui, view, ctx, &mut actions),
+            Mode::Stream => stream::show(ui, view, ctx, &mut actions),
+        }
     }
-    prompt(ui, view, &mut actions);
+    prompt(ui, view, ctx, &mut actions);
+    prefs::show(ui, view, &mut actions);
     actions
 }
 
@@ -45,34 +60,153 @@ const fn mode_shortcut(mode: Mode) -> &'static str {
     }
 }
 
+/// A menu item with its shortcut written on it.
+fn item(ui: &mut Ui, view: &View, label: &str, id: &str) -> bool {
+    let mut button = egui::Button::new(label);
+    let chord = chord_text(&view.prefs, id);
+    if !chord.is_empty() {
+        button = button.shortcut_text(chord);
+    }
+    let clicked = ui.add(button).clicked();
+    if clicked {
+        ui.close();
+    }
+    clicked
+}
+
+fn file_menu(ui: &mut Ui, view: &mut View, ctx: &Ctx<'_>, actions: &mut Vec<Action>) {
+    if item(ui, view, "New project", "file.new") {
+        actions.push(Action::Run("project.new", json!({})));
+    }
+    if ui.button("New demo puppet").clicked() {
+        actions.push(Action::New);
+        ui.close();
+    }
+    if item(ui, view, "Open or import...", "file.open") {
+        view.prompt = Some((Prompt::Open, default_dir()));
+    }
+    ui.menu_button("Open recent", |ui| {
+        let recent: Vec<PathBuf> = view.prefs.common.recent.to_vec();
+        if recent.is_empty() {
+            ui.weak("Nothing opened yet");
+        }
+        for path in recent.iter().take(12) {
+            let name = path.file_name().map_or_else(|| path.display().to_string(), |n| n.to_string_lossy().into_owned());
+            if ui.add_enabled(path.exists(), egui::Button::new(visual(&name).into_owned())).on_hover_text(path.display().to_string()).clicked() {
+                actions.push(Action::Open(path.clone()));
+                ui.close();
+            }
+        }
+        if !recent.is_empty() {
+            ui.separator();
+            if ui.button("Clear recent").clicked() {
+                actions.push(Action::Workspace(WorkspaceAction::ClearRecent));
+                ui.close();
+            }
+        }
+    });
+    if item(ui, view, "Import puppet...", "file.import_puppet") {
+        view.prompt = Some((Prompt::ImportPuppet, default_dir()));
+    }
+    ui.separator();
+    if item(ui, view, "Save", "file.save") {
+        actions.push(Action::Workspace(WorkspaceAction::Save));
+    }
+    if item(ui, view, "Save as...", "file.save_as") {
+        open_save_prompt(view, ctx.world.kind, &ctx.world.title);
+    }
+    if ui.add_enabled(ctx.doc_path.is_some() || ctx.world.source.is_some(), egui::Button::new("Revert")).on_hover_text("Read the saved file again").clicked() {
+        actions.push(Action::Workspace(WorkspaceAction::Revert));
+        ui.close();
+    }
+    ui.separator();
+    if ui.button("Export video or images...").clicked() {
+        view.prompt = Some((Prompt::Export, default_dir() + "scene.mp4"));
+        ui.close();
+    }
+    ui.separator();
+    if item(ui, view, "Preferences...", "app.preferences") {
+        view.prefs_open = true;
+    }
+    if ui.button("Quit").clicked() {
+        actions.push(Action::Quit);
+    }
+}
+
+/// Opens the Save As prompt with the kind and name the document suggests.
+pub fn open_save_prompt(view: &mut View, kind: crate::world::SourceKind, title: &str) {
+    let project_like = matches!(kind, crate::world::SourceKind::Project | crate::world::SourceKind::Puppet);
+    view.save_kind = if project_like { SaveKind::Project } else { SaveKind::Document };
+    let name = crate::workspace::safe_name(title);
+    view.prompt = Some((Prompt::Save, format!("{}{name}{}", default_dir(), view.save_kind.suffix())));
+}
+
+/// The folder prompts start in, with a trailing separator.
+#[must_use]
+pub fn default_dir_text() -> String {
+    default_dir()
+}
+
+fn window_menu(ui: &mut Ui, view: &mut View, actions: &mut Vec<Action>) {
+    let mut panels = view.panels.clone();
+    if ui.checkbox(&mut panels.project, "Project panel").on_hover_text(chord_text(&view.prefs, "window.project")).changed() {
+        actions.push(Action::Workspace(WorkspaceAction::Panels(panels)));
+    }
+    if ui.button(if view.panels.project_right { "Project panel on the left" } else { "Project panel on the right" }).clicked() {
+        let mut panels = view.panels.clone();
+        panels.project_right = !panels.project_right;
+        actions.push(Action::Workspace(WorkspaceAction::Panels(panels)));
+        ui.close();
+    }
+    ui.separator();
+    ui.menu_button("Workspace", |ui| {
+        for (name, _) in builtin_workspaces() {
+            if ui.button(name).clicked() {
+                actions.push(Action::Workspace(WorkspaceAction::ApplyWorkspace(name.to_owned())));
+                ui.close();
+            }
+        }
+        let saved: Vec<String> = view.prefs.workspaces.keys().filter(|k| !builtin_workspaces().iter().any(|(b, _)| b == k)).cloned().collect();
+        if !saved.is_empty() {
+            ui.separator();
+        }
+        for name in saved {
+            ui.horizontal(|ui| {
+                if ui.button(visual(&name).into_owned()).clicked() {
+                    actions.push(Action::Workspace(WorkspaceAction::ApplyWorkspace(name.clone())));
+                    ui.close();
+                }
+                if ui.small_button("\u{00D7}").on_hover_text("Forget this workspace").clicked() {
+                    actions.push(Action::Workspace(WorkspaceAction::DeleteWorkspace(name.clone())));
+                }
+            });
+        }
+        ui.separator();
+        ui.horizontal(|ui| {
+            ui.add(egui::TextEdit::singleline(&mut view.new_workspace).hint_text("Name").desired_width(110.0));
+            if ui.add_enabled(!view.new_workspace.trim().is_empty(), egui::Button::new("Save current")).clicked() {
+                actions.push(Action::Workspace(WorkspaceAction::SaveWorkspace(view.new_workspace.trim().to_owned())));
+                view.new_workspace.clear();
+                ui.close();
+            }
+        });
+    });
+    ui.separator();
+    if item(ui, view, "Start workspace", "window.start") {
+        actions.push(Action::Workspace(WorkspaceAction::Start(true)));
+    }
+    if item(ui, view, "Preferences...", "app.preferences") {
+        view.prefs_open = true;
+    }
+}
+
 fn top_bar(ui: &mut Ui, view: &mut View, ctx: &Ctx<'_>, actions: &mut Vec<Action>) {
     egui::Panel::top("top_bar").show(ui, |ui| {
         ui.horizontal(|ui| {
             ui.label(RichText::new("CharCraft").strong().size(15.0));
             ui.add_space(6.0);
             egui::MenuBar::new().ui(ui, |ui| {
-                ui.menu_button("File", |ui| {
-                    if ui.button("New demo puppet").clicked() {
-                        actions.push(Action::New);
-                        ui.close();
-                    }
-                    if ui.button("Open or import...").on_hover_text(".puppet, .chproj, .psd, .ai, .svg, .charcraft").clicked() {
-                        view.prompt = Some((Prompt::Open, default_dir()));
-                        ui.close();
-                    }
-                    if ui.button("Save...").clicked() {
-                        view.prompt = Some((Prompt::Save, default_dir() + "scene.charcraft"));
-                        ui.close();
-                    }
-                    if ui.button("Export video or images...").clicked() {
-                        view.prompt = Some((Prompt::Export, default_dir() + "scene.mp4"));
-                        ui.close();
-                    }
-                    ui.separator();
-                    if ui.button("Quit").clicked() {
-                        actions.push(Action::Quit);
-                    }
-                });
+                ui.menu_button("File", |ui| file_menu(ui, view, ctx, actions));
                 ui.menu_button("Edit", |ui| {
                     if ui.add_enabled(ctx.can_undo, egui::Button::new("Undo")).clicked() {
                         actions.push(Action::Undo);
@@ -90,6 +224,7 @@ fn top_bar(ui: &mut Ui, view: &mut View, ctx: &Ctx<'_>, actions: &mut Vec<Action
                     }
                     ui.checkbox(&mut view.hud, "Stream overlay");
                 });
+                ui.menu_button("Window", |ui| window_menu(ui, view, actions));
                 // The mode switch and title live inside the menu bar: it claims the rest of the row, so anything added
                 // after it is laid out past the window's right edge.
                 ui.separator();
@@ -162,19 +297,45 @@ fn listing(text: &str) -> Vec<(String, bool)> {
     out
 }
 
-fn prompt(ui: &Ui, view: &mut View, actions: &mut Vec<Action>) {
+/// `text` with its `.charcraft`, `.chproj` or `.puppet` ending swapped for the one `kind` writes.
+fn with_suffix(text: &str, kind: SaveKind) -> String {
+    let lower = text.to_lowercase();
+    let stem = [".charcraft", ".chproj", ".puppet"]
+        .iter()
+        .find(|s| lower.ends_with(**s))
+        .map_or(text, |s| text.get(..text.len().saturating_sub(s.len())).unwrap_or(text));
+    format!("{stem}{}", kind.suffix())
+}
+
+fn prompt(ui: &Ui, view: &mut View, ctx: &Ctx<'_>, actions: &mut Vec<Action>) {
     let Some((kind, mut text)) = view.prompt.take() else { return };
     let title = match kind {
         Prompt::Open => "Open or import",
-        Prompt::Save => "Save document",
+        Prompt::Save => "Save as",
         Prompt::Export => "Export",
         Prompt::Audio => "Import audio",
+        Prompt::ImportPuppet => "Import puppet",
     };
     let mut keep = true;
     let mut close = false;
     egui::Window::new(title).collapsible(false).resizable(true).default_width(560.0).open(&mut keep).show(ui.ctx(), |ui| {
         let response = ui.add(egui::TextEdit::singleline(&mut text).desired_width(f32::INFINITY));
         let enter = response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+        if kind == Prompt::Save {
+            ui.horizontal(|ui| {
+                for choice in [SaveKind::Document, SaveKind::Project, SaveKind::Puppet] {
+                    if ui.selectable_label(view.save_kind == choice, choice.label()).clicked() {
+                        view.save_kind = choice;
+                        text = with_suffix(&text, choice);
+                    }
+                }
+            });
+            match view.save_kind {
+                SaveKind::Document => ui.weak("One file with the scene, takes, rig edits and sound."),
+                SaveKind::Project => ui.weak("A Character Animator project folder; takes and rig edits are saved beside it."),
+                SaveKind::Puppet => ui.weak("The selected puppet as a .puppet file."),
+            };
+        }
         if kind == Prompt::Export {
             ui.horizontal(|ui| {
                 for format in [Format::Mp4, Format::Mov, Format::PngSequence, Format::Png] {
@@ -206,16 +367,25 @@ fn prompt(ui: &Ui, view: &mut View, actions: &mut Vec<Action>) {
                 Prompt::Save => "Save",
                 Prompt::Export => "Export",
                 Prompt::Audio => "Import",
+                Prompt::ImportPuppet => "Import",
             };
             if ui.button(ok_label).clicked() || enter {
                 let path = PathBuf::from(text.trim());
                 actions.push(match kind {
                     Prompt::Open => Action::Open(path),
-                    Prompt::Save => Action::Save(path),
+                    Prompt::Save => match view.save_kind {
+                        SaveKind::Document => Action::Save(path),
+                        SaveKind::Project => Action::Run("project.save", json!({ "path": path.display().to_string(), "format": "chproj" })),
+                        SaveKind::Puppet => {
+                            let key = view.project.selected.clone().or_else(|| ctx.puppet.map(str::to_owned));
+                            Action::Run("project.save", json!({ "path": path.display().to_string(), "format": "puppet", "puppet": key }))
+                        }
+                    },
                     Prompt::Export => Action::Export(view.export_format, path),
                     Prompt::Audio => {
                         Action::Run("audio.import", serde_json::json!({ "path": path.display().to_string(), "start_seconds": view.playhead.max(0.0) }))
                     }
+                    Prompt::ImportPuppet => Action::Run("puppet.import", json!({ "path": path.display().to_string() })),
                 });
                 close = true;
             }

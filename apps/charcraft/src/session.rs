@@ -162,11 +162,87 @@ pub struct RigLog {
     pub edits: Vec<RigEdit>,
 }
 
+/// Names given to puppets in the project, and the puppets that came from other files. Part of the undoable document.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ProjectMeta {
+    /// Display names by cast key (a puppet without an entry shows its key's last segment).
+    pub names: std::collections::BTreeMap<String, String>,
+    /// Puppets imported from `.puppet` or project files, so saving a project can copy them in.
+    pub imports: Vec<ImportedPuppet>,
+}
+
+impl ProjectMeta {
+    /// The name a puppet shows: the one it was given, or the last segment of its key.
+    #[must_use]
+    pub fn display_name(&self, key: &str) -> String {
+        self.names.get(key).cloned().unwrap_or_else(|| key.rsplit('/').next().unwrap_or(key).to_owned())
+    }
+}
+
+/// A puppet imported from another file.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ImportedPuppet {
+    /// The cast key.
+    pub key: String,
+    /// The `.puppet` or project it was read from.
+    pub path: String,
+}
+
+/// Which file a project save writes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SaveFormat {
+    /// A Character Animator project folder (with the scene and takes beside it).
+    Chproj,
+    /// A `.puppet` file of one puppet.
+    Puppet,
+}
+
+/// Work that needs the puppets, which commands cannot reach: the hooks do it on their next tick.
+#[derive(Debug)]
+pub enum WorldJob {
+    /// Put a puppet in the cast.
+    AddPuppet {
+        /// Its cast key.
+        key: String,
+        /// The puppet.
+        member: Box<charcraft_record::CastMember>,
+    },
+    /// Copy a cast member under a new key.
+    ClonePuppet {
+        /// The key to copy.
+        from: String,
+        /// The key of the copy.
+        to: String,
+    },
+    /// Write the project (`Chproj`) or one puppet (`Puppet`, named by `puppet`).
+    Save {
+        /// What to write.
+        format: SaveFormat,
+        /// Where to.
+        path: std::path::PathBuf,
+        /// The puppet for [`SaveFormat::Puppet`].
+        puppet: Option<String>,
+    },
+    /// Read the document again from the file it was saved to or opened from.
+    Revert,
+    /// Start an empty project.
+    NewProject {
+        /// Its name.
+        name: String,
+    },
+}
+
 /// What the document commands can reach beyond the document: the live input actor and the window.
 #[derive(Debug, Clone)]
 pub struct Links {
     /// The camera and microphone actor.
     pub live: LiveLink,
+    /// Work for the hooks (files and puppets).
+    pub jobs: Sender<WorldJob>,
+    /// The other end of [`Self::jobs`], drained by the hooks.
+    pub jobs_in: Receiver<WorldJob>,
     /// Requests to change the window's view.
     pub ui: Sender<UiSet>,
     /// Sounds commands have read from files: the hooks move them into the media store (which is not part of the
@@ -186,7 +262,8 @@ impl Links {
     #[must_use]
     pub fn new(live: LiveLink, ui: Sender<UiSet>) -> Self {
         let (sounds, sounds_in) = crossbeam_channel::unbounded();
-        Self { live, ui, sounds, sounds_in, output: OutputLink::disconnected() }
+        let (jobs, jobs_in) = crossbeam_channel::unbounded();
+        Self { live, jobs, jobs_in, ui, sounds, sounds_in, output: OutputLink::disconnected() }
     }
 
     /// These links with the stream output thread attached.
@@ -204,6 +281,8 @@ pub struct AppDoc {
     pub rec: RecordDoc,
     /// Rig edits.
     pub rig: RigLog,
+    /// Puppet names and imports.
+    pub meta: ProjectMeta,
     /// Channels to the actors (not part of the document's content; they survive undo).
     pub links: Links,
 }
@@ -211,15 +290,23 @@ pub struct AppDoc {
 impl AppDoc {
     /// A document around a scene.
     #[must_use]
-    pub const fn new(rec: RecordDoc, rig: RigLog, links: Links) -> Self {
-        Self { rec, rig, links }
+    pub fn new(rec: RecordDoc, rig: RigLog, links: Links) -> Self {
+        Self { rec, rig, meta: ProjectMeta::default(), links }
+    }
+
+    /// The same document with puppet names and imports.
+    #[must_use]
+    pub fn with_meta(mut self, meta: ProjectMeta) -> Self {
+        self.meta = meta;
+        self
     }
 }
 
 impl SizeHint for AppDoc {
     fn size_hint(&self) -> usize {
         let names: usize = self.rig.skeletons.values().map(|s| s.layers.len().saturating_mul(96)).sum();
-        self.rec.size_hint().saturating_add(names).saturating_add(self.rig.edits.len().saturating_mul(160))
+        let meta = self.meta.names.len().saturating_add(self.meta.imports.len()).saturating_mul(128);
+        self.rec.size_hint().saturating_add(names).saturating_add(meta).saturating_add(self.rig.edits.len().saturating_mul(160))
     }
 }
 
@@ -790,7 +877,7 @@ fn place(spec: CommandSpec<AppDoc>) -> CommandSpec<AppDoc> {
 /// [`RegistryError`] for a duplicate id (a bug; the tests build the registry).
 pub fn registry() -> Result<CommandRegistry<AppDoc>, RegistryError> {
     let mut registry = CommandRegistry::with_history_commands();
-    registry.register_all(wrapped().into_iter().chain(app_commands()).map(place))?;
+    registry.register_all(wrapped().into_iter().chain(app_commands()).chain(crate::project_cmds::commands()).map(place))?;
     Ok(registry)
 }
 

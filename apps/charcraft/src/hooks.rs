@@ -7,7 +7,7 @@
 use std::collections::VecDeque;
 use std::fs::File;
 use std::io::{self, Write as _};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use anim_mcp::hooks::{AppHooks, ExportFormat, ExportRequest, HookOutcome, HookResult, QuerySpec, RenderRequest, ScreenshotRequest};
 use anim_mcp::{ControlError, ErrorKind, Reply, Ticket, props, run_job};
@@ -21,9 +21,21 @@ use serde_json::{Value, json};
 
 use crate::compose::Stage;
 use crate::export::{self, Format, Job};
-use crate::session::{AppDoc, Links};
+use crate::projectio;
+use crate::session::{AppDoc, Links, SaveFormat, WorldJob};
 use crate::state::Mode;
-use crate::world::World;
+use crate::world::{SourceKind, World};
+
+/// Something that happened to the document's file that the window wants to know about (recent files, the status line).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DocEvent {
+    /// A document was opened from this path.
+    Opened(PathBuf),
+    /// The document was written to this path.
+    Saved(PathBuf),
+    /// A line for the status bar (a save finished, or failed).
+    Note(String),
+}
 
 /// What the window shows right now, kept up to date by the window and reported by `status`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -72,15 +84,96 @@ pub struct Hooks {
     pub windowed: bool,
     /// Screenshot requests the window has not served yet.
     pub shots: VecDeque<PendingShot>,
+    /// File events the window has not taken yet.
+    pub events: VecDeque<DocEvent>,
+    /// What the last save, export or revert said.
+    pub last_job: Option<String>,
     links: Links,
     stage: Option<(u64, u64, Stage)>,
+    noted_path: Option<PathBuf>,
 }
 
 impl Hooks {
     /// Hooks around a world.
     #[must_use]
     pub fn new(world: World, links: Links) -> Self {
-        Self { world, view: ViewStatus::default(), epoch: 1, windowed: false, shots: VecDeque::new(), links, stage: None }
+        Self {
+            world,
+            view: ViewStatus::default(),
+            epoch: 1,
+            windowed: false,
+            shots: VecDeque::new(),
+            events: VecDeque::new(),
+            last_job: None,
+            links,
+            stage: None,
+            noted_path: None,
+        }
+    }
+
+    fn note(&mut self, text: String) {
+        self.last_job = Some(text.clone());
+        self.events.push_back(DocEvent::Note(text));
+    }
+
+    /// Replaces the open document with another and tells the window it is a new one.
+    fn swap_in(&mut self, session: &mut Session<AppDoc>, opened: crate::world::Opened, path: Option<PathBuf>) {
+        self.world = opened.world;
+        self.epoch = self.epoch.saturating_add(1);
+        self.stage = None;
+        session.replace_document(AppDoc::new(opened.rec, opened.rig, self.links.clone()).with_meta(opened.meta), path);
+    }
+
+    /// Does one piece of work a command queued.
+    fn run_job(&mut self, session: &mut Session<AppDoc>, job: WorldJob) {
+        match job {
+            WorldJob::AddPuppet { key, member } => self.world.add_member(&key, *member),
+            WorldJob::ClonePuppet { from, to } => {
+                if let Some(member) = self.world.cast.get(&from).cloned() {
+                    self.world.add_member(&to, member);
+                }
+            }
+            WorldJob::Save { format, path, puppet } => {
+                let doc = session.doc();
+                let result = match format {
+                    SaveFormat::Chproj => projectio::save_project(&self.world, doc, &path).map(|line| (line, projectio::project_folder(&path))),
+                    SaveFormat::Puppet => {
+                        let key = puppet.or_else(|| self.world.key_for_track(&doc.rec, self.view.track));
+                        key.ok_or_else(|| "there is no puppet to write".to_owned())
+                            .and_then(|key| projectio::export_puppet(&self.world, doc, &key, &path).map(|line| (line, path.clone())))
+                    }
+                };
+                match result {
+                    Ok((line, written)) => {
+                        if format == SaveFormat::Chproj {
+                            self.world.title = written.file_stem().map_or_else(|| self.world.title.clone(), |s| s.to_string_lossy().into_owned());
+                            self.world.source = Some(written.clone());
+                            self.world.kind = SourceKind::Project;
+                            session.mark_saved();
+                        }
+                        self.events.push_back(DocEvent::Saved(written));
+                        self.note(line);
+                    }
+                    Err(e) => self.note(format!("Save failed: {e}")),
+                }
+            }
+            WorldJob::Revert => {
+                let path = session.path().map(Path::to_path_buf).or_else(|| self.world.source.clone());
+                match path.map(|p| World::open(&p).map(|o| (o, p))) {
+                    Some(Ok((opened, p))) => {
+                        let keep = p.extension().is_some_and(|e| e.eq_ignore_ascii_case("charcraft")).then(|| p.clone());
+                        self.swap_in(session, opened, keep);
+                        self.note(format!("Reverted to {}", p.display()));
+                    }
+                    Some(Err(e)) => self.note(format!("Revert failed: {e}")),
+                    None => self.note("Nothing to revert to: the document was never saved".to_owned()),
+                }
+            }
+            WorldJob::NewProject { name } => {
+                self.swap_in(session, World::empty(&name), None);
+                self.note(format!("New project {name}"));
+            }
+        }
     }
 
     /// The stage for the current puppets, rebuilt when they changed.
@@ -189,7 +282,11 @@ impl AppHooks<AppDoc> for Hooks {
             QuerySpec::new("behaviors_catalog", "Every behavior CharCraft implements, with default parameters and what they mean."),
             QuerySpec::new("behaviors_stack", "The behaviors of a puppet track as the scene plays them (including the track's own edits), with parameters.")
                 .with_schema(object(&json!({ "track": { "type": "integer", "minimum": 0 } }))),
-            QuerySpec::new("world_info", "Where the document came from, the puppets, sounds and loading warnings."),
+            QuerySpec::new("world_info", "Where the document came from, the puppets, sounds, loading warnings and what the last save, export or revert said."),
+            QuerySpec::new(
+                "project_info",
+                "The project panel: puppets (name, folders, size, tracks that play them, where imported from), scenes, audio, sounds and the document's file.",
+            ),
             QuerySpec::new("view_state", "What the window shows: mode, selected track and layer, playhead, playing, recording."),
         ]
     }
@@ -231,7 +328,9 @@ impl AppHooks<AppDoc> for Hooks {
                 "puppets": self.world.cast.keys().collect::<Vec<_>>(),
                 "sounds": self.world.media.names().collect::<Vec<_>>(),
                 "warnings": self.world.warnings,
+                "last_job": self.last_job,
             }),
+            "project_info" => projectio::project_info(&self.world, session.doc(), session.path(), session.is_dirty()),
             "view_state" => serde_json::to_value(&self.view).map_err(failed)?,
             other => return Err(ControlError::new(ErrorKind::NotFound, format!("no query named {other:?}"))),
         };
@@ -419,7 +518,8 @@ impl AppHooks<AppDoc> for Hooks {
         self.world = opened.world;
         self.epoch = self.epoch.saturating_add(1);
         self.stage = None;
-        Ok(AppDoc::new(opened.rec, opened.rig, self.links.clone()))
+        self.events.push_back(DocEvent::Opened(path.to_path_buf()));
+        Ok(AppDoc::new(opened.rec, opened.rig, self.links.clone()).with_meta(opened.meta))
     }
 
     fn new_document(&mut self) -> Result<AppDoc, ControlError> {
@@ -427,15 +527,25 @@ impl AppHooks<AppDoc> for Hooks {
         self.world = opened.world;
         self.epoch = self.epoch.saturating_add(1);
         self.stage = None;
-        Ok(AppDoc::new(opened.rec, opened.rig, self.links.clone()))
+        Ok(AppDoc::new(opened.rec, opened.rig, self.links.clone()).with_meta(opened.meta))
     }
 
     fn save(&mut self, doc: &AppDoc, file: &mut File) -> io::Result<()> {
-        let bytes = self.world.save_bytes(&doc.rec, &doc.rig).map_err(io::Error::other)?;
+        let bytes = self.world.save_bytes_with(&doc.rec, &doc.rig, &doc.meta).map_err(io::Error::other)?;
         file.write_all(&bytes)
     }
 
     fn tick(&mut self, session: &mut Session<AppDoc>) {
+        while let Ok(job) = self.links.jobs_in.try_recv() {
+            self.run_job(session, job);
+        }
+        // A plain save (or save as) to a .charcraft file is a recent file too.
+        if let Some(path) = session.path().map(Path::to_path_buf)
+            && self.noted_path.as_ref() != Some(&path)
+        {
+            self.noted_path = Some(path.clone());
+            self.events.push_back(DocEvent::Saved(path));
+        }
         // Sounds the commands read from files go into the media store, which the document does not hold.
         while let Ok((name, buffer)) = self.links.sounds_in.try_recv() {
             if let Err(e) = self.world.media.insert(&name, buffer) {
@@ -462,7 +572,7 @@ pub fn make_host(
     confinement: anim_mcp::Confinement,
     info: anim_mcp::HostInfo,
 ) -> anim_mcp::SessionHost<AppDoc, Hooks> {
-    let doc = AppDoc::new(opened.rec, opened.rig, links.clone());
+    let doc = AppDoc::new(opened.rec, opened.rig, links.clone()).with_meta(opened.meta);
     let session = Session::new(doc, registry);
     anim_mcp::SessionHost::new(info, session, Hooks::new(opened.world, links)).with_confinement(confinement)
 }

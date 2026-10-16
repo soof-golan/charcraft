@@ -65,6 +65,12 @@ struct Cli {
     /// Start the stream view without a backdrop: the window and outputs that carry alpha show only the puppet.
     #[arg(long)]
     transparent: bool,
+    /// Show the start workspace (new project, recent files, starter gallery) even when a file is given.
+    #[arg(long)]
+    start: bool,
+    /// Open the Preferences window.
+    #[arg(long)]
+    prefs: bool,
     /// No window: serve MCP on stdio only.
     #[arg(long, requires = "mcp_stdio")]
     headless: bool,
@@ -130,6 +136,14 @@ fn main() -> Result<ExitCode> {
     let demo = cli.file.is_none();
     let shooting = cli.screenshot.is_some();
     let options = Options {
+        start: if cli.start {
+            Some(true)
+        } else if cli.file.is_some() || shooting {
+            Some(false)
+        } else {
+            None
+        },
+        prefs_open: cli.prefs,
         mode,
         screenshot: cli.screenshot.clone(),
         demo_takes: cli.demo_takes || (shooting && demo),

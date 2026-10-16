@@ -68,7 +68,7 @@ pub(super) fn pick(puppet: &Puppet, at: Pos2) -> Option<String> {
         .map(|(l, _)| l.path.clone())
 }
 
-fn tree(ui: &mut Ui, puppet: &Puppet, view: &mut View, actions: &mut Vec<Action>) {
+fn tree(ui: &mut Ui, puppet: &Puppet, view: &mut View, ctx: &Ctx<'_>, actions: &mut Vec<Action>) {
     ui.add(egui::TextEdit::singleline(&mut view.rig.layer_filter).hint_text("Filter by name or tag").desired_width(f32::INFINITY));
     let keep = rigtools::visible_paths(puppet, &view.rig.layer_filter);
     egui::ScrollArea::both().auto_shrink([false, false]).show(ui, |ui| {
@@ -78,6 +78,7 @@ fn tree(ui: &mut Ui, puppet: &Puppet, view: &mut View, actions: &mut Vec<Action>
             }
             ui.horizontal(|ui| {
                 ui.add_space(f32::from(u16::try_from(depth.saturating_mul(14)).unwrap_or(0)));
+                super::layers::thumbnail(ui, layer, puppet.size, ctx.texture.map(|(t, _)| t));
                 if layer.children.is_empty() {
                     ui.add_space(16.0);
                 } else {
@@ -252,7 +253,7 @@ pub fn show(ui: &mut Ui, view: &mut View, ctx: &Ctx<'_>, actions: &mut Vec<Actio
             ui.weak(format!("{} layers", puppet.layers().len().saturating_sub(1)));
         });
         ui.separator();
-        tree(ui, puppet, view, actions);
+        tree(ui, puppet, view, ctx, actions);
     });
     egui::Panel::right("rig_inspector").default_size(330.0).min_size(240.0).show(ui, |ui| {
         ui.horizontal(|ui| {

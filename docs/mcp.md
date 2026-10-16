@@ -48,6 +48,14 @@ Commands:
   record a scripted or explicit performance into takes, list, rename, enable, move and delete them, read back poses.
 * `lipsync_record`: reads a sound file (WAV, MP3, FLAC, Ogg, AAC), finds the mouth shapes, records them as a voice
   take and places the sound on an audio track. One undo step.
+* `puppet_rename`, `puppet_duplicate`, `puppet_remove`, `puppet_import`: the project panel. Names, copies and
+  removals are undoable; `puppet_import` reads a `.puppet` (or the puppets of a project) into the open project and adds
+  a track for it (`add_track: false` skips that). Imported puppets are copied into the project when it is saved.
+* `project_save` (a project folder or `.chproj` name; with a `.puppet` path or `format: "puppet"` and `puppet` it writes
+  one puppet), `puppet_save`, `project_revert`, `project_new`: file work. These run on the host's next tick; the answer
+  is `last_job` in `query_world_info`. A saved project is the opened one copied with every record kept, plus imported
+  puppets, new puppet names, and the scene, takes and rig edits in sidecar files beside it. Puppets made from artwork
+  (PSD, AI, SVG) have no project data to write: save those as `.charcraft`.
 * `audio_*`: clips on audio tracks.
 * `tracking_*`, `mic_*`: live camera and microphone (app only; fail cleanly without them). `tracking_list_cameras`
   and `tracking_start {index}` pick the camera, `tracking_set_rest_pose {target: face|body|both}` sets the rest pose
@@ -67,7 +75,9 @@ Commands:
 
 Queries: `query_puppet_summary` (layers, groups, tags, handles, mouth shapes, swap sets), `query_puppet_outline`,
 `query_puppet_layer`, `query_behaviors_catalog` and `query_behaviors_stack` (behaviors with parameters, as the track
-plays them), `query_world_info`, `query_view_state`. Scenes and takes come from `scene_info` and `take_list`.
+plays them), `query_world_info`, `query_project_info` (puppets with names, folders, sizes, tracks and import sources; the scene;
+audio; the document's file and whether it has unsaved changes), `query_view_state`. Scenes and takes come from
+`scene_info` and `take_list`.
 
 Rendering. `render_frame` returns a PNG as image content. With no options it draws a scene frame (`frame`, or
 `options.time_seconds`). Any of these options draws one puppet in a hand-made pose instead: `puppet`, `viseme`

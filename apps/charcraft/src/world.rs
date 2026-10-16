@@ -20,7 +20,7 @@ use charcraft_record::{Cast, CastMember, ImportOptions, MediaStore, PuppetTrack,
 use serde::{Deserialize, Serialize};
 
 use crate::demo;
-use crate::session::{RigEdit, RigLog, Skeleton};
+use crate::session::{ProjectMeta, RigEdit, RigLog, Skeleton};
 
 /// The cast key of the demo puppet.
 pub const DEMO_KEY: &str = "demo";
@@ -52,6 +52,8 @@ pub enum SourceKind {
     Project,
     /// A PSD, AI, SVG or PDF imported as a new puppet.
     Artwork,
+    /// A new project with no puppets yet.
+    Empty,
 }
 
 /// The puppets, the sound and the origin of the open document.
@@ -84,6 +86,8 @@ pub struct Opened {
     pub rec: RecordDoc,
     /// The rig log (empty skeleton edits).
     pub rig: RigLog,
+    /// Puppet names and imports (empty for a fresh document).
+    pub meta: ProjectMeta,
 }
 
 /// A saved document.
@@ -104,6 +108,22 @@ struct Saved {
     rig: Vec<RigEdit>,
     /// WAV files (32-bit float) by media name, base64.
     media: BTreeMap<String, String>,
+    /// Puppet names and the puppets imported from other files.
+    #[serde(default)]
+    project: ProjectMeta,
+}
+
+/// A puppet read from a file, ready to join the cast.
+#[derive(Debug)]
+pub struct LoadedPuppet {
+    /// The cast key.
+    pub key: String,
+    /// The puppet with its behaviors.
+    pub member: CastMember,
+    /// The name the file gives it.
+    pub name: String,
+    /// What did not load.
+    pub warnings: Vec<String>,
 }
 
 fn extension(path: &Path) -> String {
@@ -112,17 +132,29 @@ fn extension(path: &Path) -> String {
 
 /// A scene with one puppet standing in the middle, scaled down to fit when it is taller than the stage.
 fn single_scene(name: &str, key: &str, member: &CastMember) -> Scene {
+    let mut scene = empty_scene(name);
+    // Tracks fail only past the track limit.
+    let _ = scene.add_track(placed_track(&scene, name, key, member));
+    scene
+}
+
+/// A scene with the standard stage and no tracks.
+fn empty_scene(name: &str) -> Scene {
     let mut scene = Scene::new(name, Size::new(1280.0, 720.0), FrameRate::FPS_30, Tick::from_seconds_f64(8.0));
+    scene.background = Some(anim_core::Rgba8 { r: 236, g: 238, b: 244, a: 255 });
+    scene
+}
+
+/// A track for a puppet, standing in the middle of the stage and scaled down to fit when it is taller than it.
+#[must_use]
+pub fn placed_track(scene: &Scene, name: &str, key: &str, member: &CastMember) -> PuppetTrack {
     let mut track = PuppetTrack::new(name, key);
     let size = member.puppet.size;
     let fit = if size.height > 0.0 { (scene.size.height * 0.94 / size.height).min(1.0) } else { 1.0 };
     track.placement.scale = Vec2::new(fit, fit);
     track.placement.anchor = Vec2::new(size.width / 2.0, size.height / 2.0) + member.skin - member.handle;
     track.placement.position = Vec2::new(-member.handle.x, -member.handle.y);
-    scene.background = Some(anim_core::Rgba8 { r: 236, g: 238, b: 244, a: 255 });
-    // Tracks fail only past the track limit.
-    let _ = scene.add_track(track);
-    scene
+    track
 }
 
 impl World {
@@ -139,7 +171,7 @@ impl World {
         }
         let mut rec = RecordDoc::new(scene);
         rec.templates = self.cast.templates();
-        Opened { world: self, rec, rig }
+        Opened { world: self, rec, rig, meta: ProjectMeta::default() }
     }
 
     /// The built-in demo document.
@@ -153,6 +185,46 @@ impl World {
         let mut cast = Cast::new();
         cast.insert(DEMO_KEY, member);
         Ok(Self::new(cast, SourceKind::Demo, None, "Demo puppet".to_owned()).finish(scene))
+    }
+
+    /// A new project with a stage and no puppets: the starting point of File > New Project.
+    #[must_use]
+    pub fn empty(name: &str) -> Opened {
+        Self::new(Cast::new(), SourceKind::Empty, None, name.to_owned()).finish(empty_scene(name))
+    }
+
+    /// Reads the root puppets of a `.puppet` or project without opening it as a document.
+    ///
+    /// # Errors
+    /// [`WorldError`] when the file is not a project or holds no puppet that can be built.
+    pub fn load_members(path: &Path) -> Result<Vec<LoadedPuppet>, WorldError> {
+        let project = Project::open(path).map_err(|e| WorldError::of(&format!("opening {}", path.display()), e))?;
+        let model = project.model().map_err(|e| WorldError::of("reading the project", e))?;
+        let roots: Vec<(String, String)> = project.manifest().and_then(|m| m.root_puppet_ppath()).map_or_else(
+            || model.root_puppets().map(|p| (p.path.trim_start_matches('/').to_owned(), p.display_name().to_owned())).collect(),
+            |root| {
+                let key = root.trim_start_matches('/').to_owned();
+                let name = model.puppet(&key).map_or_else(|| key.clone(), |p| p.display_name().to_owned());
+                vec![(key, name)]
+            },
+        );
+        let (cast, mut warnings) = Cast::from_project(&project, &model, roots.iter().map(|(k, _)| k.as_str()));
+        let mut out = Vec::new();
+        for (key, name) in roots {
+            if let Some(member) = cast.get(&key) {
+                out.push(LoadedPuppet { key, member: member.clone(), name, warnings: std::mem::take(&mut warnings) });
+            }
+        }
+        if out.is_empty() {
+            return Err(WorldError(format!("{} holds no puppet that can be built ({})", path.display(), warnings.join("; "))));
+        }
+        Ok(out)
+    }
+
+    /// Adds a puppet to the cast (a project panel import or duplicate).
+    pub fn add_member(&mut self, key: &str, member: CastMember) {
+        self.cast.insert(key, member);
+        self.generation = self.generation.saturating_add(1);
     }
 
     /// Opens a file: a puppet, a project, artwork or a saved document.
@@ -235,7 +307,17 @@ impl World {
         world.warnings = warnings;
         let mut opened = world.finish(scene);
         // Takes recorded earlier with this app live in a sidecar beside the project.
-        let sidecar = charcraft_record::sidecar_path(path);
+        let root = if path.is_file() && extension(path) == "chproj" { path.parent().unwrap_or(path) } else { path };
+        let sidecar = charcraft_record::sidecar_path(root);
+        if let Some(rig) = crate::projectio::load_rig_sidecar(root) {
+            match rig {
+                Ok(rig) => {
+                    opened.rig.edits = rig.edits;
+                    opened.meta = rig.meta;
+                }
+                Err(e) => opened.world.warnings.push(e),
+            }
+        }
         if sidecar.is_file() {
             match charcraft_record::load(&sidecar) {
                 Ok((scene, media)) => {
@@ -247,6 +329,21 @@ impl World {
                     }
                 }
                 Err(e) => opened.world.warnings.push(format!("{}: {e}", sidecar.display())),
+            }
+        }
+        // Puppets saved into the project from other files are in it now; the scene may play ones the project's
+        // own scene does not.
+        opened.meta.imports.clear();
+        let wanted: Vec<String> = opened.rec.scene.tracks.iter().map(|t| t.puppet.clone()).filter(|k| opened.world.cast.get(k).is_none()).collect();
+        if !wanted.is_empty() {
+            let (extra, extra_warnings) = Cast::from_project(&project, &model, wanted.iter().map(String::as_str));
+            opened.world.warnings.extend(extra_warnings);
+            for key in wanted {
+                if let Some(member) = extra.get(&key).cloned() {
+                    opened.rig.skeletons.insert(key.clone(), Skeleton::of(&member.puppet));
+                    opened.rec.templates.insert(key.clone(), member.template.clone());
+                    opened.world.cast.insert(&key, member);
+                }
             }
         }
         Ok(opened)
@@ -286,6 +383,20 @@ impl World {
             }
         }
         opened.rig.edits = saved.rig;
+        opened.meta = saved.project;
+        // Puppets imported from other files are read again from where they came from.
+        for import in opened.meta.imports.clone() {
+            match Self::load_members(Path::new(&import.path)) {
+                Ok(members) => {
+                    for loaded in members.into_iter().filter(|m| m.key == import.key) {
+                        opened.rig.skeletons.insert(loaded.key.clone(), Skeleton::of(&loaded.member.puppet));
+                        opened.rec.templates.insert(loaded.key.clone(), loaded.member.template.clone());
+                        opened.world.cast.insert(&loaded.key, loaded.member);
+                    }
+                }
+                Err(e) => opened.world.warnings.push(format!("imported puppet {}: {e}", import.key)),
+            }
+        }
         opened.world.title = path.file_stem().map_or_else(|| "Document".to_owned(), |s| s.to_string_lossy().into_owned());
         Ok(opened)
     }
@@ -295,6 +406,14 @@ impl World {
     /// # Errors
     /// [`WorldError`] if the document cannot be written as JSON.
     pub fn save_bytes(&self, rec: &RecordDoc, rig: &RigLog) -> Result<Vec<u8>, WorldError> {
+        self.save_bytes_with(rec, rig, &ProjectMeta::default())
+    }
+
+    /// As [`Self::save_bytes`], with the puppet names and imports of the document.
+    ///
+    /// # Errors
+    /// [`WorldError`] if the document cannot be written as JSON.
+    pub fn save_bytes_with(&self, rec: &RecordDoc, rig: &RigLog, meta: &ProjectMeta) -> Result<Vec<u8>, WorldError> {
         let wanted: std::collections::BTreeSet<&str> = rec.scenes().flat_map(|s| &s.audio).flat_map(|t| &t.clips).map(|c| c.media.as_str()).collect();
         let mut scenes = rec.scenes().cloned();
         let first = scenes.next().unwrap_or_else(|| rec.scene.clone());
@@ -312,6 +431,7 @@ impl World {
             arming: rec.arming.groups.iter().copied().collect(),
             rig: rig.edits.clone(),
             media,
+            project: meta.clone(),
         };
         serde_json::to_vec_pretty(&saved).map_err(|e| WorldError::of("writing the document", e))
     }
@@ -398,7 +518,7 @@ mod tests {
 
     #[test]
     fn a_document_survives_save_and_open() {
-        let Opened { world, rec, mut rig } = World::demo().unwrap();
+        let Opened { world, rec, mut rig, .. } = World::demo().unwrap();
         rig.edits.push(RigEdit { puppet: DEMO_KEY.into(), op: PuppetOp::SetVisible { layer: "Head/Nose".into(), visible: false } });
         let dir = tempfile::tempdir().unwrap();
         let file = dir.path().join("a.charcraft");
