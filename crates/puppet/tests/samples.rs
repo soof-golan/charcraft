@@ -176,6 +176,92 @@ fn boy_puppet_file_builds_with_project_data() {
 const WHITE: [u8; 3] = [255, 255, 255];
 const SHIRT: [u8; 3] = [45, 171, 183];
 const COLLAR: [u8; 3] = [24, 101, 127];
+const NECK: [u8; 3] = [242, 136, 114];
+
+/// Width of Boy's neck, measured perpendicular to its centre line, one value per row of neck-coloured pixels
+/// (the rows at both ends, where the chin and the collar cut it, are left out). Also the first and last row.
+fn neck_widths(img: &Image) -> (Vec<f64>, usize, usize) {
+    let stride = usize::try_from(img.width).unwrap();
+    let rgb = |x: usize, y: usize| {
+        let at = (y * stride + x) * 4;
+        [img.premultiplied_rgba[at], img.premultiplied_rgba[at + 1], img.premultiplied_rgba[at + 2]]
+    };
+    let all: Vec<(usize, f64, f64)> = (300..560)
+        .filter_map(|y| {
+            let xs: Vec<usize> = (480..600).filter(|&x| rgb(x, y) == NECK).collect();
+            let (a, b) = (*xs.first()?, *xs.last()?);
+            Some((y, f64::from(u32::try_from(a + b).unwrap()) / 2.0, f64::from(u32::try_from(b - a + 1).unwrap())))
+        })
+        .collect();
+    // The neck is the lowest run of rows (the nose has the same colour, higher up).
+    let mut start = 0;
+    for i in 1..all.len() {
+        if all[i].0 - all[i - 1].0 > 2 {
+            start = i;
+        }
+    }
+    let rows = all[start..].to_vec();
+    let inner = rows.get(4..rows.len().saturating_sub(4)).unwrap_or_default();
+    let widths = inner
+        .iter()
+        .enumerate()
+        .map(|(i, &(_, _, w))| {
+            let (lo, hi) = (rows[i + 4 - 3.min(i + 4)], rows[(i + 4 + 3).min(rows.len() - 1)]);
+            let slope = (hi.1 - lo.1) / f64::from(u32::try_from(hi.0 - lo.0).unwrap().max(1));
+            w / slope.hypot(1.0)
+        })
+        .collect();
+    (widths, rows.first().map_or(0, |r| r.0), rows.last().map_or(0, |r| r.0))
+}
+
+#[test]
+fn boy_neck_keeps_its_width_when_the_head_shifts_sideways() {
+    let Some(root) = samples() else { return };
+    let puppet = Puppet::from_project(&Project::open(root.join("Boy.puppet")).unwrap(), None).unwrap();
+    let (rest, ..) = neck_widths(&render(&puppet, &PuppetPose::neutral()));
+    let rest_width = rest.iter().sum::<f64>() / f64::from(u32::try_from(rest.len()).unwrap());
+    let mut sheet = vec![render(&puppet, &PuppetPose::neutral())];
+    for dx in [40.0, -40.0, 20.0] {
+        let mut pose = PuppetPose::neutral();
+        pose.head = Xform::moved(dx, 0.0);
+        let img = render(&puppet, &pose);
+        let (widths, first, last) = neck_widths(&img);
+        sheet.push(img);
+        let thinnest = widths.iter().copied().fold(f64::MAX, f64::min);
+        assert!(last - first > 10, "dx {dx}: the neck is only rows {first}..{last}");
+        assert!(thinnest >= 0.7 * rest_width, "dx {dx}: the neck is {thinnest:.1} px wide somewhere, rest {rest_width:.1}: {widths:.0?}");
+    }
+    write_png("boy_weld_neutral_right40_left40_right20.png", &sheet.iter().collect::<Vec<_>>());
+}
+
+#[test]
+fn boy_neck_does_not_poke_out_when_the_head_drops() {
+    let Some(root) = samples() else { return };
+    let puppet = Puppet::from_project(&Project::open(root.join("Boy.puppet")).unwrap(), None).unwrap();
+    let neutral = render(&puppet, &PuppetPose::neutral());
+    let mut pose = PuppetPose::neutral();
+    pose.head = Xform::moved(0.0, 20.0);
+    let dropped = render(&puppet, &pose);
+    let stride = usize::try_from(neutral.width).unwrap();
+    let px = |img: &Image, x: usize, y: usize| {
+        let at = (y * stride + x) * 4;
+        [img.premultiplied_rgba[at], img.premultiplied_rgba[at + 1], img.premultiplied_rgba[at + 2]]
+    };
+    // The chin may cover the collar, but the face stays exactly the neutral face moved down 20 px: the neck never
+    // draws over it, and no neck colour shows beside or above the chin.
+    for y in 200..470 {
+        for x in 330..740 {
+            let (a, b) = (px(&neutral, x, y), px(&dropped, x, y + 20));
+            assert!(a.iter().zip(&b).all(|(p, q)| p.abs_diff(*q) <= 8), "the face changed at ({x},{y})");
+        }
+    }
+    for y in 300..501 {
+        for x in 330..740 {
+            let shows_neck = px(&dropped, x, y) == NECK;
+            assert!(!shows_neck || px(&neutral, x, y.saturating_sub(20)) == NECK, "neck colour where the face is, at ({x},{y})");
+        }
+    }
+}
 
 #[test]
 fn boy_head_stays_welded_to_the_body() {
