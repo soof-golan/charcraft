@@ -474,7 +474,7 @@ mod tests {
         let cameras = link.tool("tracking_list_cameras", &Value::Null).unwrap();
         assert!(cameras["cameras"].as_array().is_some_and(|c| !c.is_empty()) || cfg!(feature = "live"));
         assert!(link.tool("tracking_set_rest_pose", &json!({ "target": "legs" })).is_err());
-        link.tool("tracking_start", &json!({})).unwrap();
+        link.tool("tracking_start", &json!({ "demo": true })).unwrap();
         link.tool("tracking_set_rest_pose", &json!({ "target": "body", "frames": 3 })).unwrap();
         let mut previews = 0;
         for _ in 0..400 {
