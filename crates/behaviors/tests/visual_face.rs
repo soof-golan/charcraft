@@ -234,9 +234,7 @@ fn head_extremes() {
         for (fname, fx, fy, size, colour) in features {
             let t = m * Point::new(fx, fy);
             let (tx, ty) = (t.x.round() as i32, t.y.round() as i32);
-            // The head is welded to the body at its origin: the mesh within half its extent (80 px) of the origin is
-            // blended with the body (see the expect file), so only the rigid far part is probed.
-            if size * s < 6.0 || Point::new(fx, fy).distance(origin) < 90.0 || !(2..238).contains(&tx) || !(2..238).contains(&ty) {
+            if size * s < 6.0 || !(2..238).contains(&tx) || !(2..238).contains(&ty) {
                 continue;
             }
             assert_px(&img, tx, ty, colour, &format!("{name}: {fname} at its transformed centre"));
@@ -273,23 +271,24 @@ fn a_zero_scale_head_collapses() {
     assert!(bbox_of(&flat, SKIN, 6).is_none(), "a head scaled to nothing leaves skin: {:?}", bbox_of(&flat, SKIN, 6));
 }
 
-/// A head that is turned and moved stays attached at the neck, so head and body are one connected drawing with no
-/// gap along the neck (the head-to-body weld).
+/// A head that is turned and moved stays attached at the neck, so head and body are one connected drawing and the
+/// neck pivot (the head origin moved by the translation) is never a hole. The torso reaches 20 px under the chin
+/// (y 120..), as real artwork does: a head and a body that merely touch along a line cannot stay connected when the
+/// head is turned, whatever the weld does (first version of this fixture, point contact at the pivot only).
 #[test]
 fn the_neck_stays_attached() {
     // No eyes: a white eye with a pupil in it is a hole with an island, which would count as extra components.
     use anim_artwork::ArtNode;
     let head = ArtNode::group("Head", vec![rect("Face", 40.0, 20.0, 160, 120, SKIN), mouth_with(&charcraft_puppet::Viseme::ALL, charcraft_puppet::Viseme::Neutral)]);
-    let body = ArtNode::group("Body", vec![rect("Torso", 60.0, 140.0, 120, 100, GRAY)]);
+    let body = ArtNode::group("Body", vec![rect("Torso", 60.0, 120.0, 120, 120, GRAY)]);
     let p = Puppet::from_artwork(&tree(240, 240, vec![body, head])).unwrap();
     for (deg, dx) in [(40.0, 30.0), (-40.0, -30.0), (15.0, 0.0), (0.0, 25.0), (90.0, 0.0), (-90.0, 0.0), (180.0, 0.0)] {
         let mut pose = PuppetPose::neutral();
         pose.head = Xform { translation: Vec2::new(dx, 0.0), ..Xform::rotated_degrees(deg) };
         let img = render(&p, &pose);
-        if deg.abs() > 85.0 {
-            save_sheet(&format!("neck-{deg}-{dx}"), &[&img]);
-        }
+        save_sheet(&format!("neck-{deg}-{dx}"), &[&img]);
         assert_eq!(components(&img), 1, "head {deg} deg, moved {dx}: head and body are separate pieces");
-        assert!((136..144).all(|y| !near(px(&img, 120, y), WHITE, 3)), "head {deg} deg, moved {dx}: transparent pixel along the neck line");
+        let pivot_x = 120 + i32::try_from(dx as i64).unwrap();
+        assert!((141..144).all(|y| !near(px(&img, pivot_x, y), WHITE, 3)), "head {deg} deg, moved {dx}: transparent pixel at the neck pivot");
     }
 }
