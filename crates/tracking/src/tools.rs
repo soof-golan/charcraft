@@ -229,7 +229,7 @@ impl TrackingTools {
         if std::mem::take(&mut self.fresh_preview) { self.preview.clone() } else { None }
     }
 
-    /// These tools with the body tracker too: the `tracking_body_*` tools and `tracking_set_rest_pose` then work.
+    /// These tools with the body tracker too: the `tracking_body_*` tools then work.
     #[must_use]
     pub fn with_body(mut self, body: BodyHandle) -> Self {
         self.body = Some(BodyTools::new(body));

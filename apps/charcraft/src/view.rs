@@ -13,6 +13,7 @@ use anim_ui::{StageViewState, TimelineViewState};
 use charcraft_behaviors::api::StackInfo;
 use charcraft_puppet::PuppetPose;
 use charcraft_record::Recorder;
+use charcraft_tracking::body::BodyInput as TrackedBody;
 use charcraft_tracking::input::FaceInput as TrackedFace;
 use serde_json::Value;
 
@@ -309,6 +310,18 @@ pub struct LiveSnapshot {
     pub preview_points: Vec<[f32; 2]>,
     /// Preview pictures received.
     pub previews: u64,
+    /// The newest tracked body.
+    pub body: Option<TrackedBody>,
+    /// Bodies received.
+    pub bodies: u64,
+    /// Whether body tracking runs.
+    pub body_tracking: bool,
+    /// Whether the body's rest pose was captured from the performer.
+    pub rest_pose_set: bool,
+    /// Rest-pose capture progress `(done, wanted)`.
+    pub setting_rest_pose: Option<(usize, usize)>,
+    /// A line about the last body tracking problem.
+    pub body_problem: Option<String>,
 }
 
 impl Default for LiveSnapshot {
@@ -333,6 +346,12 @@ impl Default for LiveSnapshot {
             preview: None,
             preview_points: Vec::new(),
             previews: 0,
+            body: None,
+            bodies: 0,
+            body_tracking: false,
+            rest_pose_set: false,
+            setting_rest_pose: None,
+            body_problem: None,
         }
     }
 }

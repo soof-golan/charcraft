@@ -23,12 +23,15 @@ This is version 0.1.0, a pre-release; see [Known gaps](#known-gaps).
 - **Behaviors**: Face (with pose-to-pose), Head Turner, Lip Sync (microphone or scene audio), Eye Gaze, Auto Blink,
   Dragger, Physics (dangle, gravity, wind, collide, squash and stretch), Breathe, Walk (strut, prance, sneak, march,
   run, shuffle; pinned feet), Motion Trigger, Cycle Layers, Triggers and Transform, with per-scene overrides; ARAP
-  mesh deformation for handles.
+  mesh deformation for handles. Also Body Tracker (webcam pose model driving arms, legs and torso through two-bone
+  IK, with a rest pose), Particles (gravity, wind, collisions), Replay, Magnets, Wiggler, Fader, Look at Camera,
+  Motion Lines, Shadow, Leader and Follower, and Layer Picker.
 - **Lip sync**: speech audio (WAV, MP3, AAC, FLAC, Ogg) turned into the 13 viseme mouth shapes; puppets with only a
   Flappy Chin jaw get the jaw driven instead.
-- **Live input**: webcam face tracking (camera and ONNX Runtime, built into the release packages) and microphone, as
-  actors that own their devices. With no camera the app says so and offers the demo face as an explicit choice;
-  `charcraft --face-file PHOTO` tracks a picture, an animated GIF or a folder of frames instead.
+- **Live input**: webcam face and full-body tracking (camera and ONNX Runtime, built into the release packages; the
+  face and body trackers share one camera) and microphone, as actors that own their devices. With no camera the app
+  says so and offers the demo face as an explicit choice; `charcraft --face-file PHOTO` tracks a picture, an
+  animated GIF or a folder of frames instead.
 - **Rig, Record and Stream modes** in the app; scenes with recorded and performed takes.
 - **Export**: a project scene or a performance to `MP4` (H.264 with AAC), `MOV` (ProRes 4444 with transparency), an
   animated `GIF`, a `PNG` sequence, or the sound alone as a `WAV`. File > Export has presets, range, size, frame rate and

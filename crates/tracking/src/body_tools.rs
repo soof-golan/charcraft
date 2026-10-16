@@ -6,7 +6,7 @@
 //! | `tracking_body_latest` | the most recent body: 17 joints in body units against the rest pose |
 //! | `tracking_body_start` | open a camera and start tracking the body (`index`, `width`, `height`, `fps`) |
 //! | `tracking_body_stop` | stop body tracking |
-//! | `tracking_set_rest_pose` | capture the rest pose from the next `frames` frames: stand as the puppet stands, arms down |
+//! | `tracking_body_set_rest_pose` | capture the rest pose from the next `frames` frames: stand as the puppet stands, arms down |
 //! | `tracking_reset_rest_pose` | back to the built-in typical body |
 //! | `tracking_body_set_smoothing` | switch smoothing on or off and tune its filter |
 //! | `tracking_body_mirror` | swap the performer's left and right |
@@ -22,7 +22,7 @@ use crate::tools::{ToolError, ToolSpec, merge, object, parse, spec};
 
 /// How long a tool waits for the actor to answer a status query.
 const ANSWER_TIMEOUT: Duration = Duration::from_secs(2);
-/// Frames averaged when `tracking_set_rest_pose` names none (about one second of video).
+/// Frames averaged when `tracking_body_set_rest_pose` names none (about one second of video).
 const DEFAULT_REST_FRAMES: usize = 30;
 /// Most frames a rest-pose capture may average.
 const MAX_REST_FRAMES: usize = 600;
@@ -32,7 +32,7 @@ const NAMES: [&str; 8] = [
     "tracking_body_latest",
     "tracking_body_start",
     "tracking_body_stop",
-    "tracking_set_rest_pose",
+    "tracking_body_set_rest_pose",
     "tracking_reset_rest_pose",
     "tracking_body_set_smoothing",
     "tracking_body_mirror",
@@ -73,7 +73,7 @@ pub fn specs() -> Vec<ToolSpec> {
         ),
         spec("tracking_body_stop", "Stop body tracking (the camera is released once face tracking has stopped too).", false, object(json!({}))),
         spec(
-            "tracking_set_rest_pose",
+            "tracking_body_set_rest_pose",
             "Capture the performer's rest pose (standing or sitting as the puppet does, arms hanging, shoulders in view) from the next frames; every movement is then measured against it.",
             false,
             object(json!({ "frames": { "type": "integer", "minimum": 1, "maximum": MAX_REST_FRAMES, "description": "Frames to average (default 30)." } })),
@@ -201,7 +201,7 @@ impl BodyTools {
                 self.send(BodyCommand::Stop)?;
                 Ok(json!({ "stopping": true }))
             }
-            "tracking_set_rest_pose" => {
+            "tracking_body_set_rest_pose" => {
                 let frames = match params.get("frames") {
                     None | Some(Value::Null) => DEFAULT_REST_FRAMES,
                     Some(v) => parse::<usize>(v.clone())?,
@@ -271,7 +271,7 @@ mod tests {
             assert_eq!(s.params["type"], "object");
         }
         assert!(!handles("tracking_start"));
-        assert!(crate::tools::tools().iter().any(|t| t.name == "tracking_set_rest_pose"));
+        assert!(crate::tools::tools().iter().any(|t| t.name == "tracking_body_set_rest_pose"));
     }
 
     #[test]
@@ -293,10 +293,10 @@ mod tests {
     #[test]
     fn the_rest_pose_is_captured_validated_and_reset() {
         let mut t = tools();
-        assert!(matches!(t.call("tracking_set_rest_pose", &json!({ "frames": 0 })), Err(ToolError::InvalidParams(_))));
-        assert!(matches!(t.call("tracking_set_rest_pose", &json!({ "frames": 1_000_000 })), Err(ToolError::InvalidParams(_))));
+        assert!(matches!(t.call("tracking_body_set_rest_pose", &json!({ "frames": 0 })), Err(ToolError::InvalidParams(_))));
+        assert!(matches!(t.call("tracking_body_set_rest_pose", &json!({ "frames": 1_000_000 })), Err(ToolError::InvalidParams(_))));
         t.call("tracking_body_start", &Value::Null).unwrap();
-        assert_eq!(t.call("tracking_set_rest_pose", &json!({ "frames": 5 })).unwrap()["capturing"], json!(5));
+        assert_eq!(t.call("tracking_body_set_rest_pose", &json!({ "frames": 5 })).unwrap()["capturing"], json!(5));
         for _ in 0..500 {
             let s = t.call("tracking_body_status", &Value::Null).unwrap();
             if s["calibration"]["captured"] == json!(true) {

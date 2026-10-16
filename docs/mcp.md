@@ -78,6 +78,16 @@ Commands:
 * `ui_set` drives the window (mode rig/record/stream, selection, playhead, playing; in the stream view `triggers`
   holds trigger keys down, `swaps` picks swap set members, `transparent` and `green_screen` set the backdrop,
   `stream_panels` shows the Controls, Triggers and Scenes panels).
+* Full-body tracking is `tracking_body_start`, `tracking_body_stop`, `tracking_body_status`, `tracking_body_latest`
+  (17 joints in body units against the body rest pose), `tracking_body_set_rest_pose` (stand or sit as the puppet
+  does, arms hanging, shoulders in view), `tracking_reset_rest_pose`, `tracking_body_set_smoothing` and
+  `tracking_body_mirror`. The body and face trackers share one camera.
+* `track_behavior` adds, removes and edits the behaviors of a track by id, including the body and effect behaviors:
+  `Charcraft.BodyTracker.js`, `Charcraft.Particles.js`, `Charcraft.Replay.js`, `Charcraft.Magnets.js`,
+  `Charcraft.Wiggler.js`, `Charcraft.Fader.js`, `Charcraft.LookAtCamera.js`, `Charcraft.MotionLines.js`,
+  `Charcraft.Shadow.js`, `Charcraft.LeaderFollower.js` and `Charcraft.LayerPicker.js` (see `query_behaviors_catalog`
+  for their parameters). Scripted runs (`record_script`) take `body` and `no_body` events with joint positions in
+  body units.
 
 Queries: `query_puppet_summary` (layers, groups, tags, handles, mouth shapes, swap sets), `query_puppet_outline`,
 `query_puppet_layer`, `query_import_warnings` (the import warnings list), `query_behaviors_catalog` and `query_behaviors_stack` (behaviors with parameters, as the track

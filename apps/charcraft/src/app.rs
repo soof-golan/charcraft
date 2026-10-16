@@ -23,7 +23,7 @@ use serde_json::{Value, json};
 use crate::control::{Control, ControlArgs};
 use crate::export::{self, Format};
 use crate::hooks::{Hooks, PendingShot, ViewStatus, make_host};
-use crate::live::{LiveEvent, LiveHandle, MicAction, behavior_face};
+use crate::live::{LiveEvent, LiveHandle, MicAction, behavior_body, behavior_face};
 use crate::render::{RenderHandle, RenderRequest};
 use crate::session::{AppDoc, Links, registry};
 use crate::state::{Mode, UiSet};
@@ -259,9 +259,11 @@ impl CharCraftApp {
         if options.live_demo {
             let link = app.live.link();
             let _ = link.tool("tracking_start", &json!({ "demo": true }));
+            let _ = link.tool("tracking_body_start", &json!({ "demo": true }));
             let _ = link.mic(MicAction::DemoVoice(true));
             app.view.live.demo_voice = true;
             app.view.live.tracking = true;
+            app.view.live.body_tracking = true;
         }
         if let Some(file) = &options.face_file {
             let started = app.live.link().tool("tracking_start", &json!({ "file": file }));
@@ -515,6 +517,10 @@ impl CharCraftApp {
                     self.view.live.face = Some(face);
                     self.view.live.faces = self.view.live.faces.saturating_add(1);
                 }
+                LiveEvent::Body(_, body) => {
+                    self.view.live.body = Some(*body);
+                    self.view.live.bodies = self.view.live.bodies.saturating_add(1);
+                }
                 LiveEvent::Voice { viseme, level } => {
                     self.view.live.viseme = viseme;
                     self.view.live.level = level;
@@ -536,6 +542,12 @@ impl CharCraftApp {
             self.view.live.calibrating = status.get("calibrating").and_then(|c| serde_json::from_value::<(usize, usize)>(c.clone()).ok());
             self.view.live.problem = status.get("last_error").and_then(Value::as_str).map(str::to_owned);
             self.view.live.source = status.get("source").and_then(Value::as_str).map(str::to_owned);
+        }
+        if let Ok(status) = link.tool("tracking_body_status", &Value::Null) {
+            self.view.live.body_tracking = status.get("running").and_then(Value::as_bool).unwrap_or(false);
+            self.view.live.setting_rest_pose = status.get("capturing").and_then(|c| serde_json::from_value::<(usize, usize)>(c.clone()).ok());
+            self.view.live.rest_pose_set = status.pointer("/calibration/captured").and_then(Value::as_bool).unwrap_or(false);
+            self.view.live.body_problem = status.get("last_error").and_then(Value::as_str).map(str::to_owned);
         }
         if let Ok(mic) = link.mic(MicAction::Status) {
             self.view.live.mic = mic.get("running").and_then(Value::as_bool).unwrap_or(false);
@@ -650,6 +662,11 @@ impl CharCraftApp {
         {
             inputs.face = Some(behavior_face(face, self.view.mirror));
         }
+        if live.body_tracking
+            && let Some(body) = live.body.as_ref().filter(|b| b.tracked)
+        {
+            inputs.body = Some(behavior_body(body, self.view.mirror));
+        }
         if live.mic || live.demo_voice {
             inputs.viseme = live.viseme;
         }
@@ -721,7 +738,7 @@ impl CharCraftApp {
             };
             self.render.send(RenderRequest::Scene { id, scene: self.doc.rec.scene.clone(), frame, live, scale });
         } else {
-            self.render.send(RenderRequest::Puppet { id, key, pose, scale, background: None });
+            self.render.send(RenderRequest::Puppet { id, key, pose: Box::new(pose), scale, background: None });
         }
         self.last = Some(desc);
     }

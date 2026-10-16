@@ -12,8 +12,10 @@ use anim_audio::device::CpalInput;
 use anim_audio::{CaptureActor, CaptureCommand, CaptureEvent, PcmBuffer};
 use anim_core::Tick;
 use anim_lipsync::{LiveLipSync, Viseme};
-use charcraft_behaviors::FaceInput;
+use charcraft_behaviors::{BodyInput, FaceInput};
 use charcraft_tracking::actor::{Preview, Sample, TrackingHandle};
+use charcraft_tracking::body::BodyInput as TrackedBody;
+use charcraft_tracking::body_actor::{BodyHandle, BodySample};
 use charcraft_tracking::input::FaceInput as TrackedFace;
 use charcraft_tracking::tools::{TrackingTools, tools as tracking_tool_specs};
 use crossbeam_channel::{Receiver, Sender, bounded, unbounded};
@@ -66,6 +68,8 @@ pub enum LiveRequest {
 pub enum LiveEvent {
     /// A new tracked face (`tracked` tells whether a face was found).
     Face(Tick, TrackedFace),
+    /// A new tracked body (`tracked` tells whether a body was found).
+    Body(Tick, Box<TrackedBody>),
     /// The mouth shape the voice makes, and the input level 0 to 1.
     Voice { viseme: Option<Viseme>, level: f32 },
     /// A microphone chunk (only while forwarding).
@@ -160,14 +164,30 @@ pub fn tracking_tools() -> Vec<(&'static str, &'static str, bool)> {
     tracking_tool_specs().into_iter().map(|t| (t.name, t.description, t.read_only)).collect()
 }
 
+/// The face and body tracking actors. With the `live` feature they read one shared webcam and one ONNX Runtime.
 #[cfg(feature = "live")]
-fn spawn_tracking() -> TrackingHandle {
-    charcraft_tracking::live::spawn()
+fn spawn_tracking() -> (TrackingHandle, BodyHandle) {
+    use charcraft_tracking::actor::TrackingActor;
+    use charcraft_tracking::body_actor::BodyActor;
+    use charcraft_tracking::live;
+    use charcraft_tracking::onnx::OnnxRuntime;
+    let hub = live::camera_hub();
+    match OnnxRuntime::with_default_store() {
+        Ok(runtime) => (TrackingActor::spawn(live::shared_face_factory(hub.clone(), runtime.clone())), live::spawn_body(hub, runtime)),
+        Err(e) => {
+            let message = e.to_string();
+            let again = message.clone();
+            (
+                TrackingActor::spawn(Box::new(move |_| Err(charcraft_tracking::Error::Inference(message.clone())))),
+                BodyActor::spawn(Box::new(move |_| Err(charcraft_tracking::Error::Inference(again.clone())))),
+            )
+        }
+    }
 }
 
 #[cfg(not(feature = "live"))]
-fn spawn_tracking() -> TrackingHandle {
-    charcraft_tracking::actor::TrackingActor::spawn_demo_only()
+fn spawn_tracking() -> (TrackingHandle, BodyHandle) {
+    (charcraft_tracking::actor::TrackingActor::spawn_demo_only(), charcraft_tracking::body_actor::BodyActor::spawn_demo_only())
 }
 
 /// The mouth shapes the demo voice cycles through, each held for a moment.
@@ -304,13 +324,24 @@ struct Actor {
     tracking: TrackingTools,
     mic: Mic,
     last_face: Option<Tick>,
+    last_body: Option<Tick>,
     started: Instant,
     last_voice: Option<(Option<Viseme>, u32)>,
 }
 
 impl Actor {
     fn new(events: Sender<LiveEvent>, wake: Box<dyn Fn() + Send>) -> Self {
-        Self { events, wake, tracking: TrackingTools::new(spawn_tracking()), mic: Mic::default(), last_face: None, started: Instant::now(), last_voice: None }
+        let (face, body) = spawn_tracking();
+        Self {
+            events,
+            wake,
+            tracking: TrackingTools::new(face).with_body(body),
+            mic: Mic::default(),
+            last_face: None,
+            last_body: None,
+            started: Instant::now(),
+            last_voice: None,
+        }
     }
 
     fn run(mut self, requests: &Receiver<LiveRequest>) {
@@ -386,6 +417,13 @@ impl Actor {
         if let Some(preview) = self.tracking.take_preview() {
             self.send(LiveEvent::Preview(Box::new(preview)));
         }
+        if let Ok(value) = self.tracking.call("tracking_body_latest", &Value::Null)
+            && let Some(sample) = value.get("sample").cloned().and_then(|s| serde_json::from_value::<BodySample>(s).ok())
+            && self.last_body != Some(sample.time)
+        {
+            self.last_body = Some(sample.time);
+            self.send(LiveEvent::Body(sample.time, Box::new(sample.input)));
+        }
         for chunk in self.mic.pump() {
             self.send(LiveEvent::Audio(chunk));
         }
@@ -432,9 +470,77 @@ pub fn behavior_face(face: &TrackedFace, mirror: bool) -> FaceInput {
     .sanitized()
 }
 
+/// Maps a tracked body to the body the behaviors read.
+///
+/// With `mirror` the puppet moves like the performer's reflection ([`TrackedBody::mirrored`]: sides swap and the
+/// horizontal positions flip). Both sides measure in body units, x towards the performer's left and y down.
+#[must_use]
+pub fn behavior_body(body: &TrackedBody, mirror: bool) -> BodyInput {
+    let body = if mirror { body.mirrored() } else { *body };
+    let point = |p: [f32; 2]| anim_core::Vec2::new(f64::from(p[0]), f64::from(p[1]));
+    let joints = charcraft_tracking::body::Joint::ALL
+        .iter()
+        .zip(charcraft_behaviors::Joint::ALL)
+        .filter_map(|(j, target)| body.joint(*j).map(|p| (target, point(p))))
+        .collect();
+    let rest = charcraft_behaviors::Joint::ALL.iter().zip(body.rest).map(|(j, p)| (*j, point(p))).collect();
+    BodyInput { joints, rest }.sanitized()
+}
+
 #[cfg(test)]
 mod tests {
+    use charcraft_tracking::body::{Joint as TrackedJoint, SyntheticBody};
+
     use super::*;
+
+    fn solved(body: &SyntheticBody) -> TrackedBody {
+        let mut solver = charcraft_tracking::body::BodySolver::default();
+        solver.smoothing.enabled = false;
+        solver.solve(Tick::ZERO, Some(&body.keypoints())).input
+    }
+
+    #[test]
+    fn a_tracked_body_maps_joint_for_joint_and_mirroring_swaps_sides() {
+        let body = solved(&SyntheticBody { left_arm: 90.0, ..SyntheticBody::default() });
+        let plain = behavior_body(&body, false);
+        let wrist = plain.joint(charcraft_behaviors::Joint::LeftWrist).unwrap();
+        let tracked = body.joint(TrackedJoint::LeftWrist).unwrap();
+        assert!((wrist.x - f64::from(tracked[0])).abs() < 1e-6 && (wrist.y - f64::from(tracked[1])).abs() < 1e-6);
+        assert_eq!(plain.rest.len(), 17);
+        let mirrored = behavior_body(&body, true);
+        let flipped = mirrored.joint(charcraft_behaviors::Joint::RightWrist).unwrap();
+        assert!((flipped.x + wrist.x).abs() < 1e-6 && (flipped.y - wrist.y).abs() < 1e-6);
+    }
+
+    #[test]
+    fn missing_joints_stay_missing() {
+        let body = solved(&SyntheticBody { legs: false, ..SyntheticBody::default() });
+        let mapped = behavior_body(&body, false);
+        assert!(mapped.joint(charcraft_behaviors::Joint::LeftKnee).is_none() && mapped.joint(charcraft_behaviors::Joint::LeftElbow).is_some());
+    }
+
+    #[test]
+    fn the_actor_streams_demo_bodies_and_answers_body_tools() {
+        let handle = LiveHandle::spawn(|| {});
+        let link = handle.link();
+        assert_eq!(link.tool("tracking_body_status", &Value::Null).unwrap()["running"], false);
+        link.tool("tracking_body_start", &json!({})).unwrap();
+        let mut bodies = 0;
+        for _ in 0..400 {
+            while let Some(event) = handle.try_event() {
+                if matches!(event, LiveEvent::Body(..)) {
+                    bodies += 1;
+                }
+            }
+            if bodies > 3 {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        assert!(bodies > 3, "{bodies} bodies");
+        let rest = link.tool("tracking_set_rest_pose", &json!({ "frames": 3 })).unwrap();
+        assert_eq!(rest["capturing"], 3);
+    }
 
     #[test]
     fn a_neutral_face_maps_to_a_neutral_face() {

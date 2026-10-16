@@ -27,7 +27,7 @@ pub enum RenderRequest {
         /// Cast key.
         key: String,
         /// Its pose.
-        pose: PuppetPose,
+        pose: Box<PuppetPose>,
         /// Pixels per artwork pixel.
         scale: f64,
         /// Backdrop (transparent when `None`).
@@ -196,7 +196,7 @@ mod tests {
         for id in 1..=5 {
             handle.send(RenderRequest::Scene { id, scene: scene.clone(), frame: 3, live: vec![(0, PuppetPose::neutral().with_blink(1.0))], scale: 1.0 });
         }
-        handle.send(RenderRequest::Puppet { id: 100, key: "demo".into(), pose: PuppetPose::neutral(), scale: 0.25, background: None });
+        handle.send(RenderRequest::Puppet { id: 100, key: "demo".into(), pose: Box::new(PuppetPose::neutral()), scale: 0.25, background: None });
         let mut seen = Vec::new();
         for _ in 0..400 {
             while let Some(done) = handle.try_result() {

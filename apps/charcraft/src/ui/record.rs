@@ -124,6 +124,8 @@ pub fn show(ui: &mut Ui, view: &mut View, ctx: &Ctx<'_>, actions: &mut Vec<Actio
         egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
             camera(ui, view, ctx, actions);
             ui.separator();
+            super::body::body(ui, view, actions);
+            ui.separator();
             microphone(ui, view, actions);
             ui.separator();
             super::edit::panels(ui, view, ctx, actions);

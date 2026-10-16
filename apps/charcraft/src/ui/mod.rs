@@ -14,6 +14,7 @@ use serde_json::json;
 use crate::view::{Action, Ctx, Dialog, Prompt, SaveKind, View, WorkspaceAction};
 use crate::workspace::{builtin_workspaces, chord_text};
 
+pub mod body;
 pub mod edit;
 pub mod export;
 pub mod layers;

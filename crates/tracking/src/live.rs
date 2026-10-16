@@ -85,9 +85,7 @@ pub fn spawn() -> TrackingHandle {
 /// A camera hub that opens the real webcam, for the face and body trackers to share.
 #[must_use]
 pub fn camera_hub() -> CameraHub {
-    CameraHub::start(Box::new(|spec| {
-        open_frames(spec)
-    }))
+    CameraHub::start(Box::new(|spec| open_frames(spec)))
 }
 
 /// Like [`factory`], reading the shared camera and using an already started ONNX Runtime.
@@ -106,6 +104,10 @@ pub fn shared_face_factory(hub: CameraHub, runtime: OnnxRuntime) -> SourceFactor
 /// The body tracker's factory: the shared camera and the pose model (fetched on first use).
 pub fn body_factory(hub: CameraHub, runtime: OnnxRuntime) -> BodySourceFactory {
     Box::new(move |spec| {
+        if spec.demo {
+            let source: Box<dyn BodySource> = Box::new(crate::body::ScriptedBodySource::demo(240, 30));
+            return Ok(source);
+        }
         let tracker = runtime.body_tracker()?;
         let source: Box<dyn BodySource> = Box::new(TrackedBodyCamera::new(hub.subscribe(spec)?, tracker));
         Ok(source)

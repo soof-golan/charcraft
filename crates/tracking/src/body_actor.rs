@@ -186,6 +186,20 @@ impl BodyActor {
         BodyHandle { commands: command_tx, events: event_rx, thread }
     }
 
+    /// An actor for builds without camera support: it plays the demo body when [`CameraSpec::demo`] asks for it and
+    /// fails every other start with a message saying so (it never substitutes the demo body unasked).
+    #[must_use]
+    pub fn spawn_demo_only() -> BodyHandle {
+        Self::spawn(Box::new(|spec| {
+            if spec.demo {
+                let source: Box<dyn BodySource> = Box::new(ScriptedBodySource::demo(240, 30));
+                Ok(source)
+            } else {
+                Err(Error::Camera("this build has no camera or pose-model support; start the demo body instead".into()))
+            }
+        }))
+    }
+
     /// An actor whose every start replays a scripted source, for tests and for machines without a camera.
     #[must_use]
     pub fn spawn_scripted(make: impl Fn() -> ScriptedBodySource + Send + 'static) -> BodyHandle {

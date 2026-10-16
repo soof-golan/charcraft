@@ -581,6 +581,14 @@ tracking_command!(tracking_calibrate, "tracking_calibrate");
 tracking_command!(tracking_reset, "tracking_reset_calibration");
 tracking_command!(tracking_sensitivity, "tracking_set_sensitivity");
 tracking_command!(tracking_smoothing, "tracking_set_smoothing");
+tracking_command!(tracking_body_status, "tracking_body_status");
+tracking_command!(tracking_body_latest, "tracking_body_latest");
+tracking_command!(tracking_body_start, "tracking_body_start");
+tracking_command!(tracking_body_stop, "tracking_body_stop");
+tracking_command!(tracking_body_rest_pose, "tracking_body_set_rest_pose");
+tracking_command!(tracking_reset_rest_pose, "tracking_reset_rest_pose");
+tracking_command!(tracking_body_smoothing, "tracking_body_set_smoothing");
+tracking_command!(tracking_body_mirror, "tracking_body_mirror");
 tracking_command!(tracking_cameras, "tracking_list_cameras");
 tracking_command!(tracking_rest_pose, "tracking_set_rest_pose");
 tracking_command!(tracking_preview, "tracking_preview");
@@ -889,6 +897,32 @@ fn app_commands() -> Vec<CommandSpec<AppDoc>> {
             .with_schema(r#"{"type":"object","properties":{"kind":{"enum":["ndi","virtual_camera","web","syphon","spout"]},"name":{"type":"string"},"width":{"type":"integer","minimum":16,"maximum":8192},"height":{"type":"integer","minimum":16,"maximum":8192},"fps":{"type":"integer","minimum":1,"maximum":120},"background":{"type":"string"},"device":{"type":"string","description":"Virtual camera device, e.g. /dev/video10."},"port":{"type":"integer","minimum":0,"maximum":65535}}}"#),
         CommandSpec::new("stream.stop", "Stop stream output", stream_stop).transient().describe("Stop the running stream output.").with_schema(NO_PARAMS),
         CommandSpec::new("stream.status", "Stream output status", stream_status).transient().describe("Whether a stream output runs, where it goes, frames sent and why the last one stopped.").with_schema(NO_PARAMS),
+        CommandSpec::new("tracking.body_status", "Body tracking status", tracking_body_status)
+            .transient()
+            .describe("Whether body tracking runs, frame counts, the rest pose in use, smoothing and the mirror switch.")
+            .with_schema(NO_PARAMS),
+        CommandSpec::new("tracking.body_latest", "Latest tracked body", tracking_body_latest)
+            .transient()
+            .describe("The newest tracked body: 17 joints in body units (the rest pose's torso length; x towards the performer's left, y down), null for joints the camera cannot see, with the rest pose they are measured against.")
+            .with_schema(NO_PARAMS),
+        CommandSpec::new("tracking.body_start", "Start body tracking", tracking_body_start)
+            .transient()
+            .describe("Open the camera (shared with face tracking) and start tracking the body; the pose model downloads on first use (without the 'live' build feature a scripted demo body plays instead).")
+            .with_schema(r#"{"type":"object","properties":{"index":{"type":"integer","minimum":0},"width":{"type":"integer","minimum":1},"height":{"type":"integer","minimum":1},"fps":{"type":"integer","minimum":1}}}"#),
+        CommandSpec::new("tracking.body_stop", "Stop body tracking", tracking_body_stop).transient().describe("Stop body tracking.").with_schema(NO_PARAMS),
+        CommandSpec::new("tracking.body_set_rest_pose", "Set body rest pose", tracking_body_rest_pose)
+            .transient()
+            .describe("Capture the body tracker's rest pose (sitting or standing as the puppet does, arms hanging, shoulders in view) from the next frames; body movements are then measured against it.")
+            .with_schema(r#"{"type":"object","properties":{"frames":{"type":"integer","minimum":1,"maximum":600}}}"#),
+        CommandSpec::new("tracking.reset_rest_pose", "Reset rest pose", tracking_reset_rest_pose).transient().describe("Forget the captured rest pose.").with_schema(NO_PARAMS),
+        CommandSpec::new("tracking.body_set_smoothing", "Body smoothing", tracking_body_smoothing)
+            .transient()
+            .describe("Switch body smoothing on or off and tune its One-Euro filter (min_cutoff, beta).")
+            .with_schema(r#"{"type":"object","properties":{"enabled":{"type":"boolean"},"filter":{"type":"object"}}}"#),
+        CommandSpec::new("tracking.body_mirror", "Mirror body", tracking_body_mirror)
+            .transient()
+            .describe("Swap the performer's left and right so the puppet moves like a reflection.")
+            .with_schema(r#"{"type":"object","properties":{"on":{"type":"boolean"}}}"#),
         CommandSpec::new("mic.stop", "Stop microphone", mic_stop).transient().describe("Close the microphone.").with_schema(NO_PARAMS),
         CommandSpec::new("mic.status", "Microphone status", mic_status).transient().describe("Whether the microphone is on, its level and the mouth shape the voice makes.").with_schema(NO_PARAMS),
         CommandSpec::new("mic.demo_voice", "Demo voice", mic_demo)
@@ -908,10 +942,12 @@ fn place(spec: CommandSpec<AppDoc>) -> CommandSpec<AppDoc> {
     match spec.id {
         "scene.set" | "scene.import" | "track.add" | "track.remove" => spec.in_menu(&["Scene"]),
         "rig.edit" => spec.in_menu(&["Rig"]),
-        "tracking.start" | "tracking.stop" | "mic.stop" | "tracking.set_rest_pose" => spec.in_menu(&["Input"]),
+        "tracking.start" | "tracking.stop" | "mic.stop" | "tracking.set_rest_pose" | "tracking.body_stop" | "tracking.body_set_rest_pose" => {
+            spec.in_menu(&["Input"])
+        }
         "stream.start" | "stream.stop" => spec.in_menu(&["Stream"]),
         "tracking.calibrate" => spec.in_menu(&["Input"]).with_shortcut("Cmd+K"),
-        "mic.start" => spec.in_menu(&["Input"]).separated(),
+        "tracking.body_start" | "mic.start" => spec.in_menu(&["Input"]).separated(),
         _ => spec,
     }
 }
