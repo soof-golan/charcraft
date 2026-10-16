@@ -60,6 +60,30 @@ impl Frame {
         &self.rgb
     }
 
+    /// A copy no wider than `max_width` pixels (nearest-neighbour; the same frame when it already fits). For the
+    /// camera preview, which only has to be recognisable.
+    #[must_use]
+    pub fn downscaled(&self, max_width: u32) -> Self {
+        let max_width = max_width.max(1);
+        if self.width <= max_width || self.width == 0 || self.height == 0 {
+            return self.clone();
+        }
+        let out_w = max_width;
+        let scaled = |value: u32, num: u32, den: u32| {
+            u32::try_from(u64::from(value).saturating_mul(u64::from(num)).checked_div(u64::from(den)).unwrap_or(0)).unwrap_or(0)
+        };
+        let out_h = scaled(self.height, out_w, self.width).max(1);
+        let mut rgb = Vec::with_capacity(usize::try_from(out_w).unwrap_or(0).saturating_mul(usize::try_from(out_h).unwrap_or(0)).saturating_mul(3));
+        for y in 0..out_h {
+            let sy = scaled(y, self.height, out_h);
+            for x in 0..out_w {
+                let sx = scaled(x, self.width, out_w);
+                rgb.extend_from_slice(&self.pixel(sx, sy).unwrap_or([0; 3]));
+            }
+        }
+        Self { width: out_w, height: out_h, rgb }
+    }
+
     /// The pixel at `(x, y)`, or `None` outside the frame.
     #[must_use]
     pub fn pixel(&self, x: u32, y: u32) -> Option<[u8; 3]> {
@@ -87,6 +111,16 @@ mod tests {
         assert!(matches!(Frame::new(2, 2, vec![0; 11]), Err(Error::BadFrame { .. })));
         assert!(matches!(Frame::new(u32::MAX, u32::MAX, vec![]), Err(Error::FrameTooLarge { .. })));
         assert!(matches!(Frame::solid(u32::MAX, 2, [0; 3]), Err(Error::FrameTooLarge { .. })));
+    }
+
+    #[test]
+    fn downscaling_keeps_the_aspect_and_the_colours() {
+        let f = Frame::solid(640, 480, [10, 20, 30]).unwrap();
+        let small = f.downscaled(160);
+        assert_eq!((small.width(), small.height()), (160, 120));
+        assert_eq!(small.pixel(159, 119), Some([10, 20, 30]));
+        assert_eq!(f.downscaled(1000), f, "a frame that fits is left alone");
+        assert_eq!(f.downscaled(0).width(), 1);
     }
 
     #[test]

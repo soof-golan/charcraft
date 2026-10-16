@@ -18,8 +18,9 @@ use crossbeam_channel::{Receiver, Sender, TryRecvError, TrySendError, bounded, u
 use serde::{Deserialize, Serialize};
 
 use crate::error::{Error, Result};
+use crate::frame::Frame;
 use crate::input::FaceInput;
-use crate::solver::{Calibration, FaceSolver, Sensitivity, Smoothing};
+use crate::solver::{Calibration, FaceSolver, RestScope, Sensitivity, Smoothing};
 use crate::source::{FaceSource, ScriptedSource};
 
 /// Which camera to open and how.
@@ -65,6 +66,13 @@ pub enum Command {
         /// How many frames to average.
         frames: usize,
     },
+    /// Capture the rest pose from the next `frames` tracked frames, replacing only the part `scope` names.
+    SetRestPose {
+        /// How many frames to average.
+        frames: usize,
+        /// The face, the body (posture) or both.
+        scope: RestScope,
+    },
     /// Abandon a running calibration capture.
     CancelCalibration,
     /// Go back to the built-in typical face.
@@ -89,6 +97,38 @@ pub struct Sample {
     /// The face.
     pub input: FaceInput,
 }
+
+/// What the camera sees, for the live preview: a small image (when the source has one) and the tracked points.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Preview {
+    /// Capture time since the source started.
+    pub time: Tick,
+    /// A downscaled copy of the camera image; `None` for scripted sources.
+    pub frame: Option<Frame>,
+    /// The landmarks, each as `[x, y]` in 0 to 1 across the image (x right, y down); empty when no face was found.
+    pub points: Vec<[f32; 2]>,
+}
+
+impl Preview {
+    fn of(time: Tick, frame: Option<Frame>, landmarks: Option<&crate::landmarks::Landmarks>) -> Self {
+        let points = landmarks
+            .map(|l| {
+                let (w, h) = (f64::from(l.frame_width.max(1)), f64::from(l.frame_height.max(1)));
+                l.points
+                    .iter()
+                    .filter(|p| p.is_finite())
+                    .map(|p| {
+                        [anim_core::num::f64_to_f32((f64::from(p.x()) / w).clamp(0.0, 1.0)), anim_core::num::f64_to_f32((f64::from(p.y()) / h).clamp(0.0, 1.0))]
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        Self { time, frame, points }
+    }
+}
+
+/// Fastest rate at which previews are sent: about 15 per second, so the picture does not crowd out faces.
+const PREVIEW_INTERVAL: Duration = Duration::from_millis(66);
 
 /// A snapshot of the actor, for status displays and tools.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -128,6 +168,8 @@ pub enum Event {
     SourceEnded,
     /// A tracked frame.
     Face(Sample),
+    /// The camera image and tracked points (at most about 15 per second; dropped when the consumer is slow).
+    Preview(Box<Preview>),
     /// A calibration capture advanced.
     CalibrationProgress {
         /// Frames captured.
@@ -258,6 +300,7 @@ struct Worker {
     tracked_frames: u64,
     dropped: u64,
     last_progress: Option<usize>,
+    last_preview: Option<std::time::Instant>,
 }
 
 /// Whether the worker should keep going.
@@ -265,7 +308,18 @@ type Alive = bool;
 
 impl Worker {
     fn new(factory: SourceFactory, commands: Receiver<Command>, events: Sender<Event>) -> Self {
-        Self { factory, commands, events, source: None, solver: FaceSolver::default(), frames: 0, tracked_frames: 0, dropped: 0, last_progress: None }
+        Self {
+            factory,
+            commands,
+            events,
+            source: None,
+            solver: FaceSolver::default(),
+            frames: 0,
+            tracked_frames: 0,
+            dropped: 0,
+            last_progress: None,
+            last_preview: None,
+        }
     }
 
     fn run(mut self) {
@@ -340,6 +394,11 @@ impl Worker {
                 self.last_progress = None;
                 true
             }
+            Command::SetRestPose { frames, scope } => {
+                self.solver.begin_rest_pose(frames, scope);
+                self.last_progress = None;
+                true
+            }
             Command::CancelCalibration => {
                 self.solver.cancel_calibration();
                 true
@@ -395,6 +454,12 @@ impl Worker {
             if !self.emit(Event::Calibrated(c)) {
                 return false;
             }
+        }
+        if self.last_preview.is_none_or(|at| at.elapsed() >= PREVIEW_INTERVAL) {
+            self.last_preview = Some(std::time::Instant::now());
+            let preview = Preview::of(observation.time, observation.preview, observation.landmarks.as_ref());
+            // A preview is only worth showing when it is fresh: a full queue just drops it.
+            let _ = self.events.try_send(Event::Preview(Box::new(preview)));
         }
         match self.events.try_send(Event::Face(Sample { time: observation.time, input: solved.input })) {
             Ok(()) => true,
@@ -534,7 +599,7 @@ mod tests {
     #[test]
     fn frames_without_a_face_are_reported_untracked() {
         use crate::source::Observation;
-        let frames = vec![Observation { time: Tick(0), landmarks: Some(SyntheticFace::default().landmarks()) }, Observation { time: Tick(1), landmarks: None }];
+        let frames = vec![Observation::new(Tick(0), Some(SyntheticFace::default().landmarks())), Observation::new(Tick(1), None)];
         let h = TrackingActor::spawn_scripted(move || ScriptedSource::new("gap", frames.clone()));
         h.send(Command::Start { camera: start() }).unwrap();
         let mut tracked = vec![];

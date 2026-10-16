@@ -21,6 +21,20 @@ pub struct Observation {
     pub time: Tick,
     /// The face landmarks, or `None` when no face was found.
     pub landmarks: Option<Landmarks>,
+    /// A small copy of the camera image for the live preview (`None` for scripted sources and recordings).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub preview: Option<Frame>,
+}
+
+/// Widest preview image a camera source attaches to its observations, in pixels.
+pub const PREVIEW_WIDTH: u32 = 320;
+
+impl Observation {
+    /// An observation without a preview image.
+    #[must_use]
+    pub const fn new(time: Tick, landmarks: Option<Landmarks>) -> Self {
+        Self { time, landmarks, preview: None }
+    }
 }
 
 /// A stream of observations.
@@ -61,7 +75,7 @@ impl ScriptedSource {
     #[must_use]
     pub fn from_faces(name: impl Into<String>, faces: &[SyntheticFace], fps: u32) -> Self {
         let step = Tick::from_units(1, i64::from(fps.max(1)));
-        let frames = (0_i64..).zip(faces).map(|(i, face)| Observation { time: Tick(step.0.saturating_mul(i)), landmarks: Some(face.landmarks()) }).collect();
+        let frames = (0_i64..).zip(faces).map(|(i, face)| Observation::new(Tick(step.0.saturating_mul(i)), Some(face.landmarks()))).collect();
         Self::new(name, frames)
     }
 
@@ -155,7 +169,7 @@ impl FaceSource for ScriptedSource {
         // Looping continues the timeline instead of jumping back to zero.
         let span = self.frames.last().map_or(0, |l| l.time.0).saturating_add(self.frames.get(1).map_or(0, |f| f.time.0));
         let time = Tick(obs.time.0.saturating_add(span.saturating_mul(self.loops)));
-        Ok(Some(Observation { time, landmarks: obs.landmarks.clone() }))
+        Ok(Some(Observation { time, landmarks: obs.landmarks.clone(), preview: obs.preview.clone() }))
     }
 }
 
@@ -247,7 +261,7 @@ impl<F: FrameSource, B: LandmarkBackend> FaceSource for TrackedCamera<F, B> {
     fn next(&mut self) -> Result<Option<Observation>> {
         let Some((time, frame)) = self.frames.next_frame()? else { return Ok(None) };
         let landmarks = self.backend.landmarks(&frame)?;
-        Ok(Some(Observation { time, landmarks }))
+        Ok(Some(Observation { time, landmarks, preview: Some(frame.downscaled(PREVIEW_WIDTH)) }))
     }
 }
 
@@ -307,7 +321,7 @@ mod tests {
 
     #[test]
     fn a_frame_with_no_face_is_an_observation_without_landmarks() {
-        let mut s = ScriptedSource::new("x", vec![Observation { time: Tick::ZERO, landmarks: None }]);
+        let mut s = ScriptedSource::new("x", vec![Observation::new(Tick::ZERO, None)]);
         assert_eq!(s.next().unwrap().unwrap().landmarks, None);
         assert!(s.next().unwrap().is_none());
     }
@@ -344,6 +358,7 @@ mod tests {
     fn a_camera_and_a_backend_make_a_source() {
         let all = collect(TrackedCamera::new(Frames(4), FindsFaceOnOddFrames(false)), 10);
         assert_eq!(all.len(), 4);
+        assert!(all.iter().all(|o| o.preview.is_some()), "a camera source attaches the preview image");
         assert_eq!(all.iter().map(|o| o.landmarks.is_some()).collect::<Vec<_>>(), [true, false, true, false]);
     }
 }

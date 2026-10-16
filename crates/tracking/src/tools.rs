@@ -13,6 +13,8 @@
 //! | `tracking_start` | open a camera (`index`, `width`, `height`, `fps`) |
 //! | `tracking_stop` | release the camera |
 //! | `tracking_calibrate` | capture the neutral face from the next `frames` frames |
+//! | `tracking_set_rest_pose` | capture the rest pose of the `face`, the `body` (posture) or `both` |
+//! | `tracking_preview` | whether the camera image is flowing, its size and how many points are tracked |
 //! | `tracking_reset_calibration` | back to the built-in typical face |
 //! | `tracking_set_sensitivity` | change any of the output ranges |
 //! | `tracking_set_smoothing` | change the smoothing |
@@ -23,8 +25,8 @@ use std::time::{Duration, Instant};
 use serde::Serialize;
 use serde_json::{Value, json};
 
-use crate::actor::{CameraSpec, Command, Event, Sample, Status, TrackingHandle};
-use crate::solver::{Sensitivity, Smoothing};
+use crate::actor::{CameraSpec, Command, Event, Preview, Sample, Status, TrackingHandle};
+use crate::solver::{RestScope, Sensitivity, Smoothing};
 
 /// How long a tool waits for the actor to answer a status query.
 const ANSWER_TIMEOUT: Duration = Duration::from_secs(2);
@@ -108,6 +110,21 @@ pub fn tools() -> Vec<ToolSpec> {
                 json!({ "frames": { "type": "integer", "minimum": 1, "maximum": MAX_CALIBRATION_FRAMES, "description": "Frames to average (default 30)." } }),
             ),
         ),
+        spec(
+            "tracking_set_rest_pose",
+            "Set the rest pose: the performer holds still, looking at the camera, and the next frames are averaged. target 'face' replaces the neutral expressions, 'body' the neutral posture (head position, distance from the camera, turn and tilt: the part of the body a webcam sees), 'both' (default) everything.",
+            false,
+            object(json!({
+                "target": { "enum": ["face", "body", "both"], "description": "Which part of the rest pose to capture (default both)." },
+                "frames": { "type": "integer", "minimum": 1, "maximum": MAX_CALIBRATION_FRAMES, "description": "Frames to average (default 30)." }
+            })),
+        ),
+        spec(
+            "tracking_preview",
+            "Describe the live camera preview: whether an image is flowing, its size, and the number of tracked landmark points.",
+            true,
+            object(json!({})),
+        ),
         spec("tracking_reset_calibration", "Forget the captured neutral face and use the built-in typical one.", false, object(json!({}))),
         spec(
             "tracking_set_sensitivity",
@@ -137,13 +154,30 @@ pub fn tools() -> Vec<ToolSpec> {
             })),
         ),
     ];
-    #[cfg(feature = "camera")]
-    let all = {
-        let mut all = all;
-        all.push(spec("tracking_list_cameras", "List the cameras the system reports, with the index to pass to tracking_start.", true, object(json!({}))));
-        all
-    };
+    let mut all = all;
+    all.push(spec(
+        "tracking_list_cameras",
+        "List the cameras the system reports, with the index to pass to tracking_start. Without camera support in the build the list holds one demo face.",
+        true,
+        object(json!({})),
+    ));
     all
+}
+
+/// The cameras to offer: the system's with the `camera` feature, one scripted demo face without it.
+#[cfg_attr(not(feature = "camera"), allow(clippy::unnecessary_wraps, reason = "the camera build can fail"))]
+fn camera_list() -> Result<Value, ToolError> {
+    #[cfg(feature = "camera")]
+    {
+        let cameras = crate::camera::list_cameras().map_err(|e| ToolError::Failed(e.to_string()))?;
+        Ok(json!({ "cameras": cameras, "demo": false }))
+    }
+    #[cfg(not(feature = "camera"))]
+    {
+        Ok(
+            json!({ "cameras": [{ "index": 0, "name": "Demo face (no camera support in this build)", "description": "a scripted talking face" }], "demo": true }),
+        )
+    }
 }
 
 fn filter_schema() -> Value {
@@ -174,13 +208,21 @@ pub struct TrackingTools {
     last_error: Option<String>,
     calibrated: bool,
     status: Option<Status>,
+    preview: Option<Preview>,
+    fresh_preview: bool,
 }
 
 impl TrackingTools {
     /// Tools over `handle`.
     #[must_use]
     pub const fn new(handle: TrackingHandle) -> Self {
-        Self { handle, latest: None, last_error: None, calibrated: false, status: None }
+        Self { handle, latest: None, last_error: None, calibrated: false, status: None, preview: None, fresh_preview: false }
+    }
+
+    /// The newest camera preview if it has not been taken yet.
+    pub fn take_preview(&mut self) -> Option<Preview> {
+        self.pump();
+        if std::mem::take(&mut self.fresh_preview) { self.preview.clone() } else { None }
     }
 
     /// The actor's handle, for the app's own use.
@@ -192,6 +234,10 @@ impl TrackingTools {
     fn absorb(&mut self, event: Event) {
         match event {
             Event::Face(sample) => self.latest = Some(sample),
+            Event::Preview(preview) => {
+                self.preview = Some(*preview);
+                self.fresh_preview = true;
+            }
             Event::Error(message) => self.last_error = Some(message),
             Event::Calibrated(_) => self.calibrated = true,
             Event::Status(status) => self.status = Some(*status),
@@ -295,10 +341,39 @@ impl TrackingTools {
                 self.send(Command::SetSmoothing(smoothing))?;
                 Ok(json!({ "smoothing": smoothing }))
             }
-            #[cfg(feature = "camera")]
-            "tracking_list_cameras" => {
-                let cameras = crate::camera::list_cameras().map_err(|e| ToolError::Failed(e.to_string()))?;
-                Ok(json!({ "cameras": cameras }))
+            "tracking_list_cameras" => camera_list(),
+            "tracking_set_rest_pose" => {
+                let scope = match params.get("target") {
+                    None | Some(Value::Null) => RestScope::Both,
+                    Some(v) => v.as_str().and_then(RestScope::parse).ok_or_else(|| ToolError::InvalidParams("target must be face, body or both".into()))?,
+                };
+                let frames = match params.get("frames") {
+                    None | Some(Value::Null) => DEFAULT_CALIBRATION_FRAMES,
+                    Some(v) => parse::<usize>(v.clone())?,
+                };
+                if !(1..=MAX_CALIBRATION_FRAMES).contains(&frames) {
+                    return Err(ToolError::InvalidParams(format!("frames must be 1 to {MAX_CALIBRATION_FRAMES}")));
+                }
+                self.calibrated = false;
+                self.send(Command::SetRestPose { frames, scope })?;
+                Ok(
+                    json!({ "capturing": frames, "target": scope, "hint": "ask the performer to hold still, relaxed and looking at the camera; poll tracking_status for progress" }),
+                )
+            }
+            "tracking_preview" => {
+                self.pump();
+                Ok(self.preview.as_ref().map_or_else(
+                    || json!({ "available": false, "video": false, "points": 0 }),
+                    |p| {
+                        json!({
+                            "available": true,
+                            "video": p.frame.is_some(),
+                            "width": p.frame.as_ref().map(crate::frame::Frame::width),
+                            "height": p.frame.as_ref().map(crate::frame::Frame::height),
+                            "points": p.points.len(),
+                        })
+                    },
+                ))
             }
             other => Err(ToolError::Unknown(other.to_owned())),
         }
@@ -410,6 +485,44 @@ mod tests {
             std::thread::sleep(Duration::from_millis(10));
         }
         panic!("calibration never finished");
+    }
+
+    #[test]
+    fn the_rest_pose_tool_validates_and_captures_by_target() {
+        let mut t = tools_over_demo();
+        assert!(matches!(t.call("tracking_set_rest_pose", &json!({ "target": "legs" })), Err(ToolError::InvalidParams(_))));
+        assert!(matches!(t.call("tracking_set_rest_pose", &json!({ "frames": 0 })), Err(ToolError::InvalidParams(_))));
+        t.call("tracking_start", &Value::Null).unwrap();
+        let r = t.call("tracking_set_rest_pose", &json!({ "target": "body", "frames": 4 })).unwrap();
+        assert_eq!((r["capturing"].clone(), r["target"].clone()), (json!(4), json!("body")));
+        for _ in 0..500 {
+            if t.call("tracking_status", &Value::Null).unwrap()["calibration"]["captured"] == json!(true) {
+                t.shutdown();
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        panic!("the rest pose never finished");
+    }
+
+    #[test]
+    fn the_preview_arrives_with_points_and_cameras_are_listed() {
+        let mut t = tools_over_demo();
+        assert_eq!(t.call("tracking_preview", &Value::Null).unwrap()["available"], json!(false));
+        t.call("tracking_start", &Value::Null).unwrap();
+        for _ in 0..500 {
+            if let Some(p) = t.take_preview() {
+                assert!(!p.points.is_empty() && p.frame.is_none(), "a scripted source has points and no picture");
+                assert!(p.points.iter().all(|q| (0.0..=1.0).contains(&q[0]) && (0.0..=1.0).contains(&q[1])));
+                assert_eq!(t.call("tracking_preview", &Value::Null).unwrap()["available"], json!(true));
+                let cameras = t.call("tracking_list_cameras", &Value::Null);
+                assert!(cameras.is_ok() || cfg!(feature = "camera"));
+                t.shutdown();
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        panic!("no preview arrived");
     }
 
     #[test]

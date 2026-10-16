@@ -25,7 +25,56 @@ impl Default for Calibration {
     }
 }
 
+/// Which part of the rest pose a capture replaces.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RestScope {
+    /// The expressions: brows, lids, pupils, mouth.
+    Face,
+    /// The posture: where the head sits in the frame, how far from the camera and how it is turned and tilted. A
+    /// webcam sees the upper body only through the head, so this is the body's rest pose as far as it is tracked.
+    Body,
+    /// Both.
+    #[default]
+    Both,
+}
+
+impl RestScope {
+    /// Parses `face`, `body` or `both` (any case).
+    #[must_use]
+    pub fn parse(text: &str) -> Option<Self> {
+        match text.trim().to_ascii_lowercase().as_str() {
+            "face" => Some(Self::Face),
+            "body" => Some(Self::Body),
+            "both" | "all" => Some(Self::Both),
+            _ => None,
+        }
+    }
+}
+
 impl Calibration {
+    /// This calibration with the part `scope` names replaced by the one in `captured`.
+    #[must_use]
+    pub const fn with_rest(self, captured: Self, scope: RestScope) -> Self {
+        let (mut n, c) = (self.neutral, captured.neutral);
+        if matches!(scope, RestScope::Face | RestScope::Both) {
+            n.brow_l = c.brow_l;
+            n.brow_r = c.brow_r;
+            n.eye_l = c.eye_l;
+            n.eye_r = c.eye_r;
+            n.gaze = c.gaze;
+            n.mouth_open = c.mouth_open;
+            n.mouth_width = c.mouth_width;
+            n.smile = c.smile;
+        }
+        if matches!(scope, RestScope::Body | RestScope::Both) {
+            n.orientation = c.orientation;
+            n.center = c.center;
+            n.size = c.size;
+        }
+        Self { neutral: n, captured: true }
+    }
+
     /// The average of `samples` taken while the subject holds a neutral face looking at the camera. `None` when
     /// there are no samples.
     #[must_use]
@@ -162,6 +211,7 @@ pub struct Solved {
 #[derive(Clone, Debug)]
 struct Capture {
     wanted: usize,
+    scope: RestScope,
     samples: Vec<Measures>,
 }
 
@@ -221,7 +271,12 @@ impl FaceSolver {
 
     /// Starts capturing the neutral face from the next `frames` tracked frames.
     pub fn begin_calibration(&mut self, frames: usize) {
-        self.capture = Some(Capture { wanted: frames.max(1), samples: Vec::new() });
+        self.begin_rest_pose(frames, RestScope::Both);
+    }
+
+    /// Starts capturing the rest pose from the next `frames` tracked frames, replacing only the part `scope` names.
+    pub fn begin_rest_pose(&mut self, frames: usize, scope: RestScope) {
+        self.capture = Some(Capture { wanted: frames.max(1), scope, samples: Vec::new() });
     }
 
     /// Frames captured so far and frames wanted, while a calibration is running.
@@ -303,7 +358,8 @@ impl FaceSolver {
         if let Some(capture) = &mut self.capture {
             capture.samples.push(m);
             if capture.samples.len() >= capture.wanted {
-                finished_calibration = Calibration::from_samples(&capture.samples);
+                let (current, scope) = (self.calibration, capture.scope);
+                finished_calibration = Calibration::from_samples(&capture.samples).map(|captured| current.with_rest(captured, scope));
                 self.capture = None;
                 if let Some(c) = finished_calibration {
                     self.calibration = c;
@@ -361,6 +417,32 @@ mod tests {
         assert!(out.brow_l.abs() < 1e-3 && out.brow_r.abs() < 1e-3 && out.mouth_open.abs() < 1e-3 && out.smile.abs() < 1e-3 && out.mouth_wide.abs() < 1e-3);
         assert!((out.eye_open_l - 1.0).abs() < 1e-3 && (out.eye_open_r - 1.0).abs() < 1e-3);
         assert!(out.gaze[0].abs() < 1e-3 && out.gaze[1].abs() < 1e-3);
+    }
+
+    #[test]
+    fn a_rest_pose_captures_only_the_part_it_names() {
+        let seated = SyntheticFace { yaw: 0.2, center: [0.3, -0.2], eye_distance_px: 90.0, mouth_open: 0.2, ..SyntheticFace::default() };
+        let m = measure(&seated.landmarks()).unwrap();
+        let run = |scope: RestScope| {
+            let mut s = FaceSolver { smoothing: Smoothing::off(), ..FaceSolver::default() };
+            s.begin_rest_pose(2, scope);
+            let first = s.solve(Tick::ZERO, Some(&seated.landmarks()));
+            assert!(first.finished_calibration.is_none());
+            let done = s.solve(Tick::ZERO, Some(&seated.landmarks()));
+            assert!(done.finished_calibration.is_some_and(|c| c.captured));
+            (s.calibration.neutral, m)
+        };
+        let (body, m) = run(RestScope::Body);
+        assert_eq!(body.center, m.center);
+        assert_eq!(body.size, m.size);
+        assert_ne!(body.mouth_open, m.mouth_open, "the body rest pose leaves the expressions alone");
+        let (face, m) = run(RestScope::Face);
+        assert_eq!(face.mouth_open, m.mouth_open);
+        assert_ne!(face.center, m.center, "the face rest pose leaves the posture alone");
+        let (both, m) = run(RestScope::Both);
+        assert_eq!((both.center, both.mouth_open), (m.center, m.mouth_open));
+        assert_eq!(RestScope::parse(" Body "), Some(RestScope::Body));
+        assert_eq!(RestScope::parse("legs"), None);
     }
 
     #[test]
