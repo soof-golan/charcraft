@@ -1,0 +1,17 @@
+[package]
+name = "charcraft-arf"
+description = "Reader and writer for Character Animator's recorded takes: the .arf event graph (chunk container, frames of Bezier curves, channel table)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+thiserror = { workspace = true }
+
+[dev-dependencies]
+proptest = { workspace = true }

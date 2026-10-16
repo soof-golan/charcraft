@@ -1112,6 +1112,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "charcraft-arf"
+version = "0.1.0"
+dependencies = [
+ "proptest",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "charcraft-behaviors"
 version = "0.1.0"
 dependencies = [
