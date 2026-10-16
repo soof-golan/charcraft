@@ -21,7 +21,7 @@ use egui::{Context, TextureHandle, TextureOptions};
 use serde_json::{Value, json};
 
 use crate::control::{Control, ControlArgs};
-use crate::export::Format;
+use crate::export::{self, Format};
 use crate::hooks::{Hooks, PendingShot, ViewStatus, make_host};
 use crate::live::{LiveEvent, LiveHandle, MicAction, behavior_face};
 use crate::render::{RenderHandle, RenderRequest};
@@ -57,6 +57,8 @@ pub struct Options {
     pub stream: Option<charcraft_stream::Kind>,
     /// Start with a transparent stream view (no backdrop in the window or the outputs).
     pub transparent: bool,
+    /// A window to open at the start: `export` or `queue` (for screenshots).
+    pub open: Option<String>,
     /// The agent doors.
     pub control: ControlArgs,
 }
@@ -205,7 +207,20 @@ impl CharCraftApp {
             export_tx,
             export_rx,
             done,
-            view: View { mode: options.mode, dark, ..View::default() },
+            view: {
+                let mut view = View { mode: options.mode, dark, ..View::default() };
+                match options.open.as_deref() {
+                    Some("export") => view.export.dialog = Some(export::Dialog::new(&doc.rec.scene.name, "./")),
+                    Some("queue") => {
+                        view.export.queue_open = true;
+                        for (format, name) in [(Format::Mp4, "scene.mp4"), (Format::Gif, "scene.gif"), (Format::AfterEffects, "scene-ae")] {
+                            view.export.queue.push(format, PathBuf::from(name), export::Options::default());
+                        }
+                    }
+                    _ => {}
+                }
+                view
+            },
             doc,
             doc_rev: 1,
             rev: 1,
@@ -300,7 +315,7 @@ impl CharCraftApp {
             self.apply_ui_set(&set);
         }
         self.pump_live(ctx);
-        self.pump_exports();
+        self.pump_exports(ctx);
         self.advance_clock(dt);
         if now.duration_since(self.last_status) > Duration::from_millis(400) {
             self.last_status = now;
@@ -500,18 +515,29 @@ impl CharCraftApp {
         }
     }
 
-    fn pump_exports(&mut self) {
+    fn pump_exports(&mut self, ctx: &Context) {
         while let Ok(event) = self.export_rx.try_recv() {
             match event {
                 ExportEvent::Progress(f, message) => self.view.exporting = Some((f, message)),
                 ExportEvent::Done(result) => {
                     self.view.exporting = None;
+                    self.view.export.queue.finish(result.clone().map(|_| ()));
                     self.view.last_export = Some(match result {
                         Ok(summary) => format!("Exported {summary}"),
                         Err(e) => format!("Export failed: {e}"),
                     });
                 }
             }
+        }
+        if self.view.exporting.is_none() {
+            self.start_next_queued(ctx);
+        }
+    }
+
+    /// Starts the next waiting item of the queue when it is running.
+    fn start_next_queued(&mut self, ctx: &Context) {
+        if let Some((format, path, options)) = self.view.export.queue.take_next() {
+            self.export(ctx, format, &path, &options);
         }
     }
 
@@ -760,8 +786,12 @@ impl CharCraftApp {
         }
     }
 
-    fn export(&mut self, ctx: &Context, format: Format, path: &Path) {
-        let request = Request::Export { format: format.id().to_owned(), path: path.display().to_string(), options: json!({}) };
+    fn export(&mut self, ctx: &Context, format: Format, path: &Path, options: &export::Options) {
+        let request = Request::Export {
+            format: format.id().to_owned(),
+            path: path.display().to_string(),
+            options: serde_json::to_value(options).unwrap_or_else(|_| json!({})),
+        };
         let pending = self.control.backend.submit(request);
         let (tx, ctx) = (self.export_tx.clone(), ctx.clone());
         let spawned = std::thread::Builder::new().name("charcraft-export-relay".into()).spawn(move || {
@@ -779,7 +809,10 @@ impl CharCraftApp {
                 self.view.exporting = Some((0.0, "starting".to_owned()));
                 self.control.pump(&mut self.host);
             }
-            Err(e) => self.view.status = format!("Export: {e}"),
+            Err(e) => {
+                self.view.status = format!("Export: {e}");
+                self.view.export.queue.finish(Err(e.to_string()));
+            }
         }
     }
 
@@ -831,7 +864,24 @@ impl CharCraftApp {
                         self.view.status = format!("New failed: {e}");
                     }
                 }
-                Action::Export(format, path) => self.export(ctx, format, &path),
+                Action::Export(format, path, options) => {
+                    if self.view.exporting.is_some() {
+                        // One export at a time: this one waits its turn in the queue.
+                        self.view.export.queue.push(format, path, options);
+                        self.view.export.queue.running = true;
+                    } else {
+                        self.export(ctx, format, &path, &options);
+                    }
+                }
+                Action::Enqueue(format, path, options) => {
+                    self.view.export.queue.push(format, path, options);
+                    self.view.export.queue_open = true;
+                }
+                Action::RunQueue => self.view.export.queue.running = true,
+                Action::ClearQueue => {
+                    self.view.export.queue.running = false;
+                    self.view.export.queue.clear_finished();
+                }
                 Action::StartRecord => self.start_record(),
                 Action::StopRecord => self.stop_record(),
                 Action::LipsyncClip { track, audio_track, clip } => self.lipsync_clip(track, audio_track, clip),

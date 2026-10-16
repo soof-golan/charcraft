@@ -478,31 +478,49 @@ impl AppHooks<AppDoc> for Hooks {
                 "scale": { "type": "number", "exclusiveMinimum": 0, "maximum": 8, "description": "Pixels per stage pixel (default 1)." },
                 "start_frame": { "type": "integer", "minimum": 0 },
                 "frames": { "type": "integer", "minimum": 1, "description": "How many frames (default: to the end)." },
-                "transparent": { "type": "boolean", "description": "Leave the stage background out (default for mov and png-sequence)." }
+                "transparent": { "type": "boolean", "description": "Leave the stage background out (default for mov, png-sequence and after-effects)." },
+                "fps": { "type": "number", "exclusiveMinimum": 0, "maximum": 240, "description": "Output frame rate (default: the scene's); frames are picked by time." }
             }
         });
-        let mut formats = vec![
-            ExportFormat::new("mp4", "H.264 video", "mp4"),
-            ExportFormat::new("mov", "ProRes 4444 video with alpha", "mov"),
-            ExportFormat::new("png-sequence", "PNG sequence (a folder)", ""),
-            ExportFormat::new("png", "One PNG (the frame is start_frame)", "png"),
-        ];
-        for format in &mut formats {
+        let mut formats: Vec<ExportFormat> = Format::ALL
+            .into_iter()
+            .map(|f| {
+                let mut format = ExportFormat::new(f.id(), f.label(), f.extension());
+                format.schema = options.clone();
+                let note = match f {
+                    Format::AfterEffects => {
+                        " The path is a folder: frames/ (PNG sequence), audio.wav, <name>.mov (ProRes 4444 with alpha), export.json and REEXPORT.txt with the re-export command. This is the Dynamic Link alternative."
+                    }
+                    Format::Wav => " The sound alone; fails when the scene has none.",
+                    Format::Gif => " 1-bit alpha when transparent.",
+                    _ => "",
+                };
+                format.description = format!("Renders the scene with its takes, behaviors and sound.{note}");
+                format
+            })
+            .collect();
+        for preset in export::presets() {
+            let mut format = ExportFormat::new(&preset.id, &preset.label, preset.format.extension());
             format.schema = options.clone();
-            "Renders the scene with its takes, behaviors and sound.".clone_into(&mut format.description);
+            format.description = format!("Preset: {} Options given to export_run override the preset's. Writes {}.", preset.description, preset.format.id());
+            formats.push(format);
         }
         formats
     }
 
     fn export(&mut self, doc: &AppDoc, request: &ExportRequest, ticket: &Ticket) -> HookResult {
-        let format = Format::parse(&request.format).ok_or_else(|| ControlError::new(ErrorKind::NotFound, format!("no export format {:?}", request.format)))?;
-        let options: export::Options = if request.options.is_null() {
-            export::Options::default()
-        } else {
-            serde_json::from_value(request.options.clone()).map_err(|e| ControlError::invalid(format!("export options: {e}")))?
+        let (format, options) = export::resolve(&request.format, &request.options).map_err(|message| {
+            if message.starts_with("no export") { ControlError::new(ErrorKind::NotFound, message) } else { ControlError::invalid(message) }
+        })?;
+        let job = Job {
+            cast: self.world.cast.clone(),
+            scene: doc.rec.scene.clone(),
+            media: self.world.media.clone(),
+            format,
+            path: request.path.clone(),
+            options,
+            project: self.world.source.clone(),
         };
-        let job =
-            Job { cast: self.world.cast.clone(), scene: doc.rec.scene.clone(), media: self.world.media.clone(), format, path: request.path.clone(), options };
         run_job(ticket, "export", move |ticket| {
             let value = export::run(job, &mut |fraction, message| {
                 ticket.progress(fraction, message);

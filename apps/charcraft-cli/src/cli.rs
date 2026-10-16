@@ -137,9 +137,13 @@ pub struct ExportArgs {
     /// The scene to export (display name); the first scene by default.
     #[arg(long)]
     pub scene: Option<String>,
-    /// A video file (.mp4 or .mov), or a directory (or a name without extension) for a PNG sequence.
+    /// A video file (.mp4 or .mov), an animated .gif, the sound alone as .wav, or a directory (or a name without
+    /// extension) for a PNG sequence.
     #[arg(short, long)]
     pub output: PathBuf,
+    /// Output frame rate (default: the scene's).
+    #[arg(long)]
+    pub fps: Option<f64>,
     /// Pixel scale relative to the scene size.
     #[arg(long, default_value_t = 1.0)]
     pub scale: f64,

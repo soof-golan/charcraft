@@ -8,7 +8,6 @@ use std::path::{Path, PathBuf};
 use anim_ui::theme::visual;
 use egui::{RichText, Ui};
 
-use crate::export::Format;
 use crate::state::Mode;
 use serde_json::json;
 
@@ -16,6 +15,7 @@ use crate::view::{Action, Ctx, Prompt, SaveKind, View, WorkspaceAction};
 use crate::workspace::{builtin_workspaces, chord_text};
 
 pub mod edit;
+pub mod export;
 pub mod layers;
 pub mod panels;
 pub mod prefs;
@@ -47,6 +47,7 @@ pub fn draw(ui: &mut Ui, view: &mut View, ctx: &Ctx<'_>) -> Vec<Action> {
         }
     }
     prompt(ui, view, ctx, &mut actions);
+    export::show(ui, view, ctx, &mut actions);
     prefs::show(ui, view, &mut actions);
     actions
 }
@@ -120,8 +121,13 @@ fn file_menu(ui: &mut Ui, view: &mut View, ctx: &Ctx<'_>, actions: &mut Vec<Acti
         ui.close();
     }
     ui.separator();
-    if ui.button("Export video or images...").clicked() {
-        view.prompt = Some((Prompt::Export, default_dir() + "scene.mp4"));
+    if ui.button("Export...").on_hover_text("Video, GIF, PNG sequence, sound or an After Effects package").clicked() {
+        export::open_dialog(view, ctx, &default_dir());
+        ui.close();
+    }
+    let waiting = view.export.queue.waiting();
+    if ui.button(format!("Export queue ({waiting} waiting)...")).clicked() {
+        view.export.queue_open = true;
         ui.close();
     }
     ui.separator();
@@ -312,7 +318,6 @@ fn prompt(ui: &Ui, view: &mut View, ctx: &Ctx<'_>, actions: &mut Vec<Action>) {
     let title = match kind {
         Prompt::Open => "Open or import",
         Prompt::Save => "Save as",
-        Prompt::Export => "Export",
         Prompt::Audio => "Import audio",
         Prompt::ImportPuppet => "Import puppet",
     };
@@ -336,15 +341,6 @@ fn prompt(ui: &Ui, view: &mut View, ctx: &Ctx<'_>, actions: &mut Vec<Action>) {
                 SaveKind::Puppet => ui.weak("The selected puppet as a .puppet file."),
             };
         }
-        if kind == Prompt::Export {
-            ui.horizontal(|ui| {
-                for format in [Format::Mp4, Format::Mov, Format::PngSequence, Format::Png] {
-                    if ui.selectable_label(view.export_format == format, format.id()).clicked() {
-                        view.export_format = format;
-                    }
-                }
-            });
-        }
         egui::ScrollArea::vertical().max_height(220.0).show(ui, |ui| {
             for (name, is_dir) in listing(&text) {
                 let label = if is_dir { format!("{name}{}", std::path::MAIN_SEPARATOR) } else { name.clone() };
@@ -365,7 +361,6 @@ fn prompt(ui: &Ui, view: &mut View, ctx: &Ctx<'_>, actions: &mut Vec<Action>) {
             let ok_label = match kind {
                 Prompt::Open => "Open",
                 Prompt::Save => "Save",
-                Prompt::Export => "Export",
                 Prompt::Audio | Prompt::ImportPuppet => "Import",
             };
             if ui.button(ok_label).clicked() || enter {
@@ -380,7 +375,6 @@ fn prompt(ui: &Ui, view: &mut View, ctx: &Ctx<'_>, actions: &mut Vec<Action>) {
                             Action::Run("project.save", json!({ "path": path.display().to_string(), "format": "puppet", "puppet": key }))
                         }
                     },
-                    Prompt::Export => Action::Export(view.export_format, path),
                     Prompt::Audio => {
                         Action::Run("audio.import", serde_json::json!({ "path": path.display().to_string(), "start_seconds": view.playhead.max(0.0) }))
                     }

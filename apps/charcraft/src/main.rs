@@ -71,6 +71,9 @@ struct Cli {
     /// Open the Preferences window.
     #[arg(long)]
     prefs: bool,
+    /// Open a window at the start: `export` (the export dialog) or `queue` (the export queue with sample items).
+    #[arg(long, value_name = "WINDOW")]
+    open: Option<String>,
     /// No window: serve MCP on stdio only.
     #[arg(long, requires = "mcp_stdio")]
     headless: bool,
@@ -153,6 +156,7 @@ fn main() -> Result<ExitCode> {
         dark: !cli.light,
         stream,
         transparent: cli.transparent,
+        open: cli.open,
         control: cli.control,
     };
     let (done_tx, done_rx) = crossbeam_channel::unbounded();

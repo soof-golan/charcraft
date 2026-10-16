@@ -85,8 +85,13 @@ Rendering. `render_frame` returns a PNG as image content. With no options it dra
 example `{"head":{"rotation":10}}`), `triggers` (keys that are on), `swaps` (swap set to layer label),
 `transparent`. `screenshot` returns the real window (bridge or windowed app).
 
-Export. `export` with `mp4` (H.264 and AAC), `mov` (ProRes 4444 with alpha), `png-sequence` or `png`; long exports
-report progress and can be cancelled.
+Export. `export` with `mp4` (H.264 and AAC), `mov` (ProRes 4444 with alpha), `gif`, `png-sequence`, `png`, `wav` (the
+sound alone) or `after-effects` (a folder with a PNG sequence, `audio.wav`, a ProRes 4444 MOV, `export.json` and
+`REEXPORT.txt`; the closest legitimate stand-in for Dynamic Link). Options: `scale`, `start_frame`, `frames`,
+`transparent`, `fps`. `list_export_formats` also lists presets (`h264-half`, `gif-web`, `audio-wav`, ...); a preset id
+works as the `format`, and the options given override the preset's. There is no WebM (no pure-Rust VP9 encoder). Long
+exports report progress and can be cancelled; a client queues exports by calling `export` again, and the window has an
+export queue of its own (File > Export queue).
 
 ## Example session
 

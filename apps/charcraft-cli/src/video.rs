@@ -22,15 +22,21 @@ pub enum Format {
     Mov,
     /// One PNG per frame in a folder.
     PngSequence,
+    /// An animated GIF.
+    Gif,
+    /// The sound alone, as a WAV (no frames are rendered).
+    Wav,
 }
 
 impl Format {
-    /// By the output name: `.mp4`, `.mov`, anything else is a folder of PNGs.
+    /// By the output name: `.mp4`, `.mov`, `.gif`, `.wav`, anything else is a folder of PNGs.
     #[must_use]
     pub fn of(output: &Path) -> Self {
         match output.extension().and_then(|e| e.to_str()).map(str::to_lowercase).as_deref() {
             Some("mp4") => Self::Mp4,
             Some("mov") => Self::Mov,
+            Some("gif") => Self::Gif,
+            Some("wav") => Self::Wav,
             _ => Self::PngSequence,
         }
     }
@@ -109,6 +115,34 @@ pub fn write(output: &Path, plan: &Plan, audio: Option<AudioTrack>, mut frame: i
                 save_png(&name, &image)?;
             }
         }
+        Format::Wav => bail!("a WAV has no picture"),
+        Format::Gif => {
+            let (Ok(w16), Ok(h16)) = (u16::try_from(plan.width), u16::try_from(plan.height)) else {
+                bail!("{}x{} does not fit a GIF (65535 pixels per side)", plan.width, plan.height);
+            };
+            if let Some(parent) = output.parent().filter(|p| !p.as_os_str().is_empty()) {
+                std::fs::create_dir_all(parent).wrap_err_with(|| format!("creating {}", parent.display()))?;
+            }
+            let file = std::fs::File::create(output).wrap_err_with(|| format!("creating {}", output.display()))?;
+            let mut encoder = gif::Encoder::new(std::io::BufWriter::new(file), w16, h16, &[]).wrap_err("starting the GIF")?;
+            encoder.set_repeat(gif::Repeat::Infinite).wrap_err("starting the GIF")?;
+            let delays = anim_export::frame_delays_cs(u32::try_from(plan.frames).unwrap_or(u32::MAX), plan.fps.as_f64(), 2).wrap_err("the GIF frame delays")?;
+            for (index, delay) in (0..plan.frames).zip(delays) {
+                report(index);
+                let mut pixels = anim_render::straight_rgba(&frame(index, plan.time_of(index))?);
+                let mut any_transparent = false;
+                let (chunks, _) = pixels.as_chunks_mut::<4>();
+                for [_, _, _, alpha] in chunks {
+                    any_transparent |= *alpha < 128;
+                    *alpha = if *alpha < 128 { 0 } else { 255 };
+                }
+                let mut gif_frame = gif::Frame::from_rgba_speed(w16, h16, &mut pixels, 10);
+                gif_frame.delay = delay;
+                gif_frame.dispose = if any_transparent { gif::DisposalMethod::Background } else { gif::DisposalMethod::Keep };
+                encoder.write_frame(&gif_frame).wrap_err("encoding a frame")?;
+            }
+            drop(encoder);
+        }
         Format::Mp4 | Format::Mov => {
             let codec = if plan.format == Format::Mp4 { Codec::H264 { rate: H264Rate::default() } } else { Codec::ProRes4444 { alpha: true } };
             let mut settings = VideoSettings::new(plan.width, plan.height, plan.fps, codec);
@@ -138,5 +172,29 @@ pub fn write(output: &Path, plan: &Plan, audio: Option<AudioTrack>, mut frame: i
             ));
         }
     }
-    Ok(format!("{}: {} PNG frames, {}x{} ({:.1} s)", output.display(), plan.frames, plan.width, plan.height, started.elapsed().as_secs_f64()))
+    let what = if plan.format == Format::Gif { "GIF" } else { "PNG" };
+    Ok(format!("{}: {} {what} frames, {}x{} ({:.1} s)", output.display(), plan.frames, plan.width, plan.height, started.elapsed().as_secs_f64()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_output_name_picks_the_format() {
+        for (name, format) in [("a.mp4", Format::Mp4), ("a.MOV", Format::Mov), ("a.gif", Format::Gif), ("a.wav", Format::Wav), ("frames", Format::PngSequence)] {
+            assert_eq!(Format::of(Path::new(name)), format, "{name}");
+        }
+    }
+
+    #[test]
+    fn a_gif_has_the_planned_frames_and_a_lower_rate_means_fewer() {
+        let dir = tempfile::tempdir().unwrap();
+        let out = dir.path().join("a.gif");
+        let plan = Plan::new(&out, 8, 6, 12.0, Tick::from_seconds_f64(0.5)).unwrap();
+        assert_eq!(plan.frames, 6);
+        let summary = write(&out, &plan, None, |_, _| Ok(Image { width: 8, height: 6, premultiplied_rgba: vec![200; 8 * 6 * 4] })).unwrap();
+        assert!(summary.contains("6 GIF frames"), "{summary}");
+        assert_eq!(&std::fs::read(&out).unwrap()[..6], b"GIF89a");
+    }
 }

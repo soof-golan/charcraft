@@ -30,8 +30,12 @@ This is version 0.1.0, a pre-release; see [Known gaps](#known-gaps).
   actors that own their devices. With no camera the app says so and offers the demo face as an explicit choice;
   `charcraft --face-file PHOTO` tracks a picture, an animated GIF or a folder of frames instead.
 - **Rig, Record and Stream modes** in the app; scenes with recorded and performed takes.
-- **Export**: a project scene or a performance to `MP4` (H.264 with AAC), `MOV` (ProRes 4444 with transparency) or a
-  `PNG` sequence.
+- **Export**: a project scene or a performance to `MP4` (H.264 with AAC), `MOV` (ProRes 4444 with transparency), an
+  animated `GIF`, a `PNG` sequence, or the sound alone as a `WAV`. File > Export has presets, range, size, frame rate and
+  alpha options, and an export queue runs several in turn. WebM is not offered: it needs a VP9 encoder, none exists in
+  pure Rust, and bundling libvpx would add a C build to every platform. Adobe Dynamic Link is proprietary and is not
+  cloned; the alternative is the After Effects / Premiere package (PNG sequence, WAV, ProRes 4444 MOV and a
+  `REEXPORT.txt` with the command that exports it again from the project).
 - **MCP**: everything the UI does is a command; `charcraft-cli mcp` serves them headless or as a bridge to the running
   window, with real screenshots. See [docs/mcp.md](docs/mcp.md).
 

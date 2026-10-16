@@ -57,12 +57,22 @@ pub fn run(args: &ExportArgs) -> Result<()> {
     if let Some(seconds) = args.seconds {
         length = length.min(Tick::from_seconds_f64(seconds));
     }
+    if format == Format::Wav {
+        let (mixed, _missing) = mix_scene(&scene, &media, MixFormat::STEREO_48K)?;
+        let sound = mixed.slice_ticks(anim_core::TimeRange::new(start, length));
+        if sound.samples.is_empty() {
+            bail!("scene {:?} has no sound to export", scene.name);
+        }
+        crate::frames::write_file(&args.output, &charcraft_record::wav_bytes(&sound))?;
+        println!("{}: {} Hz, {} channels, {} bytes of samples", args.output.display(), sound.sample_rate, sound.channels, sound.samples.len().saturating_mul(4));
+        return Ok(());
+    }
+    let fps = args.fps.unwrap_or_else(|| scene.fps_f64());
     let pixels = |extent: f64| {
         let n = anim_core::num::round_f64_to_u32((extent * args.scale).max(1.0));
         if format == Format::PngSequence { n } else { n.saturating_add(n % 2) }
     };
-    let plan = Plan::new(&args.output, pixels(scene.size.width), pixels(scene.size.height), scene.fps_f64(), length)?;
-    let first_frame = scene.frame_at(start);
+    let plan = Plan::new(&args.output, pixels(scene.size.width), pixels(scene.size.height), fps, length)?;
 
     let mut evaluator = Evaluator::new(&scene, &stage.cast().templates())?;
     let mut renderer = Renderer::new();
@@ -74,7 +84,7 @@ pub fn run(args: &ExportArgs) -> Result<()> {
         spoken,
         plan.width,
         plan.height,
-        scene.fps_f64(),
+        fps,
         length.seconds()
     );
 
@@ -87,8 +97,8 @@ pub fn run(args: &ExportArgs) -> Result<()> {
         None
     };
 
-    let summary = crate::video::write(&args.output, &plan, soundtrack, |index, _| {
-        let poses = evaluator.poses(first_frame.saturating_add(index));
+    let summary = crate::video::write(&args.output, &plan, soundtrack, |_, t| {
+        let poses = evaluator.poses(scene.frame_at(Tick(start.0.saturating_add(t.0))));
         stage.render_scene_image(&mut renderer, &scene, &poses, args.scale, Some((plan.width, plan.height)), transparent).map_err(|e| eyre!("{e}"))
     })?;
     println!("{summary}");

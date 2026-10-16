@@ -168,7 +168,10 @@ fn tools_are_generated_from_the_commands_and_queries() {
     assert_eq!(rig["inputSchema"]["required"], json!(["op"]));
     let formats = client.ok("list_export_formats", json!({}));
     let ids: Vec<&str> = formats["formats"].as_array().unwrap().iter().map(|f| f["id"].as_str().unwrap()).collect();
-    assert_eq!(ids, ["mp4", "mov", "png-sequence", "png"]);
+    assert_eq!(&ids[..7], ["mp4", "mov", "gif", "png-sequence", "png", "wav", "after-effects"]);
+    for preset in ["h264-match-source", "prores-4444-alpha", "gif-web", "audio-wav", "after-effects-package"] {
+        assert!(ids.contains(&preset), "preset {preset} is missing from {ids:?}");
+    }
 }
 
 #[test]
@@ -313,6 +316,21 @@ fn lip_sync_of_a_synthesized_sound_then_export_an_mp4_that_demuxes() {
     assert_eq!(common::read_png(&frames.join("frame_00001.png")).width, 320);
     let (err, is_error) = client.tool("export", json!({ "format": "avi", "path": text(&dir.path().join("x.avi")) }));
     assert!(is_error, "{err}");
+
+    // A GIF through a preset (half size, 15 fps), the sound alone, and the After Effects package.
+    let gif = dir.path().join("talk.gif");
+    let done = client.ok("export", json!({ "format": "gif-web", "path": text(&gif), "options": { "frames": 30 } }));
+    assert_eq!((done["frames"].as_u64().unwrap(), done["width"].as_u64().unwrap()), (15, 160), "{done}");
+    assert_eq!(&std::fs::read(&gif).unwrap()[..6], b"GIF89a");
+    let wav = dir.path().join("talk.wav");
+    client.ok("export", json!({ "format": "wav", "path": text(&wav) }));
+    assert_eq!(&std::fs::read(&wav).unwrap()[..4], b"RIFF");
+    let package = dir.path().join("talk-ae");
+    let done = client.ok("export", json!({ "format": "after-effects", "path": text(&package), "options": { "frames": 6, "scale": 0.5 } }));
+    assert_eq!(done["audio"], true, "{done}");
+    for file in ["talk-ae.mov", "audio.wav", "export.json", "REEXPORT.txt", "frames/frame_00006.png"] {
+        assert!(package.join(file).is_file(), "{file} is missing");
+    }
 }
 
 #[test]

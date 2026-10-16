@@ -16,7 +16,7 @@ use charcraft_record::Recorder;
 use charcraft_tracking::input::FaceInput as TrackedFace;
 use serde_json::Value;
 
-use crate::export::Format;
+use crate::export::{ExportUi, Format, Options};
 use crate::live::MicAction;
 use crate::projectio::PuppetRow;
 use crate::session::AppDoc;
@@ -85,8 +85,14 @@ pub enum Action {
     Save(PathBuf),
     /// Start a fresh demo document.
     New,
-    /// Export the scene.
-    Export(Format, PathBuf),
+    /// Export the scene now (after the running export when there is one).
+    Export(Format, PathBuf, Options),
+    /// Add an export to the queue.
+    Enqueue(Format, PathBuf, Options),
+    /// Run the queued exports one after another.
+    RunQueue,
+    /// Stop the queue after the running export and drop the finished items.
+    ClearQueue,
     /// Start recording a take on the selected track.
     StartRecord,
     /// Stop recording and keep the take.
@@ -129,8 +135,6 @@ pub enum Prompt {
     Open,
     /// Save the document; the kind is chosen in the prompt.
     Save,
-    /// Export; the format is chosen in the prompt.
-    Export,
     /// Import a sound file onto the first audio track at the playhead.
     Audio,
     /// Import a `.puppet` or project into the open project.
@@ -384,8 +388,8 @@ pub struct View {
     pub recording: Option<ActiveTake>,
     /// The open file prompt and its text.
     pub prompt: Option<(Prompt, String)>,
-    /// The export format chosen in the prompt.
-    pub export_format: Format,
+    /// The export dialog and the export queue.
+    pub export: ExportUi,
     /// A running export: progress and what it is doing.
     pub exporting: Option<(f32, String)>,
     /// The last export result or error, shown in the status bar.
@@ -447,7 +451,7 @@ impl Default for View {
             status: String::new(),
             recording: None,
             prompt: None,
-            export_format: Format::Mp4,
+            export: ExportUi::default(),
             exporting: None,
             last_export: None,
             peaks: BTreeMap::new(),
