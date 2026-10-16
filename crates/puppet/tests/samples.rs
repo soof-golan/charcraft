@@ -18,7 +18,7 @@ use anim_core::{Rgba8, Vec2};
 use anim_display::{Image, ImageStore};
 use anim_render::{Background, RenderOptions, Renderer, straight_rgba};
 use charcraft_project::Project;
-use charcraft_puppet::{HandleKind, Puppet, PuppetPose, Viseme, tags::ids};
+use charcraft_puppet::{HandleKind, Puppet, PuppetPose, Viseme, Xform, tags::ids};
 
 fn samples() -> Option<PathBuf> {
     std::env::var_os("ANICRAFT_SAMPLES").map(PathBuf::from)
@@ -171,6 +171,35 @@ fn boy_puppet_file_builds_with_project_data() {
     // The summary is JSON a tool can return.
     let json = serde_json::to_string(&puppet.summary()).unwrap();
     assert!(json.contains("Adobe.Face.Head"));
+}
+
+#[test]
+fn boy_head_stays_welded_to_the_body() {
+    let Some(root) = samples() else { return };
+    let puppet = Puppet::from_project(&Project::open(root.join("Boy.puppet")).unwrap(), None).unwrap();
+    let head = puppet.with_tag(ids::HEAD)[0];
+    let body = puppet.layers().iter().find(|l| l.label == "Body" && l.independent).unwrap().id;
+    let origin = puppet.layer(head).unwrap().origin;
+
+    let neutral = render(&puppet, &PuppetPose::neutral());
+    let mut pose = PuppetPose::neutral();
+    pose.head = Xform { translation: Vec2::new(0.0, -30.0), rotation: 15.0_f64.to_radians(), ..Xform::IDENTITY };
+    let moved = puppet.group_matrix(head, &pose) * origin;
+
+    // The body's mesh follows the attach point: the vertex nearest to it moves with it, within 1 px.
+    let (rest, solved) = puppet.warp_solution(body, &pose).expect("the body is welded to the head");
+    let (r, s) = rest.iter().zip(&solved).min_by(|a, b| a.0.distance(origin).total_cmp(&b.0.distance(origin))).unwrap();
+    let shift = *s - *r;
+    assert!((shift - (moved - origin)).hypot() < 1.0, "neck vertex moved {shift:?}, attach point {:?}", moved - origin);
+    // Where it is far from the head the body stays put.
+    let (r, s) = rest.iter().zip(&solved).max_by(|a, b| a.0.distance(origin).total_cmp(&b.0.distance(origin))).unwrap();
+    assert!((*s - *r).hypot() < 1.0, "the feet moved");
+
+    let posed = render(&puppet, &pose);
+    assert!(differing(&posed, &neutral) > 5000);
+    assert_eq!(render(&puppet, &pose), posed, "evaluation is deterministic");
+    assert_eq!(render(&puppet, &PuppetPose::neutral()), neutral);
+    write_png("boy_weld_neutral_vs_moved_head.png", &[&neutral, &posed]);
 }
 
 #[test]

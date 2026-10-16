@@ -382,3 +382,56 @@ fn an_empty_artwork_is_a_puppet_with_nothing_to_draw() {
     assert_eq!(p.layers().len(), 1);
     let _ = p.evaluate(&PuppetPose::neutral().with_viseme(Viseme::Ah));
 }
+
+/// A head resting on a body through a thin neck that belongs to the body's artwork.
+fn neck_tree() -> ArtworkTree {
+    let head = ArtNode::group("Head", vec![rect("Face", 50.0, 20.0, 100, 100, SKIN)]);
+    let body = ArtNode::group("Body", vec![rect("Torso", 60.0, 140.0, 80, 60, GRAY), rect("Neck", 90.0, 110.0, 20, 40, BLUE)]);
+    ArtworkTree { size: Size::new(f64::from(W), f64::from(W)), root: ArtNode::group("", vec![body, head]), warnings: Vec::new() }
+}
+
+fn is_blank(c: [u8; 3]) -> bool {
+    c == [255, 255, 255]
+}
+
+fn head_moved_up_and_turned() -> PuppetPose {
+    let mut pose = PuppetPose::neutral();
+    pose.head = Xform { translation: Vec2::new(0.0, -30.0), rotation: 15.0_f64.to_radians(), ..Xform::IDENTITY };
+    pose
+}
+
+#[test]
+fn a_moved_head_stays_connected_to_the_body() {
+    let p = Puppet::from_artwork(&neck_tree()).unwrap();
+    let neutral = render(&p, &PuppetPose::neutral());
+    let mut store = ImageStore::new();
+    let list = anim_artwork::to_display(&neck_tree(), &mut store);
+    let expected = anim_render::render(&list, &store, &RenderOptions::new(W, W).with_background(Background::Solid(Rgba8::WHITE))).unwrap();
+    assert_eq!(neutral, expected, "the neutral pose is unchanged");
+
+    let posed = render(&p, &head_moved_up_and_turned());
+    // The head's chin stays where the attach point went (y 90); the body's neck follows it: no white gap between
+    // the head and the torso along the neck line.
+    for x in [96, 100, 104] {
+        for y in 92..140 {
+            assert!(!is_blank(px(&posed, x, y)), "gap at ({x},{y})");
+        }
+    }
+    assert_eq!(render(&p, &head_moved_up_and_turned()), posed, "evaluation is deterministic");
+}
+
+#[test]
+fn the_body_mesh_follows_the_moved_attach_point() {
+    let p = Puppet::from_artwork(&neck_tree()).unwrap();
+    let body = id(&p, "Body");
+    let head = id(&p, "Head");
+    assert!(p.warped_groups().is_empty(), "a weld alone does not count as a handle warp");
+    let origin = p.layer(head).unwrap().origin;
+    let pose = head_moved_up_and_turned();
+    let moved = p.group_matrix(head, &pose) * origin;
+    let (mesh, positions) = p.warp_solution(body, &pose).expect("the body is welded to the head");
+    let nearest = mesh.iter().zip(&positions).min_by(|a, b| a.0.distance(origin).total_cmp(&b.0.distance(origin))).unwrap();
+    // The mesh point at the attach point travels with it (the nearest vertex moves by the same amount, within 1 px).
+    let shift = *nearest.1 - *nearest.0;
+    assert!(shift.hypot() > 20.0 && (shift - (moved - origin)).hypot() < 1.0, "vertex moved by {shift:?}, the attach point by {:?}", moved - origin);
+}
