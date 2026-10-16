@@ -83,6 +83,14 @@ fn resolve_group(old: &Skeleton, new: &Skeleton, map: &BTreeMap<String, String>,
     if layer.independent { Ok((path, layer.label.clone())) } else { Err(format!("{path:?} is no longer an independent group (its name must start with +)")) }
 }
 
+/// A handle key (`Group label/handle name`) in terms of the new group.
+fn remap_handle_key(old: &Skeleton, new: &Skeleton, map: &BTreeMap<String, String>, group: &str, key: &str) -> Result<(String, String), String> {
+    let old_label = old.resolve(group).map(|l| l.label.clone()).unwrap_or_default();
+    let (path, label) = resolve_group(old, new, map, group)?;
+    let name = key.strip_prefix(&format!("{old_label}/")).unwrap_or(key);
+    Ok((path, format!("{label}/{name}")))
+}
+
 /// One edit in terms of the new artwork.
 ///
 /// # Errors
@@ -91,15 +99,25 @@ pub fn remap_op(op: &PuppetOp, old: &Skeleton, new: &Skeleton, map: &BTreeMap<St
     Ok(match op {
         PuppetOp::AddTag { layer, tag } => PuppetOp::AddTag { layer: resolve(old, map, layer)?, tag: tag.clone() },
         PuppetOp::RemoveTag { layer, tag } => PuppetOp::RemoveTag { layer: resolve(old, map, layer)?, tag: tag.clone() },
-        PuppetOp::AddHandle { group, name, kind, position } => {
-            PuppetOp::AddHandle { group: resolve_group(old, new, map, group)?.0, name: name.clone(), kind: *kind, position: *position }
+        PuppetOp::AddHandle { group, name, kind, position, end } => {
+            PuppetOp::AddHandle { group: resolve_group(old, new, map, group)?.0, name: name.clone(), kind: *kind, position: *position, end: *end }
+        }
+        PuppetOp::MoveHandle { group, key, position, end } => {
+            let (path, key) = remap_handle_key(old, new, map, group, key)?;
+            PuppetOp::MoveHandle { group: path, key, position: *position, end: *end }
         }
         PuppetOp::RemoveHandle { group, key } => {
-            let old_label = old.resolve(group).map(|l| l.label.clone()).unwrap_or_default();
-            let (path, label) = resolve_group(old, new, map, group)?;
-            let name = key.strip_prefix(&format!("{old_label}/")).unwrap_or(key);
-            PuppetOp::RemoveHandle { group: path, key: format!("{label}/{name}") }
+            let (path, key) = remap_handle_key(old, new, map, group, key)?;
+            PuppetOp::RemoveHandle { group: path, key }
         }
+        PuppetOp::SetIndependent { layer, independent } => PuppetOp::SetIndependent { layer: resolve(old, map, layer)?, independent: *independent },
+        PuppetOp::SetAttachStyle { group, style } => PuppetOp::SetAttachStyle { group: resolve_group(old, new, map, group)?.0, style: *style },
+        PuppetOp::SetWarpIndependent { group, on } => PuppetOp::SetWarpIndependent { group: resolve_group(old, new, map, group)?.0, on: *on },
+        PuppetOp::SetMeshDensity { group, density } => PuppetOp::SetMeshDensity { group: resolve_group(old, new, map, group)?.0, density: *density },
+        PuppetOp::SetHideOthers { layer, on } => PuppetOp::SetHideOthers { layer: resolve(old, map, layer)?, on: *on },
+        PuppetOp::SetCycle { layer, cycle } => PuppetOp::SetCycle { layer: resolve(old, map, layer)?, cycle: *cycle },
+        PuppetOp::RemoveSwapSet { name } => PuppetOp::RemoveSwapSet { name: name.clone() },
+        PuppetOp::RenameSwapSet { name, new_name } => PuppetOp::RenameSwapSet { name: name.clone(), new_name: new_name.clone() },
         PuppetOp::SetOrigin { group, origin } => PuppetOp::SetOrigin { group: resolve_group(old, new, map, group)?.0, origin: *origin },
         PuppetOp::SetKeyTrigger { layer, key } => PuppetOp::SetKeyTrigger { layer: resolve(old, map, layer)?, key: key.clone() },
         PuppetOp::AddSwapSet { name, members } => {
@@ -176,7 +194,7 @@ mod tests {
             RigEdit { puppet: "p".into(), op: PuppetOp::AddTag { layer: "Prop".into(), tag: "My.Tag".into() } },
             RigEdit {
                 puppet: "p".into(),
-                op: PuppetOp::AddHandle { group: "Arm".into(), name: "Wrist".into(), kind: HandleKind::Draggable, position: [1.0, 2.0] },
+                op: PuppetOp::AddHandle { group: "Arm".into(), name: "Wrist".into(), kind: HandleKind::Draggable, position: [1.0, 2.0], end: None },
             },
             RigEdit { puppet: "p".into(), op: PuppetOp::RemoveHandle { group: "Arm".into(), key: "Arm/Wrist".into() } },
             RigEdit { puppet: "other".into(), op: PuppetOp::SetVisible { layer: "Prop".into(), visible: false } },

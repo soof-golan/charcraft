@@ -1183,6 +1183,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "charcraft-maker"
+version = "0.1.0"
+dependencies = [
+ "anim-artwork",
+ "anim-core",
+ "anim-display",
+ "anim-render",
+ "charcraft-puppet",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "charcraft-ndi"
 version = "0.1.0"
 dependencies = [
