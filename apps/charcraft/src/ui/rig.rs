@@ -143,13 +143,7 @@ fn tree(ui: &mut Ui, puppet: &Puppet, key: &str, view: &mut View, ctx: &Ctx<'_>,
                 // The tags have their own right-aligned column, so they never run off the edge of the panel.
                 // Only as many tags as the room left in the row allows; the rest are in the tooltip of the "+n".
                 let room = ui.available_width();
-                let shown = if room > 170.0 {
-                    2
-                } else if room > 90.0 {
-                    1
-                } else {
-                    0
-                };
+                let shown = usize::from(room > 90.0).saturating_add(usize::from(room > 170.0));
                 if room > 40.0 {
                     ui.allocate_ui_with_layout(vec2(room, 18.0), egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if let Some(key) = &layer.key_trigger {
