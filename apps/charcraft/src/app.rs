@@ -32,6 +32,7 @@ use crate::world::Opened;
 
 /// What the command line asked for.
 #[derive(Debug, Clone)]
+#[allow(clippy::struct_excessive_bools, reason = "one flag per command line switch")]
 pub struct Options {
     /// The mode to start in.
     pub mode: Mode,
