@@ -285,13 +285,11 @@ fn guessed_key(name: &str) -> Option<String> {
     if parts.len() < 2 && parts.iter().all(|w| w.chars().count() <= 3) {
         return None;
     }
-    let mut side = None;
-    if parts.len() > 1 {
-        if let Some(at) = parts.iter().position(|w| SIDE_WORDS.iter().any(|(s, _)| s == w)) {
-            let word = parts.remove(at);
-            side = SIDE_WORDS.iter().find(|(s, _)| *s == word).map(|(_, full)| *full);
-        }
-    }
+    let at = if parts.len() > 1 { parts.iter().position(|w| SIDE_WORDS.iter().any(|(s, _)| s == w)) } else { None };
+    let side = at.and_then(|at| {
+        let word = parts.remove(at);
+        SIDE_WORDS.iter().find(|(s, _)| *s == word).map(|(_, full)| *full)
+    });
     if let Some(last) = parts.last_mut()
         && last.chars().count() > 3
         && last.ends_with('s')

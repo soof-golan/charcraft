@@ -1,6 +1,7 @@
 //! The drawing: ellipses, rounded boxes and gradients rasterised into layers.
 
 #![allow(clippy::many_single_char_names, reason = "pixel and colour maths")]
+#![allow(clippy::suboptimal_flops, reason = "pixel maths reads better as plain arithmetic")]
 
 use anim_artwork::{ArtNode, ArtworkTree};
 use anim_core::num::{f64_to_f32, round_f64_to_u32, unit_f32_to_u8};

@@ -259,7 +259,8 @@ mod tests {
                 assert!(p.find_path(path).is_some(), "{} lacks {path}", t.id);
             }
             assert!(p.import_report().is_empty(), "{}: {:?}", t.id, p.import_report());
-            assert!(!p.evaluate(&PuppetPose::neutral().with_viseme(Viseme::Oh)).nodes.is_empty());
+            let drawn = p.evaluate(&PuppetPose::neutral().with_viseme(Viseme::Oh)).nodes.len();
+            assert!(drawn > 0);
         }
     }
 
