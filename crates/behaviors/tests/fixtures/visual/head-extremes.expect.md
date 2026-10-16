@@ -58,3 +58,23 @@ Rendered to `.../scratch/visual/charcraft-puppet-behaviors/head-extremes.png` (r
    a zero-scale head collapses completely; the sheets are clean (head-extremes, head-extremes-b). The only
    leftover is a 4 px white notch at the top edge of the body under the flipped head (head-extremes-b panel 3,
    x about 607, y 140..145), not asserted.
+
+### Review of the two re-blessed goldens (anchor weld fix)
+
+Read at 2x on a magenta background, panel by panel. Two features that look like defects were examined and are the
+weld rule working, not bugs; the goldens stay as they are.
+
+- Small grey bumps at the torso top (head-extremes panels 1 and 3, rot180 and the 15-degree tilt). They are the
+  body vertices in the weld margin (3% of the mesh extent beyond the head's outline, so the neck stays rigid a
+  short way below the chin) that follow the head's matrix: when the head turns by 40 degrees or more, that stub
+  lands outside the head's outline (4 px above the flipped head at 180 degrees, a dome left of the turned head's
+  lower corner at 40). They show only for turns far outside what a performance gives (the posed anchors and Boy at
+  15 to 25 degrees show none; Boy at 90 degrees shows a 3 px nub) and read as the shoulder folding at the neck.
+  Not asserted, not fixed: shrinking the margin would end the rigid neck below the chin that points 6b and 7 of
+  `crates/puppet/tests/fixtures/visual/neck_weld.expect.md` rely on.
+- The V in the torso under the flipped head (head-extremes-b panel 3: flip, head moved 60 px down). The head
+  moved 60 px through the body, so the neck vertices under it go with it and the top edge of the torso is pulled
+  down between shoulders that stay: the white V is that dent, 45 px wide and 35 px deep, ending 25 px above the
+  head's new top edge, where the torso is continuous grey. No pixel of the torso is torn (the mesh stays a single
+  piece, the shoulders are untouched), and a pull of 60 px on a flipped head is outside the range of the weld.
+  Verdict: expected deformation, the golden documents it.
