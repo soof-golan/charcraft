@@ -19,6 +19,7 @@
     reason = "benchmark code over synthetic scenes"
 )]
 
+use std::cell::OnceCell;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::hint::black_box;
 use std::path::PathBuf;
@@ -28,7 +29,7 @@ use anim_core::{Point, Size, Vec2};
 use anim_display::Image;
 use charcraft_project::Project;
 use charcraft_puppet::{HandleKind, Puppet, PuppetPose, Viseme, Xform};
-use criterion::{Criterion, criterion_group, criterion_main};
+use criterion::{BatchSize, Criterion, criterion_group, criterion_main};
 
 fn rect(name: &str, x: f64, y: f64, w: u32, h: u32, rgb: [u8; 3]) -> ArtNode {
     let n = usize::try_from(w * h).unwrap();
@@ -128,22 +129,58 @@ fn bench_stress(c: &mut Criterion) {
     let mut g = c.benchmark_group("puppet_stress");
     g.sample_size(20);
     for arms in [2, 8] {
-        let tree = stress_tree(arms);
-        g.bench_function(format!("build_{arms}_arms"), |b| b.iter(|| black_box(Puppet::from_artwork(black_box(&tree)).unwrap())));
-        let p = stress_puppet(arms);
-        let extreme = extreme_pose(&p);
-        let mut moved = PuppetPose::neutral();
-        moved.head = Xform::moved(0.0, -40.0);
-        if checks {
-            eprintln!("checksum stress_{arms}_extreme {:016x}", checksum(&p, &extreme));
-            eprintln!("checksum stress_{arms}_head {:016x}", checksum(&p, &moved));
-        }
-        g.bench_function(format!("evaluate_neutral_{arms}_arms"), |b| b.iter(|| black_box(p.evaluate(black_box(&PuppetPose::neutral())))));
-        g.bench_function(format!("evaluate_head_moved_{arms}_arms"), |b| b.iter(|| black_box(p.evaluate(black_box(&moved)))));
-        g.bench_function(format!("evaluate_extreme_{arms}_arms"), |b| b.iter(|| black_box(p.evaluate(black_box(&extreme)))));
-        g.bench_function(format!("visibility_{arms}_arms"), |b| b.iter(|| black_box(p.visibility(black_box(&extreme)))));
+        // Scenes are built when a benchmark that needs them runs, so a filtered run (or a profile) is not
+        // dominated by the setup of the others.
+        let scene = OnceCell::new();
+        let scene = || scene.get_or_init(|| Scene::new(stress_puppet(arms), &format!("stress_{arms}"), checks));
+        g.bench_function(format!("build_{arms}_arms"), |b| {
+            let tree = stress_tree(arms);
+            b.iter(|| black_box(Puppet::from_artwork(black_box(&tree)).unwrap()));
+        });
+        g.bench_function(format!("add_handle_{arms}_arms"), |b| {
+            let s = scene();
+            let arm = s.puppet.find_label("Arm 0").unwrap();
+            let at = s.puppet.layer(arm).and_then(|l| l.bounds).unwrap().center();
+            b.iter_batched(|| s.puppet.clone(), |mut p| black_box(p.add_handle(arm, "Extra", HandleKind::Dangle, at)), BatchSize::LargeInput);
+        });
+        g.bench_function(format!("evaluate_neutral_{arms}_arms"), |b| {
+            let s = scene();
+            b.iter(|| black_box(s.puppet.evaluate(black_box(&PuppetPose::neutral()))));
+        });
+        g.bench_function(format!("evaluate_head_moved_{arms}_arms"), |b| {
+            let s = scene();
+            b.iter(|| black_box(s.puppet.evaluate(black_box(&s.moved))));
+        });
+        g.bench_function(format!("evaluate_extreme_{arms}_arms"), |b| {
+            let s = scene();
+            b.iter(|| black_box(s.puppet.evaluate(black_box(&s.extreme))));
+        });
+        g.bench_function(format!("visibility_{arms}_arms"), |b| {
+            let s = scene();
+            b.iter(|| black_box(s.puppet.visibility(black_box(&s.extreme))));
+        });
     }
     g.finish();
+}
+
+/// A puppet with the poses it is benchmarked in.
+struct Scene {
+    puppet: Puppet,
+    extreme: PuppetPose,
+    moved: PuppetPose,
+}
+
+impl Scene {
+    fn new(puppet: Puppet, name: &str, checks: bool) -> Self {
+        let extreme = extreme_pose(&puppet);
+        let mut moved = PuppetPose::neutral().with_viseme(Viseme::Oh).with_head_rotation(15.0);
+        moved.head.translation = Vec2::new(0.0, -40.0);
+        if checks {
+            eprintln!("checksum {name}_extreme {:016x}", checksum(&puppet, &extreme));
+            eprintln!("checksum {name}_head {:016x}", checksum(&puppet, &moved));
+        }
+        Self { puppet, extreme, moved }
+    }
 }
 
 fn bench_samples(c: &mut Criterion) {
@@ -156,18 +193,30 @@ fn bench_samples(c: &mut Criterion) {
     g.sample_size(20);
     for file in ["Boy.puppet", "blood_cells.puppet"] {
         let name = file.trim_end_matches(".puppet");
-        let Ok(project) = Project::open(root.join(file)) else { continue };
-        g.bench_function(format!("{name}_build"), |b| b.iter(|| black_box(Puppet::from_project(black_box(&project), None).unwrap())));
-        let p = Puppet::from_project(&project, None).unwrap();
-        let extreme = extreme_pose(&p);
-        let tilt = PuppetPose::neutral().with_viseme(Viseme::Oh).with_head_rotation(15.0);
-        if checks {
-            eprintln!("checksum {name}_extreme {:016x}", checksum(&p, &extreme));
-            eprintln!("checksum {name}_tilt {:016x}", checksum(&p, &tilt));
-        }
-        g.bench_function(format!("{name}_evaluate_neutral"), |b| b.iter(|| black_box(p.evaluate(black_box(&PuppetPose::neutral())))));
-        g.bench_function(format!("{name}_evaluate_tilt"), |b| b.iter(|| black_box(p.evaluate(black_box(&tilt)))));
-        g.bench_function(format!("{name}_evaluate_extreme"), |b| b.iter(|| black_box(p.evaluate(black_box(&extreme)))));
+        let path = root.join(file);
+        let scene = OnceCell::new();
+        let scene = || {
+            scene.get_or_init(|| {
+                let project = Project::open(&path).unwrap();
+                Scene::new(Puppet::from_project(&project, None).unwrap(), name, checks)
+            })
+        };
+        g.bench_function(format!("{name}_build"), |b| {
+            let project = Project::open(&path).unwrap();
+            b.iter(|| black_box(Puppet::from_project(black_box(&project), None).unwrap()));
+        });
+        g.bench_function(format!("{name}_evaluate_neutral"), |b| {
+            let s = scene();
+            b.iter(|| black_box(s.puppet.evaluate(black_box(&PuppetPose::neutral()))));
+        });
+        g.bench_function(format!("{name}_evaluate_tilt"), |b| {
+            let s = scene();
+            b.iter(|| black_box(s.puppet.evaluate(black_box(&s.moved))));
+        });
+        g.bench_function(format!("{name}_evaluate_extreme"), |b| {
+            let s = scene();
+            b.iter(|| black_box(s.puppet.evaluate(black_box(&s.extreme))));
+        });
     }
     g.finish();
 }

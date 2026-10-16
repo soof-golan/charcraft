@@ -18,6 +18,7 @@
     reason = "benchmark code over synthetic scenes"
 )]
 
+use std::cell::OnceCell;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::hint::black_box;
 use std::path::PathBuf;
@@ -97,31 +98,37 @@ fn checksum(stack: &mut BehaviorStack, script: &Script) -> u64 {
     h.finish()
 }
 
-fn bench_rig(c: &mut Criterion, name: &str, rig: &Rig) {
-    let script = script(rig);
-    let mut stack = BehaviorStack::standard(rig.clone()).with_seed(1);
-    if std::env::var_os("BENCH_CHECKSUM").is_some() {
-        eprintln!("checksum {name} {:016x}", checksum(&mut stack, &script));
-    }
-    c.bench_function(&format!("simulate_{FRAMES}_frames_{name}"), |b| b.iter(|| black_box(simulate(&mut stack, black_box(&script), 1).unwrap())));
-    c.bench_function(&format!("rig_from_puppet_{name}"), |b| b.iter(|| black_box(rig.clone())));
+/// Benchmarks a puppet, built only when one of its benchmarks runs (a filtered run is not dominated by the setup of
+/// the others).
+fn bench_puppet(c: &mut Criterion, name: &str, make: impl Fn() -> Puppet) {
+    let puppet = OnceCell::new();
+    let puppet = || puppet.get_or_init(&make);
+    c.bench_function(&format!("simulate_{FRAMES}_frames_{name}"), |b| {
+        let rig = Rig::from_puppet(puppet());
+        let script = script(&rig);
+        let mut stack = BehaviorStack::standard(rig).with_seed(1);
+        if std::env::var_os("BENCH_CHECKSUM").is_some() {
+            eprintln!("checksum {name} {:016x}", checksum(&mut stack, &script));
+        }
+        b.iter(|| black_box(simulate(&mut stack, black_box(&script), 1).unwrap()));
+    });
+    c.bench_function(&format!("rig_from_puppet_{name}"), |b| {
+        let puppet = puppet();
+        b.iter(|| black_box(Rig::from_puppet(black_box(puppet))));
+    });
 }
 
 fn bench_behaviors(c: &mut Criterion) {
     for groups in [8, 32] {
-        let puppet = stress_puppet(groups);
-        let rig = Rig::from_puppet(&puppet);
-        bench_rig(c, &format!("stress_{groups}"), &rig);
-        c.bench_function(&format!("rig_build_stress_{groups}"), |b| b.iter(|| black_box(Rig::from_puppet(black_box(&puppet)))));
+        bench_puppet(c, &format!("stress_{groups}"), || stress_puppet(groups));
     }
     let Some(root) = std::env::var_os("ANICRAFT_SAMPLES").map(PathBuf::from) else {
         eprintln!("ANICRAFT_SAMPLES is not set: skipping the sample puppets");
         return;
     };
     for file in ["Boy.puppet", "blood_cells.puppet"] {
-        let Ok(project) = Project::open(root.join(file)) else { continue };
-        let Ok(puppet) = Puppet::from_project(&project, None) else { continue };
-        bench_rig(c, file.trim_end_matches(".puppet"), &Rig::from_puppet(&puppet));
+        let path = root.join(file);
+        bench_puppet(c, file.trim_end_matches(".puppet"), || Puppet::from_project(&Project::open(&path).unwrap(), None).unwrap());
     }
 }
 
