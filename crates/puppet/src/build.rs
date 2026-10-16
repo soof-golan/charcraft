@@ -114,7 +114,8 @@ impl Puppet {
         prune_viseme_tags(&mut layers);
         infer_blink_sides(&mut layers);
 
-        let mut puppet = Self { size: tree.size, layers, contents, images, warps: Vec::new(), swap_sets: Vec::new(), warnings: tree.warnings.clone() };
+        let mut puppet =
+            Self { size: tree.size, layers, contents, images, warps: Vec::new(), blends: Vec::new(), swap_sets: Vec::new(), warnings: tree.warnings.clone() };
         puppet.rebuild_warps();
         Ok(puppet)
     }
@@ -123,7 +124,12 @@ impl Puppet {
     pub(crate) fn rebuild_warps(&mut self) {
         let (warps, warnings) = crate::warp::build_all(self);
         self.warps = warps;
-        self.warnings.extend(warnings);
+        self.blends = crate::warp::build_blends(self);
+        for w in warnings {
+            if !self.warnings.contains(&w) {
+                self.warnings.push(w);
+            }
+        }
     }
 }
 

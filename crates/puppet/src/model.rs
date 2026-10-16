@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::Error;
 use crate::tags::{self, Viseme, ids};
-use crate::warp::Warp;
+use crate::warp::{Blend, Warp};
 
 /// Index of a layer in [`Puppet::layers`]. Layer 0 is the artwork root, which is the puppet itself.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
@@ -160,6 +160,7 @@ pub struct Puppet {
     pub(crate) contents: Vec<Content>,
     pub(crate) images: ImageStore,
     pub(crate) warps: Vec<Warp>,
+    pub(crate) blends: Vec<Blend>,
     /// Swap sets from the project data.
     pub swap_sets: Vec<SwapSet>,
     /// Things that could not be carried over (project layers missing from the artwork, meshes that failed).
@@ -254,7 +255,7 @@ impl Puppet {
     /// The warps built for groups with mesh-pinning handles.
     #[must_use]
     pub fn warped_groups(&self) -> Vec<LayerId> {
-        self.warps.iter().map(|w| w.group).collect()
+        self.warps.iter().filter(|w| !w.handle_indices.is_empty()).map(|w| w.group).collect()
     }
 
     /// Adds a handle to an independent group, rebuilding the group's warp when the handle pins its mesh. The key is
@@ -270,7 +271,7 @@ impl Puppet {
             HandleKind::Attach | HandleKind::Stick | HandleKind::Walk => Vec::new(),
         };
         layer.handles.push(HandleDef { name: name.to_owned(), key: key.clone(), kind, position, tags });
-        self.refresh_warp(group);
+        self.rebuild_warps();
         Some(key)
     }
 
@@ -281,7 +282,7 @@ impl Puppet {
         layer.handles.retain(|h| h.key != key);
         let removed = layer.handles.len() != before;
         if removed {
-            self.refresh_warp(group);
+            self.rebuild_warps();
         }
         removed
     }
@@ -291,6 +292,7 @@ impl Puppet {
         match self.layer_mut(group).filter(|l| l.independent) {
             Some(l) => {
                 l.origin = origin;
+                self.rebuild_warps();
                 true
             }
             None => false,
@@ -327,22 +329,6 @@ impl Puppet {
         self.swap_sets.retain(|s| s.name != name);
         self.swap_sets.push(SwapSet { name: name.to_owned(), members });
         true
-    }
-
-    /// Rebuilds the mesh of one group after its handles changed.
-    pub(crate) fn refresh_warp(&mut self, group: LayerId) {
-        self.warps.retain(|w| w.group != group);
-        let wanted = self.layer(group).is_some_and(|l| l.independent && l.handles.iter().any(|h| h.kind.pins_mesh()));
-        if !wanted {
-            return;
-        }
-        match crate::warp::build_one(self, group) {
-            Ok(w) => self.warps.push(w),
-            Err(why) => {
-                let label = self.layer(group).map(|l| l.label.clone()).unwrap_or_default();
-                self.warnings.push(format!("no mesh for {label:?}: {why}"));
-            }
-        }
     }
 
     /// An indented outline: one line per layer with its tags, for logs and tools.

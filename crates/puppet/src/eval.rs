@@ -6,7 +6,7 @@ use anim_display::{DisplayList, Group, Mesh, Node};
 use crate::model::{HandleKind, Layer, LayerId, LayerKind, Puppet};
 use crate::pose::{PuppetPose, Xform};
 use crate::tags::{self, ids};
-use crate::warp::Warp;
+use crate::warp::{self, Blend, Warp, Weld};
 
 /// Deepest layer nesting evaluated.
 const MAX_DEPTH: usize = 128;
@@ -27,6 +27,8 @@ struct Frame<'a> {
     puppet: &'a Puppet,
     pose: &'a PuppetPose,
     visible: Vec<bool>,
+    /// For each of the puppet's warps: its deformed vertices, when the pose moves it.
+    solved: Vec<Option<Vec<Point>>>,
 }
 
 impl Puppet {
@@ -35,7 +37,9 @@ impl Puppet {
     /// the artwork unchanged. Draw it with [`Puppet::images`].
     #[must_use]
     pub fn evaluate(&self, pose: &PuppetPose) -> DisplayList {
-        let frame = Frame { puppet: self, pose, visible: self.visibility(pose) };
+        let mut frame = Frame { puppet: self, pose, visible: self.visibility(pose), solved: Vec::new() };
+        let solved = self.warps.iter().map(|w| frame.solve_warp(w)).collect();
+        frame.solved = solved;
         let mut list = DisplayList::new(self.size, None);
         if let Some(node) = frame.emit(LayerId::ROOT, false, 0) {
             list.nodes.push(node);
@@ -180,6 +184,15 @@ impl Puppet {
         if x.is_identity() { Affine::IDENTITY } else { x.about(self.layer(id).map_or(Point::ORIGIN, |l| l.origin)) }
     }
 
+    /// The mesh of a group's warp in the pose: rest vertices and deformed vertices, when the pose moves the warp
+    /// (pulls its handles or moves a group welded to it). For tools and tests.
+    #[must_use]
+    pub fn warp_solution(&self, group: LayerId, pose: &PuppetPose) -> Option<(Vec<Point>, Vec<Point>)> {
+        let frame = Frame { puppet: self, pose, visible: self.visibility(pose), solved: Vec::new() };
+        let warp = self.warps.iter().find(|w| w.group == group)?;
+        Some((warp.mesh.vertices.clone(), frame.solve_warp(warp)?))
+    }
+
     /// Bounds of the pose's drawing, for fitting a view.
     #[must_use]
     pub fn rest_bounds(&self) -> Option<Rect> {
@@ -251,17 +264,26 @@ impl Frame<'_> {
             entries.push(Emitted { node, child });
         }
 
-        match self.solved_warp(layer) {
-            Some((warp, positions)) => self.apply_warp(warp, &positions, entries),
-            None => entries.into_iter().map(|e| e.node).collect(),
+        if let Some((warp, positions)) = self.solved_warp(layer) {
+            return self.apply_warp(&warp.mesh, positions, &warp.welded, entries);
         }
+        if let Some((blend, positions)) = self.solved_blend(layer) {
+            return self.apply_warp(&blend.mesh, &positions, &[], entries);
+        }
+        entries.into_iter().map(|e| e.node).collect()
     }
 
-    /// The warp of a group and its deformed vertices, when the pose pulls any of its handles.
-    fn solved_warp(&self, layer: &Layer) -> Option<(&Warp, Vec<Point>)> {
-        let warp = self.puppet.warps.iter().find(|w| w.group == layer.id)?;
+    /// The warp of a group and its deformed vertices, when the pose moves it.
+    fn solved_warp(&self, layer: &Layer) -> Option<(&Warp, &[Point])> {
+        let i = self.puppet.warps.iter().position(|w| w.group == layer.id)?;
+        Some((self.puppet.warps.get(i)?, self.solved.get(i)?.as_deref()?))
+    }
+
+    /// Deformed vertices of a warp when the pose pulls any of its handles or moves a group welded to it.
+    fn solve_warp(&self, warp: &Warp) -> Option<Vec<Point>> {
+        let layer = self.puppet.layer(warp.group)?;
         let mut moved = false;
-        let targets: Vec<Point> = warp
+        let mut targets: Vec<Point> = warp
             .handle_indices
             .iter()
             .filter_map(|&i| layer.handles.get(i))
@@ -271,10 +293,42 @@ impl Frame<'_> {
                 h.position + d
             })
             .collect();
-        moved.then(|| (warp, warp.solve(&targets)))
+        let mut welds_idle = true;
+        for &weld in &warp.welded {
+            let Some(child) = self.puppet.layer(weld.child) else {
+                targets.push(Point::ORIGIN);
+                continue;
+            };
+            let active = self.is_visible(child.id) && !self.puppet.group_xform(child.id, self.pose).is_identity();
+            moved |= active;
+            welds_idle &= !active;
+            targets.push(if active { self.attach_point(warp, weld, child) } else { child.origin });
+        }
+        moved.then(|| warp.solve(&targets, welds_idle))
     }
 
-    fn apply_warp(&self, warp: &Warp, positions: &[Point], entries: Vec<Emitted>) -> Vec<Node> {
+    /// Where a welded group's attach point is in the pose, in the space of the mesh it is welded to.
+    fn attach_point(&self, warp: &Warp, weld: Weld, child: &Layer) -> Point {
+        let posed = self.puppet.group_matrix(child.id, self.pose) * child.origin;
+        if weld.sibling { self.puppet.group_matrix(warp.group, self.pose).inverse() * posed } else { posed }
+    }
+
+    /// The blend mesh of a welded group and its deformed vertices, when the pose moves the group and the mesh it is
+    /// welded to: vertices near its attach point follow that mesh, the rest follow the group's own pose.
+    fn solved_blend(&self, layer: &Layer) -> Option<(&Blend, Vec<Point>)> {
+        let blend = self.puppet.blends.iter().find(|b| b.group == layer.id)?;
+        if self.puppet.group_xform(layer.id, self.pose).is_identity() {
+            return None;
+        }
+        let i = self.puppet.warps.iter().position(|w| w.group == blend.parent)?;
+        let parent = &self.puppet.warps.get(i)?.mesh;
+        let moved = self.solved.get(i)?.as_deref()?;
+        let to_local = self.puppet.group_matrix(layer.id, self.pose).inverse();
+        let parent_space = if blend.sibling { self.puppet.group_matrix(blend.parent, self.pose) } else { Affine::IDENTITY };
+        Some((blend, blend.solve(|x| to_local * (parent_space * (x + warp::displacement(parent, moved, x))))))
+    }
+
+    fn apply_warp(&self, warp_mesh: &anim_rig::Mesh, positions: &[Point], welded: &[Weld], entries: Vec<Emitted>) -> Vec<Node> {
         let mut out = Vec::new();
         let mut run: Vec<Node> = Vec::new();
         let flush = |run: &mut Vec<Node>, out: &mut Vec<Node>| {
@@ -284,16 +338,16 @@ impl Frame<'_> {
             out.push(Node::Mesh(Mesh {
                 transform: Affine::IDENTITY,
                 content: std::mem::take(run),
-                source: warp.mesh.vertices.clone(),
+                source: warp_mesh.vertices.clone(),
                 target: positions.to_vec(),
-                triangles: warp.mesh.triangles.clone(),
+                triangles: warp_mesh.triangles.clone(),
             }));
         };
         for entry in entries {
             match entry.child.and_then(|c| self.puppet.layer(c)) {
                 Some(child) => {
                     flush(&mut run, &mut out);
-                    let d = warp.displacement(positions, child.origin);
+                    let d = if welded.iter().any(|w| w.child == child.id) { Vec2::ZERO } else { warp::displacement(warp_mesh, positions, child.origin) };
                     out.push(if d == Vec2::ZERO {
                         entry.node
                     } else {

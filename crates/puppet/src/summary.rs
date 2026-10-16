@@ -74,7 +74,7 @@ impl Puppet {
                     .iter()
                     .map(|h| crate::summary::HandleSummary { key: h.key.clone(), kind: h.kind, position: [h.position.x, h.position.y] })
                     .collect(),
-                warped: self.warps.iter().any(|w| w.group == l.id),
+                warped: self.warps.iter().any(|w| w.group == l.id && !w.handle_indices.is_empty()),
             })
             .collect();
         let mouths = self.mouth_groups();
