@@ -531,7 +531,7 @@ mod tests {
 
     #[test]
     fn several_scenes_camera_and_keyframes_survive_save_and_open() {
-        let Opened { world, mut rec, rig } = World::demo().unwrap();
+        let Opened { world, mut rec, rig, .. } = World::demo().unwrap();
         let mut second = rec.scene.clone();
         second.name = "Second".into();
         rec.add_scene(second, None).unwrap();

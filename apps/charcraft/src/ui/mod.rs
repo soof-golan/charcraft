@@ -366,8 +366,7 @@ fn prompt(ui: &Ui, view: &mut View, ctx: &Ctx<'_>, actions: &mut Vec<Action>) {
                 Prompt::Open => "Open",
                 Prompt::Save => "Save",
                 Prompt::Export => "Export",
-                Prompt::Audio => "Import",
-                Prompt::ImportPuppet => "Import",
+                Prompt::Audio | Prompt::ImportPuppet => "Import",
             };
             if ui.button(ok_label).clicked() || enter {
                 let path = PathBuf::from(text.trim());
