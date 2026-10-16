@@ -1110,9 +1110,23 @@ mod tests {
         let schema = registry.get("rig.edit").unwrap().schema_value();
         let offered: Vec<&str> = schema["properties"]["op"]["enum"].as_array().unwrap().iter().filter_map(Value::as_str).collect();
         for op in [
-            "add_tag", "remove_tag", "add_handle", "move_handle", "remove_handle", "set_origin", "set_independent", "set_attach_style",
-            "set_warp_independent", "set_mesh_density", "set_hide_others", "set_cycle", "set_key_trigger", "add_swap_set",
-            "remove_swap_set", "rename_swap_set", "set_visible",
+            "add_tag",
+            "remove_tag",
+            "add_handle",
+            "move_handle",
+            "remove_handle",
+            "set_origin",
+            "set_independent",
+            "set_attach_style",
+            "set_warp_independent",
+            "set_mesh_density",
+            "set_hide_others",
+            "set_cycle",
+            "set_key_trigger",
+            "add_swap_set",
+            "remove_swap_set",
+            "rename_swap_set",
+            "set_visible",
         ] {
             assert!(offered.contains(&op), "{op} is missing from the rig.edit schema");
         }
