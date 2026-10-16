@@ -72,6 +72,9 @@ engine side. This repository holds the Character Animator side: `charcraft-*` cr
 - CI runs `mbx nextest run` (one process per test, all binaries at once) plus `mbx test --doc`; locally
   `mbx nextest run -p <crate>` gives the same result.
 - Run builds through the queue (see below) in the dev profile. Use release only for benchmarks.
+- Release builds and CI use the `live` feature. When you touch charcraft-tracking or charcraft-app, also run
+  `mbx clippy -p charcraft-app -p charcraft-tracking --all-targets --locked --features charcraft-app/live -- -D warnings`
+  before landing. Code behind `cfg(feature = "live")` is not compiled by the plain checks.
 
 ## Visual verification: predict, render, inspect
 
