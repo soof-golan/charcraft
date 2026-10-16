@@ -10,6 +10,7 @@ use anim_core::{ColorTransform, Size, Vec2};
 use anim_display::{DisplayList, Group, ImageId, ImageStore, Node};
 use anim_export::FrameSource;
 use charcraft_behaviors::{BehaviorStack, Rig};
+use charcraft_project::media::MediaKind;
 use charcraft_project::{BindingKind, Model, Project, PuppetItem};
 use charcraft_puppet::{Puppet, PuppetPose};
 
@@ -102,7 +103,7 @@ impl Cast {
                 warnings.push(format!("{key}: not a puppet of the project"));
                 continue;
             };
-            match Puppet::from_project(project, Some(key)) {
+            match Puppet::from_project(project, Some(key)).or_else(|first| picture_puppet(project, model, item).ok_or(first)) {
                 Ok(puppet) => {
                     let (template, skipped) = BehaviorStack::from_bound(Rig::from_puppet(&puppet), &item.behaviors, &defaults);
                     if !skipped.is_empty() {
@@ -115,6 +116,48 @@ impl Cast {
         }
         (cast, warnings)
     }
+}
+
+/// A one-layer artwork tree from PNG bytes (backgrounds and props are plain pictures).
+///
+/// # Errors
+/// [`Error::Invalid`] for data that is not a PNG or is outside the size limits.
+pub fn png_artwork(bytes: &[u8]) -> Result<anim_artwork::ArtworkTree> {
+    let mut decoder = png::Decoder::new(std::io::Cursor::new(bytes));
+    decoder.set_transformations(png::Transformations::EXPAND | png::Transformations::STRIP_16);
+    let mut reader = decoder.read_info().map_err(|e| Error::invalid(format!("reading the PNG header: {e}")))?;
+    let (width, height) = reader.info().size();
+    if width == 0 || height == 0 || width > 16_384 || height > 16_384 || u64::from(width).saturating_mul(u64::from(height)) > 64 * 1024 * 1024 {
+        return Err(Error::invalid(format!("a {width}x{height} PNG is outside the supported size")));
+    }
+    let mut buf = vec![0_u8; reader.output_buffer_size().ok_or_else(|| Error::invalid("the PNG is too large"))?];
+    let frame = reader.next_frame(&mut buf).map_err(|e| Error::invalid(format!("decoding the PNG: {e}")))?;
+    let data = buf.get(..frame.buffer_size()).ok_or_else(|| Error::invalid("short PNG data"))?;
+    let rgba: Vec<u8> = match frame.color_type {
+        png::ColorType::Rgba => data.to_vec(),
+        png::ColorType::Rgb => data.as_chunks::<3>().0.iter().flat_map(|&[r, g, b]| [r, g, b, 255]).collect(),
+        png::ColorType::GrayscaleAlpha => data.as_chunks::<2>().0.iter().flat_map(|&[g, a]| [g, g, g, a]).collect(),
+        png::ColorType::Grayscale => data.iter().flat_map(|&g| [g, g, g, 255]).collect(),
+        png::ColorType::Indexed => return Err(Error::invalid("an indexed PNG was not expanded")),
+    };
+    let image = anim_render::image_from_straight_rgba(width, height, &rgba).map_err(|e| Error::invalid(e.to_string()))?;
+    let root = anim_artwork::ArtNode::group("", vec![anim_artwork::ArtNode::raster("picture", image, anim_core::Point::ORIGIN)]);
+    Ok(anim_artwork::ArtworkTree { size: Size::new(f64::from(width), f64::from(height)), root, warnings: Vec::new() })
+}
+
+/// A puppet made of one picture (a PNG backdrop or prop of a project), when the item has one.
+fn picture_puppet(project: &Project, model: &Model, item: &PuppetItem) -> Option<Puppet> {
+    let file_name = item
+        .artwork
+        .iter()
+        .chain(item.bindings.iter().filter(|b| b.kind == BindingKind::Skin).filter_map(|b| b.ppath.as_ref()))
+        .flat_map(|p| p.split('/'))
+        .find(|s| s.to_lowercase().ends_with(".png"))?;
+    let media = model.media.iter().find(|m| m.kind == MediaKind::Artwork && m.file_name.as_deref() == Some(file_name)).and_then(|m| m.file.as_ref())?;
+    let tree = png_artwork(&project.package().read(&media.path).ok()?).ok()?;
+    let mut puppet = Puppet::from_artwork(&tree).ok()?;
+    puppet.apply_project(model, item);
+    Some(puppet)
 }
 
 fn origin_of(item: &PuppetItem) -> Vec2 {

@@ -633,6 +633,7 @@ dependencies = [
 name = "charcraft-record"
 version = "0.1.0"
 dependencies = [
+ "anim-artwork",
  "anim-audio",
  "anim-core",
  "anim-display",
@@ -645,6 +646,7 @@ dependencies = [
  "charcraft-ltab",
  "charcraft-project",
  "charcraft-puppet",
+ "png",
  "proptest",
  "serde",
  "serde_json",

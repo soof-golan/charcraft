@@ -11,22 +11,24 @@ repository.workspace = true
 workspace = true
 
 [dependencies]
+anim-artwork = { workspace = true }
 anim-audio = { workspace = true }
 anim-core = { workspace = true }
 anim-display = { workspace = true }
 anim-export = { workspace = true }
 anim-lipsync = { workspace = true }
+anim-render = { workspace = true }
 anim-session = { workspace = true }
 anim-video = { workspace = true }
 charcraft-behaviors = { workspace = true }
 charcraft-ltab = { workspace = true }
 charcraft-project = { workspace = true }
 charcraft-puppet = { workspace = true }
+png = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 
 [dev-dependencies]
-anim-render = { workspace = true }
 proptest = { workspace = true }
 tempfile = { workspace = true }
