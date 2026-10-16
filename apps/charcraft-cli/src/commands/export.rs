@@ -64,7 +64,13 @@ pub fn run(args: &ExportArgs) -> Result<()> {
             bail!("scene {:?} has no sound to export", scene.name);
         }
         crate::frames::write_file(&args.output, &charcraft_record::wav_bytes(&sound))?;
-        println!("{}: {} Hz, {} channels, {} bytes of samples", args.output.display(), sound.sample_rate, sound.channels, sound.samples.len().saturating_mul(4));
+        println!(
+            "{}: {} Hz, {} channels, {} bytes of samples",
+            args.output.display(),
+            sound.sample_rate,
+            sound.channels,
+            sound.samples.len().saturating_mul(4)
+        );
         return Ok(());
     }
     let fps = args.fps.unwrap_or_else(|| scene.fps_f64());

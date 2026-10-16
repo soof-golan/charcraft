@@ -182,7 +182,8 @@ mod tests {
 
     #[test]
     fn the_output_name_picks_the_format() {
-        for (name, format) in [("a.mp4", Format::Mp4), ("a.MOV", Format::Mov), ("a.gif", Format::Gif), ("a.wav", Format::Wav), ("frames", Format::PngSequence)] {
+        for (name, format) in [("a.mp4", Format::Mp4), ("a.MOV", Format::Mov), ("a.gif", Format::Gif), ("a.wav", Format::Wav), ("frames", Format::PngSequence)]
+        {
             assert_eq!(Format::of(Path::new(name)), format, "{name}");
         }
     }

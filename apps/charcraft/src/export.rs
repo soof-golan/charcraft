@@ -197,7 +197,13 @@ pub fn presets() -> Vec<Preset> {
             Options { scale: 0.5, fps: Some(15.0), transparent: Some(false), ..Options::default() },
         ),
         make("png-sequence-alpha", "PNG sequence with alpha", "One PNG per frame, transparent background.", Format::PngSequence, Options::default()),
-        make("still-png", "Still frame (PNG)", "The frame at the start frame, on the stage background.", Format::Png, Options { transparent: Some(false), ..Options::default() }),
+        make(
+            "still-png",
+            "Still frame (PNG)",
+            "The frame at the start frame, on the stage background.",
+            Format::Png,
+            Options { transparent: Some(false), ..Options::default() },
+        ),
         make("audio-wav", "Sound only (WAV)", "The mixed sound of the scene.", Format::Wav, Options::default()),
         make(
             "after-effects-package",
@@ -334,7 +340,8 @@ impl Dialog {
     pub fn new(scene_name: &str, dir: &str) -> Self {
         let name: String = scene_name.chars().map(|c| if c.is_alphanumeric() || c == '-' || c == '_' { c } else { '_' }).collect();
         let name = if name.is_empty() { "scene".to_owned() } else { name };
-        let (format, options, preset) = presets().into_iter().next().map_or_else(|| (Format::Mp4, Options::default(), None), |p| (p.format, p.options, Some(p.id)));
+        let (format, options, preset) =
+            presets().into_iter().next().map_or_else(|| (Format::Mp4, Options::default(), None), |p| (p.format, p.options, Some(p.id)));
         Self { preset, format, path: with_extension(&format!("{dir}{name}"), format), options }
     }
 }
