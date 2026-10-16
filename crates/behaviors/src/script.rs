@@ -9,7 +9,7 @@ use charcraft_puppet::PuppetPose;
 use serde::{Deserialize, Serialize};
 
 use crate::error::{Error, Result};
-use crate::input::{FaceInput, Inputs, Pointer};
+use crate::input::{BodyInput, FaceInput, Inputs, Pointer};
 use crate::stack::BehaviorStack;
 
 /// Most frames one script may play.
@@ -28,6 +28,18 @@ pub enum ScriptEvent {
     },
     /// The camera loses the face.
     NoFace {
+        /// Frame the event happens on.
+        frame: u32,
+    },
+    /// The camera sees this body from now on.
+    Body {
+        /// Frame the event happens on.
+        frame: u32,
+        /// The body.
+        body: BodyInput,
+    },
+    /// The camera loses the body.
+    NoBody {
         /// Frame the event happens on.
         frame: u32,
     },
@@ -83,6 +95,8 @@ impl ScriptEvent {
         match self {
             Self::Face { frame, .. }
             | Self::NoFace { frame }
+            | Self::Body { frame, .. }
+            | Self::NoBody { frame }
             | Self::Voice { frame, .. }
             | Self::SceneVoice { frame, .. }
             | Self::Pointer { frame, .. }
@@ -141,6 +155,7 @@ impl Script {
         let mut pending = events.into_iter().peekable();
 
         let mut face = None;
+        let mut body: Option<BodyInput> = None;
         let mut viseme = None;
         let mut scene_viseme = None;
         let mut pointers: BTreeMap<u32, Pointer> = BTreeMap::new();
@@ -151,6 +166,8 @@ impl Script {
                 match e {
                     ScriptEvent::Face { face: f, .. } => face = Some(*f),
                     ScriptEvent::NoFace { .. } => face = None,
+                    ScriptEvent::Body { body: b, .. } => body = Some(b.clone()),
+                    ScriptEvent::NoBody { .. } => body = None,
                     ScriptEvent::Voice { viseme: v, .. } => viseme = *v,
                     ScriptEvent::SceneVoice { viseme: v, .. } => scene_viseme = *v,
                     ScriptEvent::Pointer { id, x, y, down, .. } => {
@@ -172,6 +189,7 @@ impl Script {
             out.push(Inputs {
                 time: rate.tick_of(i64::from(frame)),
                 face,
+                body: body.clone(),
                 viseme,
                 scene_viseme,
                 pointers: pointers.values().copied().collect(),

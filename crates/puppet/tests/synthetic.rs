@@ -14,7 +14,7 @@ use anim_artwork::{ArtNode, ArtworkTree};
 use anim_core::{Point, Rgba8, Size, Vec2};
 use anim_display::{Image, ImageStore, Node};
 use anim_render::{Background, RenderOptions};
-use charcraft_puppet::{HandleKind, LayerId, Puppet, PuppetPose, Viseme, Xform, tags::ids};
+use charcraft_puppet::{HandleKind, LayerId, Puppet, PuppetPose, Sprite, Viseme, Xform, tags::ids};
 
 const W: u32 = 200;
 
@@ -440,4 +440,41 @@ fn the_body_mesh_follows_the_moved_attach_point() {
     for (rest, now) in mesh.iter().zip(&positions).filter(|(r, _)| r.y > 185.0) {
         assert!(now.distance(*rest) < 1.0, "{rest:?} moved to {now:?}");
     }
+}
+
+fn spark_tree() -> ArtworkTree {
+    ArtworkTree {
+        size: Size::new(f64::from(W), f64::from(W)),
+        root: ArtNode::group("", vec![rect("Floor", 0.0, 150.0, 200, 50, GRAY), hidden(rect("Spark", 20.0, 20.0, 10, 10, BLUE))]),
+        warnings: Vec::new(),
+    }
+}
+
+#[test]
+fn sprites_draw_copies_of_a_hidden_layer_where_the_pose_puts_them() {
+    let p = Puppet::from_artwork(&spark_tree()).unwrap();
+    let plain = render(&p, &PuppetPose::neutral());
+    assert_eq!(px(&plain, 25, 25), WHITE, "the hidden layer is not drawn on its own");
+    let mut pose = PuppetPose::neutral();
+    pose.sprites.push(Sprite { layer: "Spark".into(), xform: Xform::moved(100.0, 50.0), opacity: 1.0, shade: 0.0 });
+    let img = render(&p, &pose);
+    assert_eq!(px(&img, 125, 75), BLUE, "the copy is where the sprite moved it");
+    assert_eq!(px(&img, 25, 25), WHITE, "the original place stays empty");
+    pose.sprites[0].shade = 1.0;
+    assert_eq!(px(&render(&p, &pose), 125, 75), [0, 0, 0], "a full shade paints the copy black");
+    pose.sprites[0].opacity = 0.0;
+    assert_eq!(render(&p, &pose), plain, "an invisible sprite adds nothing");
+    let again: PuppetPose = serde_json::from_str(&serde_json::to_string(&pose).unwrap()).unwrap();
+    assert_eq!(again, pose);
+}
+
+#[test]
+fn pose_opacity_fades_layers_by_name() {
+    let p = Puppet::from_artwork(&spark_tree()).unwrap();
+    let mut pose = PuppetPose::neutral();
+    pose.opacity.insert("floor".into(), 0.0);
+    assert_eq!(px(&render(&p, &pose), 100, 170), WHITE, "an opacity of 0 hides the floor");
+    pose.opacity.insert("floor".into(), 0.5);
+    let half = px(&render(&p, &pose), 100, 170);
+    assert!(half[0] > GRAY[0] && half[0] < 255, "{half:?}");
 }

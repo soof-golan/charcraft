@@ -8,35 +8,57 @@ use crate::error::{Error, Result};
 
 pub mod arm_ik;
 pub mod blinker;
+pub mod body_tracker;
 pub mod breathe;
 pub mod cycle_layers;
 pub mod dragger;
 pub mod dynamics;
 pub mod eye_gaze;
 pub mod face;
+pub mod fader;
 pub mod handle_fixer;
 pub mod head_turner;
+pub mod layer_picker;
+pub mod leader_follower;
 pub mod lipsync;
+pub mod look_at_camera;
+pub mod magnets;
+pub mod motion_lines;
 pub mod motion_trigger;
+pub mod particles;
+pub mod replay;
+pub mod shadow;
 pub mod transform;
 pub mod triggers;
 pub mod walk;
+pub mod wiggler;
 
 pub use arm_ik::{ArmIk, ArmIkParams};
 pub use blinker::{Blinker, BlinkerParams};
+pub use body_tracker::{BodyTracker, BodyTrackerParams};
 pub use breathe::{Breathe, BreatheParams};
 pub use cycle_layers::{CycleLayers, CycleLayersParams};
 pub use dragger::{Dragger, DraggerParams};
 pub use dynamics::{Dynamics, DynamicsParams};
 pub use eye_gaze::{EyeGaze, EyeGazeParams};
 pub use face::{Face, FaceParams};
+pub use fader::{Fader, FaderParams};
 pub use handle_fixer::{HandleFixer, HandleFixerParams};
 pub use head_turner::{HeadTurner, HeadTurnerParams};
+pub use layer_picker::{LayerPicker, LayerPickerParams};
+pub use leader_follower::{LeaderFollower, LeaderFollowerParams};
 pub use lipsync::{LipSync, LipSyncParams};
+pub use look_at_camera::{LookAtCamera, LookAtCameraParams};
+pub use magnets::{Magnets, MagnetsParams};
+pub use motion_lines::{MotionLines, MotionLinesParams};
 pub use motion_trigger::{MotionTrigger, MotionTriggerParams};
+pub use particles::{Particles, ParticlesParams};
+pub use replay::{Replay, ReplayParams, ReplayState};
+pub use shadow::{Shadow, ShadowParams};
 pub use transform::{Transform, TransformParams};
 pub use triggers::{SwapChoice, TriggerMode, TriggerRule, Triggers, TriggersParams};
 pub use walk::{Walk, WalkParams};
+pub use wiggler::{Wiggler, WigglerParams};
 
 /// Ids of the behaviors this crate implements, in the order a new puppet gets them.
 ///
@@ -47,6 +69,7 @@ pub const IDS: &[&str] = &[
     "Adobe.HeadTurner.js",
     "Adobe.LipSync2.js",
     "Adobe.EyeGaze.js",
+    "Charcraft.LookAtCamera.js",
     "Adobe.Blinker.js",
     "Adobe.Transform.js",
     "Charcraft.Walk.js",
@@ -54,10 +77,20 @@ pub const IDS: &[&str] = &[
     "Adobe.MotionTrigger.js",
     "Adobe.Triggers.js",
     "Adobe.CycleLayers.js",
+    "Charcraft.LayerPicker.js",
+    "Charcraft.BodyTracker.js",
+    "Charcraft.Wiggler.js",
+    "Charcraft.LeaderFollower.js",
     "Adobe.ArmIK.js",
     "Adobe.HandleFixer.js",
     "Adobe.Dragger3.js",
+    "Charcraft.Magnets.js",
     "Adobe.RigDynamics.js",
+    "Charcraft.Replay.js",
+    "Charcraft.Fader.js",
+    "Charcraft.Particles.js",
+    "Charcraft.Shadow.js",
+    "Charcraft.MotionLines.js",
 ];
 
 /// A behavior with its default parameters.
@@ -82,6 +115,17 @@ pub fn create(id: &str) -> Result<Box<dyn Behavior>> {
         "Adobe.HandleFixer.js" => Box::<HandleFixer>::default(),
         "Adobe.Dragger3.js" => Box::<Dragger>::default(),
         "Adobe.RigDynamics.js" => Box::<Dynamics>::default(),
+        "Charcraft.BodyTracker.js" => Box::<BodyTracker>::default(),
+        "Charcraft.Particles.js" => Box::<Particles>::default(),
+        "Charcraft.Replay.js" => Box::<Replay>::default(),
+        "Charcraft.Magnets.js" => Box::<Magnets>::default(),
+        "Charcraft.Wiggler.js" => Box::<Wiggler>::default(),
+        "Charcraft.Fader.js" => Box::<Fader>::default(),
+        "Charcraft.LookAtCamera.js" => Box::<LookAtCamera>::default(),
+        "Charcraft.MotionLines.js" => Box::<MotionLines>::default(),
+        "Charcraft.Shadow.js" => Box::<Shadow>::default(),
+        "Charcraft.LeaderFollower.js" => Box::<LeaderFollower>::default(),
+        "Charcraft.LayerPicker.js" => Box::<LayerPicker>::default(),
         other => return Err(Error::UnknownBehavior(other.to_owned())),
     })
 }

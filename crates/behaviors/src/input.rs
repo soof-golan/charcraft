@@ -1,6 +1,6 @@
 //! What the behaviors see each tick: the face, the voice, pointers, keys and the clock.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use anim_core::{Point, Tick, Vec2};
 use anim_lipsync::Viseme as VoiceViseme;
@@ -87,6 +87,156 @@ impl FaceInput {
     }
 }
 
+/// A joint of the tracked body, named for the performer's own sides: the performer's left arm drives the puppet's
+/// left arm, so the puppet moves like a mirror.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Joint {
+    /// The nose.
+    Nose,
+    /// Left eye.
+    LeftEye,
+    /// Right eye.
+    RightEye,
+    /// Left ear.
+    LeftEar,
+    /// Right ear.
+    RightEar,
+    /// Left shoulder.
+    LeftShoulder,
+    /// Right shoulder.
+    RightShoulder,
+    /// Left elbow.
+    LeftElbow,
+    /// Right elbow.
+    RightElbow,
+    /// Left wrist.
+    LeftWrist,
+    /// Right wrist.
+    RightWrist,
+    /// Left hip.
+    LeftHip,
+    /// Right hip.
+    RightHip,
+    /// Left knee.
+    LeftKnee,
+    /// Right knee.
+    RightKnee,
+    /// Left ankle.
+    LeftAnkle,
+    /// Right ankle.
+    RightAnkle,
+}
+
+impl Joint {
+    /// Every joint, in the order pose models list them (nose, eyes, ears, shoulders, elbows, wrists, hips, knees,
+    /// ankles; left before right).
+    pub const ALL: [Self; 17] = [
+        Self::Nose,
+        Self::LeftEye,
+        Self::RightEye,
+        Self::LeftEar,
+        Self::RightEar,
+        Self::LeftShoulder,
+        Self::RightShoulder,
+        Self::LeftElbow,
+        Self::RightElbow,
+        Self::LeftWrist,
+        Self::RightWrist,
+        Self::LeftHip,
+        Self::RightHip,
+        Self::LeftKnee,
+        Self::RightKnee,
+        Self::LeftAnkle,
+        Self::RightAnkle,
+    ];
+}
+
+/// One reading of a tracked body, in a camera-independent form.
+///
+/// Positions are in body units: x grows towards the puppet's left (the screen's right), y grows downward, the
+/// origin is the middle of the hips in the rest pose and one unit is the rest pose's torso length (hips to
+/// shoulders). Joints the camera cannot see are missing. [`BodyInput::standard_rest`] is the typical standing
+/// body that the tracker's rest pose starts as.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct BodyInput {
+    /// Where each visible joint is now.
+    pub joints: BTreeMap<Joint, Vec2>,
+    /// Where each joint was in the rest pose the performer set: the joints now are measured against it.
+    pub rest: BTreeMap<Joint, Vec2>,
+}
+
+impl BodyInput {
+    /// A typical standing body, arms hanging by the sides.
+    #[must_use]
+    pub fn standard_rest() -> BTreeMap<Joint, Vec2> {
+        let side = |left: f64| {
+            [
+                (Joint::LeftEye, Vec2::new(0.08 * left, -1.45)),
+                (Joint::LeftEar, Vec2::new(0.18 * left, -1.4)),
+                (Joint::LeftShoulder, Vec2::new(0.45 * left, -1.0)),
+                (Joint::LeftElbow, Vec2::new(0.5 * left, -0.4)),
+                (Joint::LeftWrist, Vec2::new(0.5 * left, 0.2)),
+                (Joint::LeftHip, Vec2::new(0.25 * left, 0.0)),
+                (Joint::LeftKnee, Vec2::new(0.25 * left, 0.9)),
+                (Joint::LeftAnkle, Vec2::new(0.25 * left, 1.8)),
+            ]
+        };
+        let mut rest = BTreeMap::from([(Joint::Nose, Vec2::new(0.0, -1.4))]);
+        for (joint, p) in side(1.0) {
+            rest.insert(joint, p);
+        }
+        for (joint, p) in side(-1.0) {
+            let mirrored = match joint {
+                Joint::LeftEye => Joint::RightEye,
+                Joint::LeftEar => Joint::RightEar,
+                Joint::LeftShoulder => Joint::RightShoulder,
+                Joint::LeftElbow => Joint::RightElbow,
+                Joint::LeftWrist => Joint::RightWrist,
+                Joint::LeftHip => Joint::RightHip,
+                Joint::LeftKnee => Joint::RightKnee,
+                _ => Joint::RightAnkle,
+            };
+            rest.insert(mirrored, p);
+        }
+        rest
+    }
+
+    /// A body standing at rest.
+    #[must_use]
+    pub fn at_rest() -> Self {
+        let rest = Self::standard_rest();
+        Self { joints: rest.clone(), rest }
+    }
+
+    /// The joint now, if it is visible, and only when its position is a finite number.
+    #[must_use]
+    pub fn joint(&self, joint: Joint) -> Option<Vec2> {
+        self.joints.get(&joint).copied().filter(|p| p.x.is_finite() && p.y.is_finite())
+    }
+
+    /// The joint in the rest pose: the performer's own, else the typical body's.
+    #[must_use]
+    pub fn rest_joint(&self, joint: Joint) -> Vec2 {
+        self.rest
+            .get(&joint)
+            .copied()
+            .filter(|p| p.x.is_finite() && p.y.is_finite())
+            .or_else(|| Self::standard_rest().get(&joint).copied())
+            .unwrap_or(Vec2::ZERO)
+    }
+
+    /// The same body with every position kept within a sane distance (hostile numbers cannot fling the puppet).
+    #[must_use]
+    pub fn sanitized(&self) -> Self {
+        let keep = |m: &BTreeMap<Joint, Vec2>| -> BTreeMap<Joint, Vec2> {
+            m.iter().filter(|(_, p)| p.x.is_finite() && p.y.is_finite()).map(|(j, p)| (*j, Vec2::new(p.x.clamp(-8.0, 8.0), p.y.clamp(-8.0, 8.0)))).collect()
+        };
+        Self { joints: keep(&self.joints), rest: keep(&self.rest) }
+    }
+}
+
 /// A mouse or a finger on the stage.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct Pointer {
@@ -122,6 +272,8 @@ pub struct Inputs {
     pub time: Tick,
     /// The tracked face, if a camera is on and sees one.
     pub face: Option<FaceInput>,
+    /// The tracked body, if a camera is on and sees one.
+    pub body: Option<BodyInput>,
     /// The mouth shape the voice currently makes (from `anim-lipsync`), if a microphone or track is on.
     pub viseme: Option<VoiceViseme>,
     /// The mouth shape of the scene's audio (a sound clip on an audio track) at this time, if there is any.
@@ -145,6 +297,13 @@ impl Inputs {
     #[must_use]
     pub const fn with_face(mut self, face: FaceInput) -> Self {
         self.face = Some(face);
+        self
+    }
+
+    /// Adds a body.
+    #[must_use]
+    pub fn with_body(mut self, body: BodyInput) -> Self {
+        self.body = Some(body);
         self
     }
 

@@ -4,7 +4,7 @@ use anim_core::{Affine, ColorTransform, Point, Rect, Vec2};
 use anim_display::{DisplayList, Group, Mesh, Node};
 
 use crate::model::{AttachStyle, HandleKind, Layer, LayerId, LayerKind, Puppet};
-use crate::pose::{PuppetPose, Xform};
+use crate::pose::{PuppetPose, Sprite, Xform};
 use crate::tags::{self, ids};
 use crate::warp::{self, Warp, Weld};
 
@@ -44,7 +44,33 @@ impl Puppet {
         if let Some(node) = frame.emit(LayerId::ROOT, false, 0) {
             list.nodes.push(node);
         }
+        list.nodes.extend(pose.sprites.iter().filter_map(|sprite| self.sprite_node(sprite)));
         list
+    }
+
+    /// The node of one extra copy of a layer: the layer at rest, moved by the sprite's own transform.
+    fn sprite_node(&self, sprite: &Sprite) -> Option<Node> {
+        if !sprite.opacity.is_finite() || sprite.opacity <= 0.0 {
+            return None;
+        }
+        let key = tags::normalize(&sprite.layer);
+        let layer = self.layers.iter().find(|l| l.path == sprite.layer || (!l.label.is_empty() && tags::normalize(&l.label) == key))?;
+        let rest = PuppetPose::neutral();
+        let mut visible: Vec<bool> = self.layers.iter().map(|l| l.visible).collect();
+        if let Some(v) = visible.get_mut(layer.id.index()) {
+            *v = true;
+        }
+        let frame = Frame { puppet: self, pose: &rest, visible, solved: vec![None; self.warps.len()] };
+        let inner = frame.emit(layer.id, false, 0)?;
+        let shade = sprite.shade.clamp(0.0, 1.0);
+        let alpha = anim_core::num::f64_to_f32(sprite.opacity.clamp(0.0, 1.0));
+        let color = if shade > 0.0 {
+            let keep = anim_core::num::f64_to_f32(1.0 - shade);
+            ColorTransform { mul: [keep, keep, keep, alpha], add: [0.0; 4] }
+        } else {
+            ColorTransform::alpha(alpha)
+        };
+        Some(Node::Group(Group { transform: sprite.xform.about(layer.origin), color, children: vec![inner], ..Group::default() }))
     }
 
     /// Which layers the pose shows (before their ancestors are considered): the artwork's own visibility with the
@@ -256,6 +282,21 @@ impl Frame<'_> {
         self.visible.get(id.index()).copied().unwrap_or(false)
     }
 
+    /// The product of the pose's opacity entries that name the layer (by path or label).
+    fn pose_opacity(&self, layer: &Layer) -> f32 {
+        if self.pose.opacity.is_empty() {
+            return 1.0;
+        }
+        let product = self
+            .pose
+            .opacity
+            .iter()
+            .filter(|(name, _)| layer.path == **name || (!layer.label.is_empty() && tags::normalize(&layer.label) == tags::normalize(name)))
+            .map(|(_, v)| if v.is_finite() { v.clamp(0.0, 1.0) } else { 1.0 })
+            .product::<f64>();
+        anim_core::num::f64_to_f32(product)
+    }
+
     fn emit(&self, id: LayerId, shape_only: bool, depth: usize) -> Option<Node> {
         if depth > MAX_DEPTH || !self.is_visible(id) {
             return None;
@@ -265,7 +306,7 @@ impl Frame<'_> {
         let content = puppet.contents.get(id.index())?;
         let mut group = Group { key: Some(u64::from(id.0)), ..Group::default() };
         if !shape_only {
-            group.color = ColorTransform::alpha(layer.opacity.clamp(0.0, 1.0));
+            group.color = ColorTransform::alpha((layer.opacity * self.pose_opacity(layer)).clamp(0.0, 1.0));
             group.blend = layer.blend;
         }
         group.mask.clone_from(&content.mask);

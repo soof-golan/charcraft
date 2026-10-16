@@ -63,6 +63,16 @@ pub mod ids {
     pub const LEFT_EAR: &str = "Charcraft.LeftEar";
     pub const RIGHT_EAR: &str = "Charcraft.RightEar";
     pub const HAIR: &str = "Charcraft.Hair";
+    /// The artwork the Particles behavior throws, and where it throws it from (this program's convenience tag).
+    pub const PARTICLE: &str = "Charcraft.Particle";
+    /// The artwork the Shadow behavior casts on the floor (this program's convenience tag).
+    pub const SHADOW: &str = "Charcraft.Shadow";
+    /// Groups the Wiggler behavior shakes (this program's convenience tag).
+    pub const WIGGLE: &str = "Charcraft.Wiggle";
+    /// Layers the Fader behavior fades (this program's convenience tag).
+    pub const FADER: &str = "Charcraft.Fader";
+    /// The handle tag of a magnet group.
+    pub const MAGNET: &str = "Adobe.Magnets.Magnet";
     /// Prefix of the walk-cycle handle tags (`Adobe.Walk.LeftHip`, ...).
     pub const WALK_PREFIX: &str = "Adobe.Walk.";
     /// Prefix of the lip sync layer tags.
@@ -157,7 +167,11 @@ pub const AUTO_TAGS: &[AutoTag] = &[
     handle(ids::DANGLE, &["dangle"]),
     layer("Adobe.Physics.Collide", &["collide"]),
     layer("Adobe.Physics.Dynamic", &["dynamic"]),
-    handle("Adobe.Magnets.Magnet", &["magnet"]),
+    handle(ids::MAGNET, &["magnet"]),
+    layer(ids::PARTICLE, &["particle", "particles", "emitter"]),
+    layer(ids::SHADOW, &["shadow"]),
+    layer(ids::FADER, &["fader"]),
+    handle(ids::WIGGLE, &["wiggle", "wiggler"]),
     handle("Adobe.MotionLines.Trails", &["trails"]),
     handle(ids::TRANSFORM, &["transform"]),
     handle("Adobe.LeaderFollower.Leader", &["leader"]),

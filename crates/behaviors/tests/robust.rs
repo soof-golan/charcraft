@@ -13,7 +13,7 @@
 
 use anim_core::{Point, Size, Tick, Vec2};
 use anim_lipsync::Viseme as Voice;
-use charcraft_behaviors::{BehaviorStack, ChainLink, FaceInput, HandleTarget, Inputs, Pointer, Rig, RigHandle, behaviors};
+use charcraft_behaviors::{BehaviorStack, BodyInput, ChainLink, FaceInput, HandleTarget, Inputs, Joint, Pointer, Rig, RigAnchor, RigHandle, behaviors};
 use charcraft_puppet::{HandleKind, PuppetPose};
 use proptest::prelude::*;
 use serde_json::Value;
@@ -22,6 +22,12 @@ fn rig() -> Rig {
     let head =
         ChainLink { is_root: false, is_head: true, tags: Default::default(), path: "Head".into(), label: "head".into(), origin: Point::new(100.0, 100.0) };
     let mut rig = Rig::new(Size::new(1000.0, 600.0));
+    for tag in ["Charcraft.Particle", "Charcraft.Shadow", "Charcraft.Fader", "Adobe.Magnets.Magnet", "Adobe.Physics.Collide", "Adobe.MotionLines.Trails"] {
+        let mut anchor = RigAnchor::new(tag, tag, Point::new(300.0, 300.0));
+        anchor.bounds = Some(anim_core::Rect::new(250.0, 250.0, 350.0, 350.0));
+        anchor.chain = vec![head.clone()];
+        rig.anchors.push(anchor);
+    }
     for (key, kind) in [("a/Drag", HandleKind::Draggable), ("a/Dangle", HandleKind::Dangle)] {
         rig.handles.push(RigHandle { chain: vec![head.clone()], reach: 80.0, ..RigHandle::new(key, kind, Point::new(150.0, 120.0)) });
     }
@@ -57,10 +63,15 @@ fn any_inputs() -> impl Strategy<Value = Inputs> {
     let pointers = prop::collection::vec((0_u32..3, any_f64(), any_f64(), any::<bool>()), 0..3);
     let keys = prop::collection::btree_set(prop::sample::select(vec!["left", "right", "up", "down", "a", "1"]), 0..3);
     let targets = prop::collection::vec((prop::sample::select(vec!["a/Drag", "a/Dangle", "nobody"]), any_f64(), any_f64(), any::<bool>()), 0..3);
-    (time, prop::option::of(any_face()), prop::option::of(prop::sample::select(Voice::ALL.to_vec())), pointers, keys, targets).prop_map(
-        |(time, face, viseme, pointers, keys, targets)| Inputs {
+    let body = prop::collection::vec((0_usize..17, any_f64(), any_f64()), 0..17).prop_map(|joints| BodyInput {
+        joints: joints.into_iter().filter_map(|(i, x, y)| Some((*Joint::ALL.get(i)?, Vec2::new(x, y)))).collect(),
+        rest: std::collections::BTreeMap::new(),
+    });
+    (time, prop::option::of(any_face()), prop::option::of(body), prop::option::of(prop::sample::select(Voice::ALL.to_vec())), pointers, keys, targets).prop_map(
+        |(time, face, body, viseme, pointers, keys, targets)| Inputs {
             time,
             face,
+            body,
             viseme,
             scene_viseme: viseme,
             pointers: pointers.into_iter().map(|(id, x, y, down)| Pointer { id, position: Point::new(x, y), down }).collect(),

@@ -129,6 +129,29 @@ pub struct PuppetPose {
     /// neutral.
     #[serde(default)]
     pub time_millis: u64,
+    /// Multiplies layers' opacity (0 to 1), keyed by layer path or label.
+    #[serde(default)]
+    pub opacity: BTreeMap<String, f64>,
+    /// Extra copies of layers drawn on top of the puppet: particles, motion trails, shadows.
+    #[serde(default)]
+    pub sprites: Vec<Sprite>,
+}
+
+/// An extra copy of a layer, drawn at rest geometry and then moved by its own transform.
+///
+/// The layer is drawn even when the pose hides the original, so a behavior can hide the source artwork and show
+/// only its copies.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Sprite {
+    /// The layer to copy, by path or label.
+    pub layer: String,
+    /// Moves, rotates and scales the copy about the layer's origin.
+    pub xform: Xform,
+    /// 0 to 1.
+    pub opacity: f64,
+    /// 0 keeps the artwork's colours, 1 paints it black (shadows).
+    #[serde(default)]
+    pub shade: f64,
 }
 
 impl PuppetPose {

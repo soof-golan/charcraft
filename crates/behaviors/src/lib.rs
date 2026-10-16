@@ -23,6 +23,17 @@
 //! | [`Breathe`] | `Charcraft.Breathe.js` | a slow breath on layers tagged `Breathe` |
 //! | [`Walk`] | `Charcraft.Walk.js` | basic side-on walk cycle on two keys |
 //! | [`ArmIk`] | `Adobe.ArmIK.js` | parameters kept; no solver yet |
+//! | [`BodyTracker`] | `Charcraft.BodyTracker.js` | the webcam-tracked body drives arms, legs and torso through two-bone IK |
+//! | [`Particles`] | `Charcraft.Particles.js` | layers tagged `Particle` are thrown as copies under gravity, wind and collisions |
+//! | [`Replay`] | `Charcraft.Replay.js` | hold a key to record a performance, press another to play it back |
+//! | [`Magnets`] | `Charcraft.Magnets.js` | `Magnet` groups pull dragged handles in and hold them |
+//! | [`Wiggler`] | `Charcraft.Wiggler.js` | tagged groups shake, sway or pulse |
+//! | [`Fader`] | `Charcraft.Fader.js` | layers fade in and out with a key |
+//! | [`LookAtCamera`] | `Charcraft.LookAtCamera.js` | eyes turn to the viewer and the head faces front |
+//! | [`MotionLines`] | `Charcraft.MotionLines.js` | fast-moving `Trails` layers leave fading copies |
+//! | [`Shadow`] | `Charcraft.Shadow.js` | a `Shadow` layer stays on the floor, shrinking as the puppet jumps |
+//! | [`LeaderFollower`] | `Charcraft.LeaderFollower.js` | one group repeats another's movement after a delay |
+//! | [`LayerPicker`] | `Charcraft.LayerPicker.js` | exactly one of a list of layers shows, chosen by key |
 //!
 //! Parameter structs spell their fields exactly as Character Animator files do (`handleReleaseDuration`,
 //! `Trim_Ah`, `limit_range_cb`) and fill in missing ones with the stock defaults, so
@@ -45,12 +56,28 @@
 //! [`api`] holds the serde tool surface an MCP server maps onto.
 
 #![allow(clippy::suboptimal_flops, reason = "no fused multiply-add: poses must be bit-identical on every CPU")]
-#![cfg_attr(test, allow(clippy::arithmetic_side_effects, clippy::float_cmp, clippy::many_single_char_names, reason = "test code"))]
+#![cfg_attr(
+    test,
+    allow(
+        clippy::arithmetic_side_effects,
+        clippy::float_cmp,
+        clippy::many_single_char_names,
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        clippy::as_conversions,
+        clippy::assert_is_empty,
+        clippy::imprecise_flops,
+        clippy::redundant_clone,
+        clippy::needless_pass_by_value,
+        reason = "test code"
+    )
+)]
 
 pub mod api;
 pub mod behavior;
 pub mod behaviors;
 pub mod error;
+pub mod ik;
 pub mod input;
 pub mod rig;
 pub mod script;
@@ -58,9 +85,12 @@ pub mod stack;
 pub mod util;
 
 pub use behavior::{Behavior, Cx, ParamDoc};
-pub use behaviors::{ArmIk, Blinker, Breathe, CycleLayers, Dragger, Dynamics, EyeGaze, Face, HeadTurner, LipSync, MotionTrigger, Transform, Triggers, Walk};
+pub use behaviors::{
+    ArmIk, Blinker, BodyTracker, Breathe, CycleLayers, Dragger, Dynamics, EyeGaze, Face, Fader, HeadTurner, LayerPicker, LeaderFollower, LipSync, LookAtCamera,
+    Magnets, MotionLines, MotionTrigger, Particles, Replay, Shadow, Transform, Triggers, Walk, Wiggler,
+};
 pub use error::{Error, Result};
-pub use input::{FaceInput, HandleTarget, Inputs, Pointer};
-pub use rig::{ChainLink, CycleGroup, Rig, RigHandle};
+pub use input::{BodyInput, FaceInput, HandleTarget, Inputs, Joint, Pointer};
+pub use rig::{ChainLink, CycleGroup, Rig, RigAnchor, RigHandle};
 pub use script::{Script, ScriptEvent, SimFrame, simulate};
 pub use stack::{BehaviorStack, Slot};

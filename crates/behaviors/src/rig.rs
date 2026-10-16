@@ -86,10 +86,7 @@ impl RigHandle {
     /// The matrix the pose gives the handle's group, including every enclosing group.
     #[must_use]
     pub fn matrix(&self, pose: &PuppetPose) -> Affine {
-        self.chain.iter().fold(Affine::IDENTITY, |acc, link| {
-            let x = link.xform(pose);
-            if x.is_identity() { acc } else { acc * x.about(link.origin) }
-        })
+        chain_matrix(&self.chain, pose)
     }
 
     /// Where the handle is in the pose before any drag: its rest position through the group matrices.
@@ -114,6 +111,61 @@ impl RigHandle {
     }
 }
 
+/// A tagged layer that behaviors place things relative to: where particles come from, what a magnet pulls on,
+/// what casts a shadow.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RigAnchor {
+    /// The tag that made it an anchor.
+    pub tag: String,
+    /// The layer's path, the key sprites and visibility overrides use.
+    pub layer: String,
+    /// The layer's origin at rest, in stage pixels.
+    pub position: Point,
+    /// Everything the layer draws at rest.
+    pub bounds: Option<Rect>,
+    /// The independent groups from the root down to the layer, outermost first.
+    pub chain: Vec<ChainLink>,
+}
+
+impl RigAnchor {
+    /// An anchor with no ancestors.
+    #[must_use]
+    pub fn new(tag: &str, layer: &str, position: Point) -> Self {
+        Self { tag: tag.to_owned(), layer: layer.to_owned(), position, bounds: None, chain: Vec::new() }
+    }
+
+    /// The matrix the pose gives the layer's place, through every enclosing group.
+    #[must_use]
+    pub fn matrix(&self, pose: &PuppetPose) -> Affine {
+        chain_matrix(&self.chain, pose)
+    }
+
+    /// Where the origin is in the pose.
+    #[must_use]
+    pub fn driven_position(&self, pose: &PuppetPose) -> Point {
+        self.matrix(pose) * self.position
+    }
+}
+
+/// Tags whose layers become [`RigAnchor`]s.
+pub const ANCHOR_TAGS: &[&str] = &[
+    ids::PARTICLE,
+    ids::SHADOW,
+    ids::FADER,
+    ids::MAGNET,
+    "Adobe.Physics.Collide",
+    "Adobe.MotionLines.Trails",
+    "Adobe.LeaderFollower.Leader",
+    "Adobe.LeaderFollower.Follower",
+];
+
+fn chain_matrix(chain: &[ChainLink], pose: &PuppetPose) -> Affine {
+    chain.iter().fold(Affine::IDENTITY, |acc, link| {
+        let x = link.xform(pose);
+        if x.is_identity() { acc } else { acc * x.about(link.origin) }
+    })
+}
+
 /// What the behaviors need to know about a puppet.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Rig {
@@ -135,6 +187,9 @@ pub struct Rig {
     /// Stage rectangles of the layers tagged `Collide`, which dangling handles bounce off.
     #[serde(default)]
     pub colliders: Vec<Rect>,
+    /// Tagged layers behaviors place things relative to (see [`ANCHOR_TAGS`]).
+    #[serde(default)]
+    pub anchors: Vec<RigAnchor>,
 }
 
 /// A group whose children Cycle Layers shows in turn.
@@ -164,6 +219,7 @@ impl Rig {
             tagged: BTreeMap::new(),
             cycles: Vec::new(),
             colliders: Vec::new(),
+            anchors: Vec::new(),
         }
     }
 
@@ -193,6 +249,18 @@ impl Rig {
     #[must_use]
     pub fn paths_of(&self, tag: &str) -> &[String] {
         self.tagged.get(tag).map_or(&[], Vec::as_slice)
+    }
+
+    /// Adds an anchor.
+    #[must_use]
+    pub fn with_anchor(mut self, anchor: RigAnchor) -> Self {
+        self.anchors.push(anchor);
+        self
+    }
+
+    /// The anchors made by one tag.
+    pub fn anchors_with<'a>(&'a self, tag: &'a str) -> impl Iterator<Item = &'a RigAnchor> {
+        self.anchors.iter().filter(move |a| a.tag == tag)
     }
 
     /// Adds a handle.
@@ -230,6 +298,17 @@ impl Rig {
             rig.eyes_center = union.fold(first, |a, b| a.union(b)).center();
         } else if let Some(b) = puppet.with_tag(ids::HEAD).into_iter().find_map(|id| puppet.layer(id)?.bounds) {
             rig.eyes_center = Point::new(b.center().x, b.y0 + b.height() * 0.4);
+        }
+        for layer in puppet.layers() {
+            for tag in ANCHOR_TAGS.iter().filter(|t| layer.has_tag(t)) {
+                rig.anchors.push(RigAnchor {
+                    tag: (*tag).to_owned(),
+                    layer: layer.path.clone(),
+                    position: layer.origin,
+                    bounds: layer.bounds,
+                    chain: chain_to(puppet, layer.id),
+                });
+            }
         }
         for layer in puppet.layers().iter().filter(|l| !l.handles.is_empty()) {
             let chain = chain_to(puppet, layer.id);
