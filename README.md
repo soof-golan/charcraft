@@ -89,7 +89,6 @@ onnx-dynamic --example probe -- PHOTO.jpg OVERLAY.png` runs them on a photo.
   their audio instead.
 - Puppets without mouth-shape layers only get a moving jaw (when they have a Flappy Chin), no visemes.
 - Only the neutral pose was checked against real puppets; head-turn and drag poses are covered by synthetic tests.
-- The layer tree panel has blank gaps between some rows.
 - Release binaries are built without the `live` feature (webcam capture and ONNX face tracking) and run the demo face
   and voice; build from source with `cargo build -p charcraft-app --features live` for live input (the ONNX Runtime
   library is then loaded at run time from `ORT_DYLIB_PATH`).
