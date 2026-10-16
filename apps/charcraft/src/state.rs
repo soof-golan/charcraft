@@ -56,6 +56,16 @@ pub struct UiSet {
     pub dark: Option<bool>,
     /// Play a synthetic talking mouth when no microphone is on.
     pub demo_voice: Option<bool>,
+    /// Hold exactly these trigger keys down (the Triggers panel's buttons); an empty list lets go of all of them.
+    pub triggers: Option<Vec<String>>,
+    /// Choose swap set members (set name to layer label), as the Triggers panel does.
+    pub swaps: Option<std::collections::BTreeMap<String, String>>,
+    /// Show (true) or hide (false) the Controls, Triggers and scene panels of the stream view.
+    pub stream_panels: Option<bool>,
+    /// Make the stream view transparent: no backdrop in the window or in the pictures sent to outputs.
+    pub transparent: Option<bool>,
+    /// Show a chroma key green backdrop in the stream view.
+    pub green_screen: Option<bool>,
 }
 
 #[cfg(test)]

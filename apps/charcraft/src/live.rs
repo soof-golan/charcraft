@@ -8,11 +8,12 @@
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
+use anim_audio::device::CpalInput;
 use anim_audio::{CaptureActor, CaptureCommand, CaptureEvent, PcmBuffer};
 use anim_core::Tick;
 use anim_lipsync::{LiveLipSync, Viseme};
 use charcraft_behaviors::FaceInput;
-use charcraft_tracking::actor::{Sample, TrackingHandle};
+use charcraft_tracking::actor::{Preview, Sample, TrackingHandle};
 use charcraft_tracking::input::FaceInput as TrackedFace;
 use charcraft_tracking::tools::{TrackingTools, tools as tracking_tool_specs};
 use crossbeam_channel::{Receiver, Sender, bounded, unbounded};
@@ -26,9 +27,9 @@ const TICK: Duration = Duration::from_millis(8);
 const EVENT_QUEUE: usize = 512;
 
 /// What the microphone panel can ask for.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum MicAction {
-    /// Open the default input device.
+    /// Open the selected input device (the default one unless [`MicAction::SetDevice`] chose another).
     Start,
     /// Close it.
     Stop,
@@ -36,7 +37,16 @@ pub enum MicAction {
     Status,
     /// Play a synthetic talking mouth when no microphone is on (demos, screenshots and tests).
     DemoVoice(bool),
+    /// List the input devices.
+    Devices,
+    /// Choose the input device by name (`None` for the system default). A running microphone restarts on it.
+    SetDevice(Option<String>),
+    /// Set the input sensitivity: a gain applied before the level meter and the lip sync, clamped to 0.1 to 8.
+    SetGain(f32),
 }
+
+/// Smallest and largest microphone input gain.
+pub const GAIN_RANGE: (f32, f32) = (0.1, 8.0);
 
 /// A request to the actor.
 #[derive(Debug)]
@@ -60,6 +70,8 @@ pub enum LiveEvent {
     Voice { viseme: Option<Viseme>, level: f32 },
     /// A microphone chunk (only while forwarding).
     Audio(PcmBuffer),
+    /// The camera image and tracked points.
+    Preview(Box<Preview>),
 }
 
 /// The sending half, cheap to clone: document commands hold one.
@@ -162,7 +174,6 @@ fn spawn_tracking() -> TrackingHandle {
 const DEMO_CYCLE: [Viseme; 10] =
     [Viseme::Ah, Viseme::Neutral, Viseme::Oh, Viseme::Ee, Viseme::D, Viseme::Neutral, Viseme::Uh, Viseme::M, Viseme::Ah, Viseme::S];
 
-#[derive(Default)]
 struct Mic {
     actor: Option<CaptureActor>,
     analyser: Option<LiveLipSync>,
@@ -173,12 +184,34 @@ struct Mic {
     viseme: Option<Viseme>,
     demo: bool,
     forward: bool,
+    device: Option<String>,
+    gain: f32,
+}
+
+impl Default for Mic {
+    fn default() -> Self {
+        Self {
+            actor: None,
+            analyser: None,
+            format: None,
+            running: false,
+            error: None,
+            level: 0.0,
+            viseme: None,
+            demo: false,
+            forward: false,
+            device: None,
+            gain: 1.0,
+        }
+    }
 }
 
 impl Mic {
     fn start(&mut self) -> Result<(), String> {
         if self.actor.is_none() {
-            self.actor = Some(CaptureActor::spawn().map_err(|e| e.to_string())?);
+            let device = self.device.clone();
+            let open = move || device.as_ref().map_or_else(CpalInput::open_default, |name| CpalInput::open_named(name));
+            self.actor = Some(CaptureActor::spawn_with(open).map_err(|e| e.to_string())?);
         }
         self.error = None;
         self.actor.as_ref().ok_or_else(|| "no capture actor".to_owned())?.send(CaptureCommand::Start).map_err(|e| e.to_string())
@@ -193,6 +226,19 @@ impl Mic {
         self.viseme = None;
     }
 
+    /// Chooses the input device; a running microphone restarts on it.
+    fn select(&mut self, device: Option<String>) -> Result<(), String> {
+        let was_running = self.running;
+        if self.device == device && self.actor.is_some() {
+            return Ok(());
+        }
+        self.stop();
+        // Dropping the actor closes the old device; the next start opens the new one.
+        self.actor = None;
+        self.device = device;
+        if was_running { self.start() } else { Ok(()) }
+    }
+
     /// Takes in the capture events; returns the chunks to forward.
     fn pump(&mut self) -> Vec<PcmBuffer> {
         let mut forwarded = Vec::new();
@@ -205,7 +251,10 @@ impl Mic {
                     self.analyser = Some(LiveLipSync::new(format.sample_rate));
                 }
                 CaptureEvent::Chunk(chunk) => {
-                    let mono = chunk.to_mono();
+                    let mut mono = chunk.to_mono();
+                    for sample in &mut mono.samples {
+                        *sample = (*sample * self.gain).clamp(-1.0, 1.0);
+                    }
                     let peak = mono.samples.iter().fold(0.0_f32, |m, s| m.max(s.abs()));
                     self.level = (self.level * 0.6).max((peak * 3.0).min(1.0));
                     if let Some(analyser) = self.analyser.as_mut()
@@ -238,8 +287,15 @@ impl Mic {
             "viseme": self.viseme.map(|v| format!("{v:?}")),
             "demo_voice": self.demo,
             "error": self.error,
+            "device": self.device,
+            "gain": self.gain,
         })
     }
+}
+
+/// The names of the input devices the system reports.
+fn input_devices() -> Vec<String> {
+    anim_audio::device::list_input_devices()
 }
 
 struct Actor {
@@ -277,20 +333,31 @@ impl Actor {
                 let _ = reply.send(result);
             }
             LiveRequest::Mic { action, reply } => {
-                let result = match action {
+                let result = match &action {
                     MicAction::Start => self.mic.start().map(|()| json!({ "starting": true })),
                     MicAction::Stop => {
                         self.mic.stop();
                         Ok(json!({ "stopped": true }))
                     }
                     MicAction::DemoVoice(on) => {
-                        self.mic.demo = on;
+                        self.mic.demo = *on;
                         Ok(json!({ "demo_voice": on }))
                     }
                     MicAction::Status => Ok(Value::Null),
+                    MicAction::Devices => Ok(json!({ "devices": input_devices(), "selected": self.mic.device })),
+                    MicAction::SetDevice(device) => self.mic.select(device.clone()).map(|()| Value::Null),
+                    MicAction::SetGain(gain) => {
+                        if gain.is_finite() {
+                            self.mic.gain = gain.clamp(GAIN_RANGE.0, GAIN_RANGE.1);
+                            Ok(Value::Null)
+                        } else {
+                            Err("gain must be a finite number".to_owned())
+                        }
+                    }
                 };
                 // Give the capture thread a moment to report a start before answering with the state.
-                if matches!(action, MicAction::Start) {
+                let restarted = matches!(action, MicAction::Start | MicAction::SetDevice(_)) && self.mic.actor.is_some();
+                if restarted {
                     std::thread::sleep(Duration::from_millis(150));
                     let _ = self.mic.pump();
                 }
@@ -315,6 +382,9 @@ impl Actor {
         {
             self.last_face = Some(sample.time);
             self.send(LiveEvent::Face(sample.time, sample.input));
+        }
+        if let Some(preview) = self.tracking.take_preview() {
+            self.send(LiveEvent::Preview(Box::new(preview)));
         }
         for chunk in self.mic.pump() {
             self.send(LiveEvent::Audio(chunk));
@@ -381,6 +451,46 @@ mod tests {
         let plain = behavior_face(&face, false);
         assert!(mirrored.head_yaw < 0.0 && plain.head_yaw > 0.0);
         assert!(mirrored.head_translation.x < 0.0 && plain.head_translation.x > 0.0);
+    }
+
+    #[test]
+    fn the_actor_keeps_the_microphone_choices() {
+        let handle = LiveHandle::spawn(|| {});
+        let link = handle.link();
+        assert!(link.mic(MicAction::Devices).unwrap()["devices"].is_array());
+        assert_eq!(link.mic(MicAction::SetGain(100.0)).unwrap()["gain"].as_f64(), Some(8.0), "the gain is clamped");
+        assert!((link.mic(MicAction::SetGain(0.0001)).unwrap()["gain"].as_f64().unwrap() - 0.1).abs() < 1e-6);
+        assert!(link.mic(MicAction::SetGain(f32::NAN)).is_err());
+        let chosen = link.mic(MicAction::SetDevice(Some("No such microphone".into()))).unwrap();
+        assert_eq!(chosen["device"], "No such microphone");
+        assert_eq!(chosen["running"], false, "a microphone that was off stays off");
+        assert!(link.mic(MicAction::SetDevice(None)).unwrap()["device"].is_null());
+    }
+
+    #[test]
+    fn the_actor_lists_cameras_sets_the_rest_pose_and_streams_previews() {
+        let handle = LiveHandle::spawn(|| {});
+        let link = handle.link();
+        let cameras = link.tool("tracking_list_cameras", &Value::Null).unwrap();
+        assert!(cameras["cameras"].as_array().is_some_and(|c| !c.is_empty()) || cfg!(feature = "live"));
+        assert!(link.tool("tracking_set_rest_pose", &json!({ "target": "legs" })).is_err());
+        link.tool("tracking_start", &json!({})).unwrap();
+        link.tool("tracking_set_rest_pose", &json!({ "target": "body", "frames": 3 })).unwrap();
+        let mut previews = 0;
+        for _ in 0..400 {
+            while let Some(event) = handle.try_event() {
+                if let LiveEvent::Preview(p) = event {
+                    assert!(p.points.iter().all(|q| (0.0..=1.0).contains(&q[0])));
+                    previews += 1;
+                }
+            }
+            if previews > 1 {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        assert!(previews > 1, "{previews} previews");
+        assert_eq!(link.tool("tracking_preview", &Value::Null).unwrap()["available"], true);
     }
 
     #[test]

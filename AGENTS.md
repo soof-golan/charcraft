@@ -25,7 +25,9 @@ engine side. This repository holds the Character Animator side: `charcraft-*` cr
   `anim_core::num`. Inside `#[cfg(test)]` these lints are allowed.
 - Treat every file as hostile input: bound recursion depth, cap allocations, never trust lengths and offsets.
   Every crash fix gets a regression test.
-- No `unsafe` in our crates (`unsafe_code = "forbid"`). Dependencies may use it.
+- No `unsafe` in our crates (`unsafe_code = "forbid"`). Dependencies may use it. The one exception is
+  `charcraft-ndi`, which calls the NDI runtime it loads at run time (`unsafe_code = "deny"`, allowed in `ffi.rs`
+  only, every other workspace lint repeated in its manifest).
 - No shared mutable state: no `Arc`, `Mutex`, `RwLock`, `Rc`, `RefCell` (clippy `disallowed-types`). Background work
   (camera, face tracking, microphone, playback, recording) runs in an actor (a thread or task that owns its state)
   and talks to the UI over channels (`std::sync::mpsc` or `crossbeam-channel`). If a dependency's API forces one of

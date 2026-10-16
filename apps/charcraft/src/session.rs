@@ -24,6 +24,8 @@ use crossbeam_channel::{Receiver, Sender};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
+use charcraft_stream::{Background, Kind as OutputKind, OutputLink, Spec as OutputSpec};
+
 use crate::live::{LiveLink, MicAction};
 use crate::state::UiSet;
 
@@ -172,6 +174,8 @@ pub struct Links {
     pub sounds: Sender<Sound>,
     /// The other end of [`Self::sounds`], drained by the hooks.
     pub sounds_in: Receiver<Sound>,
+    /// The stream output thread (NDI, virtual camera, web source).
+    pub output: OutputLink,
 }
 
 /// A sound read from a file, under the media name clips use.
@@ -182,7 +186,14 @@ impl Links {
     #[must_use]
     pub fn new(live: LiveLink, ui: Sender<UiSet>) -> Self {
         let (sounds, sounds_in) = crossbeam_channel::unbounded();
-        Self { live, ui, sounds, sounds_in }
+        Self { live, ui, sounds, sounds_in, output: OutputLink::disconnected() }
+    }
+
+    /// These links with the stream output thread attached.
+    #[must_use]
+    pub fn with_output(mut self, output: OutputLink) -> Self {
+        self.output = output;
+        self
     }
 }
 
@@ -438,8 +449,9 @@ tracking_command!(tracking_calibrate, "tracking_calibrate");
 tracking_command!(tracking_reset, "tracking_reset_calibration");
 tracking_command!(tracking_sensitivity, "tracking_set_sensitivity");
 tracking_command!(tracking_smoothing, "tracking_set_smoothing");
-#[cfg(feature = "live")]
 tracking_command!(tracking_cameras, "tracking_list_cameras");
+tracking_command!(tracking_rest_pose, "tracking_set_rest_pose");
+tracking_command!(tracking_preview, "tracking_preview");
 
 fn mic_command(doc: &AppDoc, action: MicAction) -> Result<Value, CommandError> {
     doc.links.live.mic(action).map_err(CommandError::failed)
@@ -460,6 +472,85 @@ fn mic_status(doc: &mut AppDoc, _: &Value) -> Result<Value, CommandError> {
 fn mic_demo(doc: &mut AppDoc, params: &Value) -> Result<Value, CommandError> {
     let on: Option<bool> = param_opt(params, "on")?;
     mic_command(doc, MicAction::DemoVoice(on.unwrap_or(true)))
+}
+
+fn mic_devices(doc: &mut AppDoc, _: &Value) -> Result<Value, CommandError> {
+    mic_command(doc, MicAction::Devices)
+}
+
+fn mic_set_device(doc: &mut AppDoc, params: &Value) -> Result<Value, CommandError> {
+    let device: Option<String> = param_opt(params, "device")?;
+    mic_command(doc, MicAction::SetDevice(device.filter(|d| !d.trim().is_empty())))
+}
+
+fn mic_set_gain(doc: &mut AppDoc, params: &Value) -> Result<Value, CommandError> {
+    let gain: f32 = param_opt(params, "gain")?.ok_or_else(|| CommandError::invalid_params("gain is required (0.1 to 8; 1 is unchanged)"))?;
+    if !gain.is_finite() {
+        return Err(CommandError::invalid_params("gain must be a finite number"));
+    }
+    mic_command(doc, MicAction::SetGain(gain))
+}
+
+// --- stream output ---------------------------------------------------------------------------------------------
+
+fn output_failed(e: &charcraft_stream::Error) -> CommandError {
+    CommandError::failed(e.to_string())
+}
+
+/// A background named in words or as `#rrggbb`.
+#[must_use]
+pub fn parse_background(text: &str) -> Option<Background> {
+    let text = text.trim().to_ascii_lowercase();
+    match text.as_str() {
+        "transparent" | "none" | "alpha" => Some(Background::Transparent),
+        "green" | "chroma" | "greenscreen" => Some(Background::Colour(charcraft_stream::KEY_GREEN)),
+        "black" => Some(Background::Colour([0, 0, 0])),
+        "white" => Some(Background::Colour([255, 255, 255])),
+        hex => {
+            let digits = hex.strip_prefix('#')?;
+            let value = u32::from_str_radix(digits, 16).ok().filter(|_| digits.len() == 6)?;
+            let [_, r, g, b] = value.to_be_bytes();
+            Some(Background::Colour([r, g, b]))
+        }
+    }
+}
+
+#[expect(clippy::unnecessary_wraps, reason = "a command runner returns a Result")]
+fn stream_outputs(_: &mut AppDoc, _: &Value) -> Result<Value, CommandError> {
+    Ok(json!({ "outputs": charcraft_stream::outputs() }))
+}
+
+fn stream_status(doc: &mut AppDoc, _: &Value) -> Result<Value, CommandError> {
+    let status = doc.links.output.status().map_err(|e| output_failed(&e))?;
+    serde_json::to_value(status).map_err(|e| CommandError::failed(e.to_string()))
+}
+
+fn stream_stop(doc: &mut AppDoc, _: &Value) -> Result<Value, CommandError> {
+    let status = doc.links.output.stop().map_err(|e| output_failed(&e))?;
+    serde_json::to_value(status).map_err(|e| CommandError::failed(e.to_string()))
+}
+
+fn stream_start(doc: &mut AppDoc, params: &Value) -> Result<Value, CommandError> {
+    let mut spec = OutputSpec::default();
+    if let Some(kind) = param_opt::<String>(params, "kind")? {
+        spec.kind = OutputKind::parse(&kind)
+            .ok_or_else(|| CommandError::invalid_params(format!("unknown output {kind:?} (ndi, virtual_camera, web, syphon, spout)")))?;
+    }
+    if let Some(name) = param_opt::<String>(params, "name")? {
+        spec.name = name;
+    }
+    spec.width = param_opt(params, "width")?.unwrap_or(spec.width);
+    spec.height = param_opt(params, "height")?.unwrap_or(spec.height);
+    spec.fps = param_opt(params, "fps")?.unwrap_or(spec.fps);
+    spec.port = param_opt(params, "port")?.unwrap_or(spec.port);
+    spec.device = param_opt(params, "device")?;
+    if let Some(background) = param_opt::<String>(params, "background")? {
+        spec.background = parse_background(&background)
+            .ok_or_else(|| CommandError::invalid_params(format!("unknown background {background:?} (transparent, green, black, white or #rrggbb)")))?;
+    }
+    spec.check().map_err(|e| CommandError::invalid_params(e.to_string()))?;
+    let status = doc.links.output.start(&spec).map_err(|e| output_failed(&e))?;
+    serde_json::to_value(status).map_err(|e| CommandError::failed(e.to_string()))
 }
 
 fn ui_set(doc: &mut AppDoc, params: &Value) -> Result<Value, CommandError> {
@@ -597,8 +688,7 @@ const NO_PARAMS: &str = r#"{"type":"object","properties":{},"additionalPropertie
 
 /// The commands the app adds to the record crate's.
 fn app_commands() -> Vec<CommandSpec<AppDoc>> {
-    #[cfg_attr(not(feature = "live"), expect(unused_mut, reason = "the live build adds a command"))]
-    let mut all = vec![
+    vec![
         CommandSpec::new("rig.edit", "Edit puppet rig", rig_edit)
             .describe("Edit a puppet's rigging. Pick the edit with 'op': add_tag/remove_tag (layer, tag), add_handle (group, name, kind Fixed|Draggable|Dangle|Attach|Stick|Walk, position [x,y] in artwork pixels; the answer names the handle key), remove_handle (group, key), set_origin (group, origin), set_key_trigger (layer, key or null), add_swap_set (name, members), set_visible (layer, visible). Layers are paths (Head/Left Eye) or labels; use rig_layers to list them. 'puppet' picks the puppet (default: the first).")
             .with_schema(r#"{"type":"object","required":["op"],"properties":{"puppet":{"type":"string"},"op":{"enum":["add_tag","remove_tag","add_handle","remove_handle","set_origin","set_key_trigger","add_swap_set","set_visible"]},"layer":{"type":"string"},"tag":{"type":"string"},"group":{"type":"string"},"name":{"type":"string"},"kind":{"enum":["Fixed","Draggable","Dangle","Attach","Stick","Walk"]},"position":{"type":"array","items":{"type":"number"},"minItems":2,"maxItems":2},"origin":{"type":"array","items":{"type":"number"},"minItems":2,"maxItems":2},"key":{"type":["string","null"]},"members":{"type":"array","items":{"type":"string"},"minItems":2},"visible":{"type":"boolean"}}}"#),
@@ -627,6 +717,18 @@ fn app_commands() -> Vec<CommandSpec<AppDoc>> {
             .describe("Capture the performer's neutral face from the next frames.")
             .with_schema(r#"{"type":"object","properties":{"frames":{"type":"integer","minimum":1,"maximum":600}}}"#),
         CommandSpec::new("tracking.reset_calibration", "Reset calibration", tracking_reset).transient().describe("Forget the captured neutral face.").with_schema(NO_PARAMS),
+        CommandSpec::new("tracking.set_rest_pose", "Set rest pose", tracking_rest_pose)
+            .transient()
+            .describe("Capture the rest pose while the performer holds still and looks at the camera: target 'face' sets the neutral expressions, 'body' the neutral posture (head position, distance from the camera, turn and tilt: the part of the body a webcam sees), 'both' (default) everything.")
+            .with_schema(r#"{"type":"object","properties":{"target":{"enum":["face","body","both"]},"frames":{"type":"integer","minimum":1,"maximum":600}}}"#),
+        CommandSpec::new("tracking.list_cameras", "List cameras", tracking_cameras)
+            .transient()
+            .describe("The cameras the system reports, with the index to pass to tracking.start. Without the 'live' build feature the list holds one scripted demo face.")
+            .with_schema(NO_PARAMS),
+        CommandSpec::new("tracking.preview", "Camera preview status", tracking_preview)
+            .transient()
+            .describe("Whether the live camera preview is flowing, the size of its image and the number of tracked landmark points.")
+            .with_schema(NO_PARAMS),
         CommandSpec::new("tracking.set_sensitivity", "Tracking sensitivity", tracking_sensitivity)
             .transient()
             .describe("Change how far each measurement must move to reach the end of its range (brow, eye_shut, eye_open, mouth_open, mouth_wide, smile, gaze).")
@@ -635,7 +737,26 @@ fn app_commands() -> Vec<CommandSpec<AppDoc>> {
             .transient()
             .describe("Switch smoothing on or off and tune the One-Euro filters (head, brows, eyes, gaze, mouth: min_cutoff, beta).")
             .with_schema(r#"{"type":"object","properties":{"enabled":{"type":"boolean"},"head":{"type":"object"},"brows":{"type":"object"},"eyes":{"type":"object"},"gaze":{"type":"object"},"mouth":{"type":"object"}}}"#),
-        CommandSpec::new("mic.start", "Start microphone", mic_start).transient().describe("Open the default microphone; live lip sync drives the mouth.").with_schema(NO_PARAMS),
+        CommandSpec::new("mic.start", "Start microphone", mic_start).transient().describe("Open the selected microphone (the system default unless mic.set_device chose one); live lip sync drives the mouth.").with_schema(NO_PARAMS),
+        CommandSpec::new("mic.devices", "List microphones", mic_devices).transient().describe("The input devices the system reports and the one selected.").with_schema(NO_PARAMS),
+        CommandSpec::new("mic.set_device", "Choose microphone", mic_set_device)
+            .transient()
+            .describe("Choose the microphone by name (see mic.devices); omit 'device' for the system default. A running microphone restarts on the new device.")
+            .with_schema(r#"{"type":"object","properties":{"device":{"type":"string"}}}"#),
+        CommandSpec::new("mic.set_gain", "Microphone sensitivity", mic_set_gain)
+            .transient()
+            .describe("Set the microphone input sensitivity: a gain from 0.1 to 8 applied before the level meter and the lip sync (1 is unchanged). Raise it for a quiet voice.")
+            .with_schema(r#"{"type":"object","required":["gain"],"properties":{"gain":{"type":"number","minimum":0.1,"maximum":8}}}"#),
+        CommandSpec::new("stream.outputs", "List stream outputs", stream_outputs)
+            .transient()
+            .describe("What each stream output (ndi, virtual_camera, web, syphon, spout) needs on this machine: whether it can start now, whether it carries transparency and, if not available, what to install.")
+            .with_schema(NO_PARAMS),
+        CommandSpec::new("stream.start", "Start stream output", stream_start)
+            .transient()
+            .describe("Send the performing puppet out of the app. kind: ndi (a network source; needs the NDI runtime), virtual_camera (Linux v4l2loopback), web (a local MJPEG video and PNG-with-alpha source on 127.0.0.1) . background: transparent (alpha where the output carries it, otherwise a chroma green), green, black, white or #rrggbb. Replaces a running output; the answer says where to connect.")
+            .with_schema(r#"{"type":"object","properties":{"kind":{"enum":["ndi","virtual_camera","web","syphon","spout"]},"name":{"type":"string"},"width":{"type":"integer","minimum":16,"maximum":8192},"height":{"type":"integer","minimum":16,"maximum":8192},"fps":{"type":"integer","minimum":1,"maximum":120},"background":{"type":"string"},"device":{"type":"string","description":"Virtual camera device, e.g. /dev/video10."},"port":{"type":"integer","minimum":0,"maximum":65535}}}"#),
+        CommandSpec::new("stream.stop", "Stop stream output", stream_stop).transient().describe("Stop the running stream output.").with_schema(NO_PARAMS),
+        CommandSpec::new("stream.status", "Stream output status", stream_status).transient().describe("Whether a stream output runs, where it goes, frames sent and why the last one stopped.").with_schema(NO_PARAMS),
         CommandSpec::new("mic.stop", "Stop microphone", mic_stop).transient().describe("Close the microphone.").with_schema(NO_PARAMS),
         CommandSpec::new("mic.status", "Microphone status", mic_status).transient().describe("Whether the microphone is on, its level and the mouth shape the voice makes.").with_schema(NO_PARAMS),
         CommandSpec::new("mic.demo_voice", "Demo voice", mic_demo)
@@ -644,17 +765,9 @@ fn app_commands() -> Vec<CommandSpec<AppDoc>> {
             .with_schema(r#"{"type":"object","properties":{"on":{"type":"boolean"}}}"#),
         CommandSpec::new("ui.set", "Change the view", ui_set)
             .transient()
-            .describe("Drive the window: mode (rig|record|stream), track (index), layer (path), seek_seconds, playing, mirror, dark, demo_voice. Only the given fields change.")
-            .with_schema(r#"{"type":"object","properties":{"mode":{"enum":["rig","record","stream"]},"track":{"type":"integer","minimum":0},"layer":{"type":"string"},"seek_seconds":{"type":"number"},"playing":{"type":"boolean"},"mirror":{"type":"boolean"},"dark":{"type":"boolean"},"demo_voice":{"type":"boolean"}}}"#),
-    ];
-    #[cfg(feature = "live")]
-    all.push(
-        CommandSpec::new("tracking.list_cameras", "List cameras", tracking_cameras)
-            .transient()
-            .describe("The cameras the system reports.")
-            .with_schema(NO_PARAMS),
-    );
-    all
+            .describe("Drive the window: mode (rig|record|stream), track (index), layer (path), seek_seconds, playing, mirror, dark, demo_voice; in the stream view triggers (keys held down, [] lets go), swaps (swap set to layer label), stream_panels, transparent and green_screen. Only the given fields change.")
+            .with_schema(r#"{"type":"object","properties":{"mode":{"enum":["rig","record","stream"]},"track":{"type":"integer","minimum":0},"layer":{"type":"string"},"seek_seconds":{"type":"number"},"playing":{"type":"boolean"},"mirror":{"type":"boolean"},"dark":{"type":"boolean"},"demo_voice":{"type":"boolean"},"triggers":{"type":"array","items":{"type":"string"}},"swaps":{"type":"object","additionalProperties":{"type":"string"}},"stream_panels":{"type":"boolean"},"transparent":{"type":"boolean"},"green_screen":{"type":"boolean"}}}"#),
+    ]
 }
 
 /// Where each command appears in the menus: the app's own placement for the record crate's commands (which only
@@ -663,7 +776,8 @@ fn place(spec: CommandSpec<AppDoc>) -> CommandSpec<AppDoc> {
     match spec.id {
         "scene.set" | "scene.import" | "track.add" | "track.remove" => spec.in_menu(&["Scene"]),
         "rig.edit" => spec.in_menu(&["Rig"]),
-        "tracking.start" | "tracking.stop" | "mic.stop" => spec.in_menu(&["Input"]),
+        "tracking.start" | "tracking.stop" | "mic.stop" | "tracking.set_rest_pose" => spec.in_menu(&["Input"]),
+        "stream.start" | "stream.stop" => spec.in_menu(&["Stream"]),
         "tracking.calibrate" => spec.in_menu(&["Input"]).with_shortcut("Cmd+K"),
         "mic.start" => spec.in_menu(&["Input"]).separated(),
         _ => spec,
@@ -689,12 +803,68 @@ mod tests {
     use super::*;
 
     fn doc() -> AppDoc {
+        let (ui, _rx) = crossbeam_channel::unbounded();
+        doc_with(Links::new(LiveLink::disconnected(), ui))
+    }
+
+    fn doc_with(links: Links) -> AppDoc {
         let puppet = crate::demo::puppet().unwrap();
         let mut rig = RigLog::default();
         rig.skeletons.insert("demo".into(), Skeleton::of(&puppet));
-        let (ui, _rx) = crossbeam_channel::unbounded();
         let scene = Scene::new("s", Size::new(640.0, 360.0), FrameRate::FPS_30, Tick::from_seconds_f64(2.0));
-        AppDoc::new(RecordDoc::new(scene), rig, Links::new(LiveLink::disconnected(), ui))
+        AppDoc::new(RecordDoc::new(scene), rig, links)
+    }
+
+    #[test]
+    fn backgrounds_parse_from_words_and_hex() {
+        assert_eq!(parse_background(" Transparent "), Some(Background::Transparent));
+        assert_eq!(parse_background("green"), Some(Background::Colour(charcraft_stream::KEY_GREEN)));
+        assert_eq!(parse_background("#102030"), Some(Background::Colour([0x10, 0x20, 0x30])));
+        assert_eq!(parse_background("#1020"), None);
+        assert_eq!(parse_background("#gg0000"), None);
+        assert_eq!(parse_background("plaid"), None);
+    }
+
+    #[test]
+    fn stream_commands_start_a_web_output_report_it_and_stop_it() {
+        let output = charcraft_stream::OutputHandle::spawn();
+        let (ui, _rx) = crossbeam_channel::unbounded();
+        let links = Links::new(LiveLink::disconnected(), ui).with_output(output.link());
+        let mut session = Session::new(doc_with(links), registry().unwrap());
+        let listed = session.execute("stream.outputs", &json!({})).unwrap();
+        assert_eq!(listed["outputs"].as_array().unwrap().len(), 5);
+        let started = session.execute("stream.start", &json!({ "kind": "web", "width": 64, "height": 32, "fps": 30, "background": "#102030" })).unwrap();
+        assert_eq!(started["active"], true);
+        assert!(started["detail"].as_str().unwrap().starts_with("http://127.0.0.1:"));
+        assert_eq!(session.execute("stream.status", &json!({})).unwrap()["kind"], "web");
+        assert!(session.execute("stream.start", &json!({ "kind": "hdmi" })).is_err(), "unknown output");
+        assert!(session.execute("stream.start", &json!({ "background": "plaid" })).is_err());
+        assert!(session.execute("stream.start", &json!({ "width": 7 })).is_err(), "bad size");
+        let refused = session.execute("stream.start", &json!({ "kind": "spout" })).unwrap_err().to_string();
+        assert!(refused.contains("Spout") && refused.contains("NDI"), "{refused}");
+        assert_eq!(session.execute("stream.stop", &json!({})).unwrap()["active"], false);
+        assert!(!session.history().can_undo(), "stream commands are not undoable");
+    }
+
+    #[test]
+    fn the_input_commands_are_registered_and_validate_their_parameters() {
+        let registry = registry().unwrap();
+        for id in [
+            "tracking.set_rest_pose",
+            "tracking.list_cameras",
+            "tracking.preview",
+            "mic.devices",
+            "mic.set_device",
+            "mic.set_gain",
+            "stream.start",
+            "stream.stop",
+        ] {
+            assert!(registry.get(id).is_some(), "{id}");
+        }
+        let mut session = Session::new(doc(), registry);
+        assert!(session.execute("mic.set_gain", &json!({})).is_err(), "gain is required");
+        assert!(session.execute("mic.set_gain", &json!({ "gain": "loud" })).is_err());
+        assert!(session.execute("tracking.set_rest_pose", &json!({ "target": "face" })).is_err(), "no actor in this document");
     }
 
     #[test]

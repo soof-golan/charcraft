@@ -15,6 +15,7 @@ use charcraft_behaviors::api::{StackInfo, StackOp, stack_info};
 use charcraft_behaviors::{BehaviorStack, Inputs};
 use charcraft_puppet::PuppetPose;
 use charcraft_record::{AudioTrack, track_stack};
+use charcraft_stream::{Background, OutputHandle, Picture};
 use crossbeam_channel::{Receiver, Sender, unbounded};
 use egui::{Context, TextureHandle, TextureOptions};
 use serde_json::{Value, json};
@@ -26,7 +27,7 @@ use crate::live::{LiveEvent, LiveHandle, MicAction, behavior_face};
 use crate::render::{RenderHandle, RenderRequest};
 use crate::session::{AppDoc, Links, registry};
 use crate::state::{Mode, UiSet};
-use crate::view::{Action, ActiveTake, Ctx, View};
+use crate::view::{Action, ActiveTake, Ctx, PreviewTexture, View};
 use crate::world::Opened;
 
 /// What the command line asked for.
@@ -44,6 +45,10 @@ pub struct Options {
     pub face_file: Option<PathBuf>,
     /// Dark theme.
     pub dark: bool,
+    /// Start this stream output at launch.
+    pub stream: Option<charcraft_stream::Kind>,
+    /// Start with a transparent stream view (no backdrop in the window or the outputs).
+    pub transparent: bool,
     /// The agent doors.
     pub control: ControlArgs,
 }
@@ -98,6 +103,7 @@ pub struct CharCraftApp {
     control: Control,
     live: LiveHandle,
     render: RenderHandle,
+    output: OutputHandle,
     ui_rx: Receiver<UiSet>,
     export_tx: Sender<ExportEvent>,
     export_rx: Receiver<ExportEvent>,
@@ -166,8 +172,9 @@ impl CharCraftApp {
         let wake = move || ctx.request_repaint();
         let live = LiveHandle::spawn(wake.clone());
         let render = RenderHandle::spawn(wake.clone());
+        let output = OutputHandle::spawn();
         let (ui_tx, ui_rx) = unbounded();
-        let links = Links::new(live.link(), ui_tx);
+        let links = Links::new(live.link(), ui_tx).with_output(output.link());
         let confinement = options.control.confinement(opened.world.source.as_deref())?;
         let registry = registry().map_err(|e| e.to_string())?;
         let info = HostInfo { name: "charcraft".into(), version: env!("CARGO_PKG_VERSION").into() };
@@ -182,6 +189,7 @@ impl CharCraftApp {
             control,
             live,
             render,
+            output,
             ui_rx,
             export_tx,
             export_rx,
@@ -228,6 +236,18 @@ impl CharCraftApp {
         if !app.control.summary.is_empty() {
             app.view.status = app.control.summary.clone();
         }
+        app.view.transparent = options.transparent;
+        app.view.stream.spec.background = if options.transparent { Background::Transparent } else { Background::Colour(app.backdrop_colour()) };
+        if let Some(kind) = options.stream {
+            let spec = charcraft_stream::Spec { kind, ..app.view.stream.spec.clone() };
+            app.view.status = match app.output.start(&spec) {
+                Ok(status) => format!("Streaming {}: {}", kind.label(), status.detail),
+                Err(e) => format!("{} did not start: {e}", kind.label()),
+            };
+            app.view.stream.spec.kind = kind;
+        }
+        app.refresh_inputs();
+        app.refresh_outputs();
         Ok(app)
     }
 
@@ -265,7 +285,7 @@ impl CharCraftApp {
         while let Ok(set) = self.ui_rx.try_recv() {
             self.apply_ui_set(&set);
         }
-        self.pump_live();
+        self.pump_live(ctx);
         self.pump_exports();
         self.advance_clock(dt);
         if now.duration_since(self.last_status) > Duration::from_millis(400) {
@@ -354,11 +374,77 @@ impl CharCraftApp {
             let _ = self.live.link().mic(MicAction::DemoVoice(on));
             self.view.live.demo_voice = on;
         }
+        if let Some(keys) = &set.triggers {
+            self.view.stream.held = keys.iter().map(|k| k.to_lowercase()).collect();
+        }
+        if let Some(swaps) = &set.swaps {
+            self.view.stream.swaps.extend(swaps.iter().map(|(set, member)| (set.clone(), member.clone())));
+        }
+        if let Some(on) = set.stream_panels {
+            self.view.stream.panels = on;
+        }
+        if let Some(on) = set.transparent {
+            self.view.transparent = on;
+            self.view.stream.spec.background = if on { Background::Transparent } else { Background::Colour(self.backdrop_colour()) };
+        }
+        if let Some(on) = set.green_screen {
+            self.view.chroma = on;
+        }
     }
 
-    fn pump_live(&mut self) {
+    /// The colour behind the puppet in outputs when the view is not transparent: the green screen, or the dark backdrop.
+    const fn backdrop_colour(&self) -> [u8; 3] {
+        if self.view.chroma { charcraft_stream::KEY_GREEN } else { [0x15, 0x16, 0x1b] }
+    }
+
+    /// Asks the live actor what cameras and microphones there are.
+    fn refresh_inputs(&mut self) {
+        let link = self.live.link();
+        if let Ok(list) = link.tool("tracking_list_cameras", &Value::Null) {
+            self.view.live.camera_demo = list.get("demo").and_then(Value::as_bool).unwrap_or(false);
+            self.view.live.cameras = list
+                .get("cameras")
+                .and_then(Value::as_array)
+                .map(|all| all.iter().filter_map(|c| Some((u32::try_from(c.get("index")?.as_u64()?).ok()?, c.get("name")?.as_str()?.to_owned()))).collect())
+                .unwrap_or_default();
+        }
+        if let Ok(list) = link.mic(MicAction::Devices) {
+            self.view.live.mic_devices =
+                list.get("devices").and_then(Value::as_array).map(|all| all.iter().filter_map(|d| d.as_str().map(str::to_owned)).collect()).unwrap_or_default();
+            self.view.live.mic_device = list.get("selected").and_then(Value::as_str).map(str::to_owned);
+        }
+    }
+
+    /// Asks what each stream output needs here.
+    fn refresh_outputs(&mut self) {
+        self.view.stream.outputs = charcraft_stream::outputs();
+        if let Ok(status) = self.output.status() {
+            self.view.stream.status = status;
+        }
+    }
+
+    /// Takes a camera preview into the view: the image as a texture and the tracked points.
+    fn take_preview(&mut self, ctx: &Context, preview: &charcraft_tracking::actor::Preview) {
+        let live = &mut self.view.live;
+        live.previews = live.previews.saturating_add(1);
+        live.preview_points.clone_from(&preview.points);
+        match &preview.frame {
+            Some(frame) => {
+                let size = [usize::try_from(frame.width()).unwrap_or(1), usize::try_from(frame.height()).unwrap_or(1)];
+                let image = egui::ColorImage::from_rgb(size, frame.rgb());
+                match live.preview.as_mut() {
+                    Some(texture) => texture.0.set(image, TextureOptions::LINEAR),
+                    None => live.preview = Some(PreviewTexture(ctx.load_texture("charcraft-camera", image, TextureOptions::LINEAR))),
+                }
+            }
+            None => live.preview = None,
+        }
+    }
+
+    fn pump_live(&mut self, ctx: &Context) {
         while let Some(event) = self.live.try_event() {
             match event {
+                LiveEvent::Preview(preview) => self.take_preview(ctx, &preview),
                 LiveEvent::Face(_, face) => {
                     self.view.live.face = Some(face);
                     self.view.live.faces = self.view.live.faces.saturating_add(1);
@@ -391,6 +477,11 @@ impl CharCraftApp {
             if let Some(error) = mic.get("error").and_then(Value::as_str) {
                 self.view.live.problem = Some(error.to_owned());
             }
+            self.view.live.mic_device = mic.get("device").and_then(Value::as_str).map(str::to_owned);
+            self.view.live.mic_gain = mic.get("gain").and_then(Value::as_f64).map_or(1.0, anim_core::num::f64_to_f32);
+        }
+        if let Ok(status) = self.output.status() {
+            self.view.stream.status = status;
         }
     }
 
@@ -444,6 +535,12 @@ impl CharCraftApp {
                         }
                         None => self.texture = Some((ctx.load_texture("charcraft-main", image, TextureOptions::LINEAR), size)),
                     }
+                    // What the window draws is what goes out: the same picture, with its transparency.
+                    if self.view.stream.status.active
+                        && let Ok(out) = Picture::new(picture.width, picture.height, picture.rgba)
+                    {
+                        self.output.send_picture(out);
+                    }
                 }
                 Err(e) => self.view.status = format!("render: {e}"),
             }
@@ -486,13 +583,19 @@ impl CharCraftApp {
             let keys: BTreeSet<String> = ctx.input(|i| i.keys_down.iter().map(|k| k.name().to_lowercase()).collect());
             inputs.keys = keys;
         }
+        // Triggers held from the stream view's Triggers panel (or over MCP) count as keys held down.
+        inputs.keys.extend(self.view.stream.held.iter().cloned());
         if let Some(active) = self.view.recording.as_mut() {
             let mut recorded = inputs.clone();
             recorded.time = Tick::from_seconds_f64(self.view.playhead);
             active.recorder.feed(&recorded);
             active.frames = active.frames.saturating_add(1);
         }
-        perform.stack.step(&inputs)
+        let mut pose = perform.stack.step(&inputs);
+        for (set, member) in &self.view.stream.swaps {
+            pose.swaps.insert(set.clone(), member.clone());
+        }
+        pose
     }
 
     fn request_render(&mut self, ctx: &Context, pose: &PuppetPose) {
@@ -730,6 +833,31 @@ impl CharCraftApp {
                     }
                     self.last_status = Instant::now().checked_sub(Duration::from_secs(1)).unwrap_or_else(Instant::now);
                 }
+                Action::StreamStart(spec) => {
+                    self.view.status = match self.output.start(&spec) {
+                        Ok(status) => format!("Streaming {}: {}", spec.kind.label(), status.detail),
+                        Err(e) => format!("{} did not start: {e}", spec.kind.label()),
+                    };
+                    self.refresh_outputs();
+                }
+                Action::StreamStop => {
+                    let _ = self.output.stop();
+                    "Stream output stopped".clone_into(&mut self.view.status);
+                    self.refresh_outputs();
+                }
+                Action::StreamRefresh => self.refresh_outputs(),
+                Action::InputsRefresh => self.refresh_inputs(),
+                Action::Trigger(key, on) => {
+                    let key = key.to_lowercase();
+                    if on {
+                        self.view.stream.held.insert(key);
+                    } else {
+                        self.view.stream.held.remove(&key);
+                    }
+                }
+                Action::Swap(set, member) => {
+                    self.view.stream.swaps.insert(set, member);
+                }
                 Action::Quit => ctx.send_viewport_cmd(egui::ViewportCommand::Close),
             }
         }
@@ -852,6 +980,11 @@ impl CharCraftApp {
 }
 
 impl eframe::App for CharCraftApp {
+    fn clear_color(&self, visuals: &egui::Visuals) -> [f32; 4] {
+        // The window is created transparent; only the transparent stream view lets that show.
+        if self.view.transparent && self.view.mode == Mode::Stream { [0.0; 4] } else { visuals.panel_fill.to_normalized_gamma_f32() }
+    }
+
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
         if self.theme_dirty {

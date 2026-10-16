@@ -1,19 +1,22 @@
 //! Small shared widgets and the camera and microphone panels.
 
+use std::collections::BTreeSet;
+
 use anim_ui::theme::visual;
 use charcraft_tracking::input::FaceInput as TrackedFace;
 use egui::epaint::EllipseShape;
-use egui::{Align2, Color32, FontId, Pos2, Rect, Sense, Shape, Stroke, StrokeKind, Ui, vec2};
+use egui::{Align2, Color32, FontId, Pos2, Rect, Sense, Shape, Stroke, StrokeKind, Ui, pos2, vec2};
 use serde_json::json;
 
-use crate::live::MicAction;
-use crate::view::{Action, Ctx, View};
+use crate::live::{GAIN_RANGE, MicAction};
+use crate::view::{Action, Ctx, LiveSnapshot, View};
 
 const GOOD: Color32 = Color32::from_rgb(0x4c, 0xc2, 0x7a);
 const WARN: Color32 = Color32::from_rgb(0xe8, 0xb0, 0x3c);
 const REC: Color32 = Color32::from_rgb(0xe5, 0x39, 0x35);
 const SKIN: Color32 = Color32::from_rgb(0xf0, 0xc4, 0xa0);
 const INK: Color32 = Color32::from_rgb(0x2a, 0x22, 0x2c);
+const POINT: Color32 = Color32::from_rgb(0x5d, 0xf2, 0x9a);
 
 /// A small coloured pill with text.
 pub fn chip(ui: &mut Ui, text: &str, color: Color32) -> egui::Response {
@@ -88,7 +91,81 @@ pub fn face_preview(ui: &mut Ui, face: Option<&TrackedFace>, size: egui::Vec2) {
     painter.add(Shape::line(points, Stroke::new(2.5, INK)));
 }
 
-/// The camera panel: preview, start and stop, calibration, mirror and the tracked values.
+/// The points to draw over the video: the landmarks, once each (a scripted face leaves most of the mesh in one place).
+fn distinct_points(points: &[[f32; 2]]) -> Vec<[f32; 2]> {
+    let mut seen = BTreeSet::new();
+    points
+        .iter()
+        .copied()
+        .filter(|p| {
+            // 1/256 of the image is finer than the eye can tell apart at the preview's size.
+            let key = (anim_core::num::round_f64_to_i32(f64::from(p[0]) * 256.0), anim_core::num::round_f64_to_i32(f64::from(p[1]) * 256.0));
+            seen.insert(key)
+        })
+        .collect()
+}
+
+/// The live camera image with the tracked landmark points over it. `mirror` shows it as a mirror would.
+///
+/// Without an image (a scripted demo source has none) the points are drawn over a plain backdrop and say so.
+pub fn video_preview(ui: &mut Ui, live: &LiveSnapshot, mirror: bool, width: f32) {
+    let aspect = live.preview.as_ref().map_or(4.0 / 3.0, |t| {
+        let [w, h] = t.size();
+        anim_core::num::f64_to_f32(anim_core::num::usize_to_f64(w).max(1.0) / anim_core::num::usize_to_f64(h).max(1.0))
+    });
+    let (rect, _) = ui.allocate_exact_size(vec2(width, width / aspect.max(0.2)), Sense::hover());
+    let painter = ui.painter_at(rect);
+    painter.rect_filled(rect, 6.0, Color32::from_rgb(0x10, 0x12, 0x16));
+    let uv = if mirror { Rect::from_min_max(pos2(1.0, 0.0), pos2(0.0, 1.0)) } else { Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)) };
+    if let Some(texture) = &live.preview {
+        painter.image(texture.id(), rect, uv, Color32::WHITE);
+    }
+    let at = |p: &[f32; 2]| pos2(rect.left() + rect.width() * if mirror { 1.0 - p[0] } else { p[0] }, rect.top() + rect.height() * p[1]);
+    if live.tracking {
+        for p in distinct_points(&live.preview_points) {
+            painter.circle_filled(at(&p), 1.6, POINT);
+        }
+    }
+    let note = if !live.tracking {
+        "camera off"
+    } else if live.preview.is_none() && live.preview_points.is_empty() {
+        "waiting for the camera"
+    } else if live.preview.is_none() {
+        "demo source: tracked points only"
+    } else {
+        ""
+    };
+    if !note.is_empty() {
+        let pos = if live.tracking { rect.center_bottom() - vec2(0.0, 10.0) } else { rect.center() };
+        painter.text(pos, Align2::CENTER_CENTER, note, FontId::proportional(12.0), Color32::from_gray(0xa0));
+    }
+    painter.rect_stroke(rect, 6.0, Stroke::new(1.0, ui.visuals().widgets.noninteractive.bg_stroke.color), StrokeKind::Inside);
+}
+
+/// The camera device picker: a list of the system's cameras and a refresh button.
+pub fn camera_picker(ui: &mut Ui, view: &mut View, actions: &mut Vec<Action>) {
+    ui.horizontal(|ui| {
+        let current =
+            view.live.cameras.iter().find(|(index, _)| *index == view.live.camera_index).map_or_else(|| "No camera found".to_owned(), |(_, name)| name.clone());
+        let before = view.live.camera_index;
+        egui::ComboBox::from_id_salt("camera_picker").width((ui.available_width() - 34.0).max(80.0)).selected_text(visual(&current).into_owned()).show_ui(
+            ui,
+            |ui| {
+                for (index, name) in &view.live.cameras {
+                    ui.selectable_value(&mut view.live.camera_index, *index, visual(name).into_owned());
+                }
+            },
+        );
+        if view.live.camera_index != before && view.live.tracking {
+            actions.push(Action::Tracking("tracking_start", json!({ "index": view.live.camera_index })));
+        }
+        if ui.small_button("\u{21BB}").on_hover_text("Look for cameras and microphones again").clicked() {
+            actions.push(Action::InputsRefresh);
+        }
+    });
+}
+
+/// The camera panel: picker, live video with the tracked points, start and stop, rest pose, mirror and the values.
 pub fn camera(ui: &mut Ui, view: &mut View, _ctx: &Ctx<'_>, actions: &mut Vec<Action>) {
     ui.horizontal(|ui| {
         ui.strong("Camera");
@@ -103,7 +180,8 @@ pub fn camera(ui: &mut Ui, view: &mut View, _ctx: &Ctx<'_>, actions: &mut Vec<Ac
             ui.weak("this build has no camera support: demo face only");
         }
     });
-    face_preview(ui, view.live.face.as_ref(), vec2(ui.available_width().min(260.0), 130.0));
+    camera_picker(ui, view, actions);
+    video_preview(ui, &view.live, view.mirror, ui.available_width().min(300.0));
     ui.horizontal_wrapped(|ui| {
         if view.live.tracking {
             if ui.button("Stop").clicked() {
@@ -111,7 +189,7 @@ pub fn camera(ui: &mut Ui, view: &mut View, _ctx: &Ctx<'_>, actions: &mut Vec<Ac
             }
         } else if cfg!(feature = "live") {
             if ui.button("Start camera").clicked() {
-                actions.push(Action::Tracking("tracking_start", json!({})));
+                actions.push(Action::Tracking("tracking_start", json!({ "index": view.live.camera_index })));
             }
             if view.live.problem.is_some() && ui.button("Use demo face").on_hover_text("Plays a scripted face instead of the camera.").clicked() {
                 actions.push(Action::Tracking("tracking_start", json!({ "demo": true })));
@@ -119,19 +197,14 @@ pub fn camera(ui: &mut Ui, view: &mut View, _ctx: &Ctx<'_>, actions: &mut Vec<Ac
         } else if ui.button("Start demo face").clicked() {
             actions.push(Action::Tracking("tracking_start", json!({ "demo": true })));
         }
-        let calibrating = view.live.calibrating.is_some();
-        if ui
-            .add_enabled(view.live.tracking && !calibrating, egui::Button::new(if calibrating { "Calibrating..." } else { "Calibrate" }))
-            .on_hover_text("Relax your face, look at the camera, then press.")
-            .clicked()
-        {
-            actions.push(Action::Tracking("tracking_calibrate", json!({ "frames": 30 })));
-        }
         let mut mirror = view.mirror;
         if ui.checkbox(&mut mirror, "Mirror").changed() {
             actions.push(Action::Mirror(mirror));
         }
     });
+    rest_pose(ui, view, actions);
+    ui.add_space(2.0);
+    face_preview(ui, view.live.face.as_ref(), vec2(ui.available_width().min(260.0), 96.0));
     if let Some(face) = view.live.face.as_ref().filter(|f| f.tracked) {
         meter(ui, "yaw", face.head.yaw, -0.8, 0.8);
         meter(ui, "pitch", face.head.pitch, -0.8, 0.8);
@@ -141,15 +214,76 @@ pub fn camera(ui: &mut Ui, view: &mut View, _ctx: &Ctx<'_>, actions: &mut Vec<Ac
         meter(ui, "mouth", face.mouth_open, 0.0, 1.0);
         meter(ui, "smile", face.smile, -1.0, 1.0);
     }
-    if let Some((done, wanted)) = view.live.calibrating {
-        ui.add(egui::ProgressBar::new(f32::from(u16::try_from(done).unwrap_or(0)) / f32::from(u16::try_from(wanted.max(1)).unwrap_or(1))).desired_height(6.0));
-    }
     if let Some(problem) = &view.live.problem {
         ui.colored_label(WARN, visual(problem).into_owned());
     }
 }
 
-/// The microphone panel: level, the mouth shape the voice makes, start and stop.
+/// Set Rest Pose for the face (neutral expressions) and the body (neutral posture), with the capture's progress.
+pub fn rest_pose(ui: &mut Ui, view: &View, actions: &mut Vec<Action>) {
+    let calibrating = view.live.calibrating.is_some();
+    ui.horizontal_wrapped(|ui| {
+        ui.label(egui::RichText::new("Set Rest Pose").size(11.0).weak());
+        for (target, label, hint) in [
+            ("face", "Face", "Relax your face and look at the camera, then press: the neutral expressions."),
+            ("body", "Body", "Sit the way you perform, then press: where the head sits, how far it is from the camera and how it is turned. A webcam sees the body through the head."),
+            ("both", "Both", "Capture the neutral face and the neutral posture together."),
+        ] {
+            if ui.add_enabled(view.live.tracking && !calibrating, egui::Button::new(label)).on_hover_text(hint).clicked() {
+                actions.push(Action::Tracking("tracking_set_rest_pose", json!({ "target": target, "frames": 30 })));
+            }
+        }
+        if ui.add_enabled(view.live.tracking, egui::Button::new("Reset")).on_hover_text("Forget the captured rest pose and use the typical one.").clicked() {
+            actions.push(Action::Tracking("tracking_reset_calibration", json!({})));
+        }
+    });
+    if let Some((done, wanted)) = view.live.calibrating {
+        ui.add(
+            egui::ProgressBar::new(f32::from(u16::try_from(done).unwrap_or(0)) / f32::from(u16::try_from(wanted.max(1)).unwrap_or(1)))
+                .desired_height(6.0)
+                .text("hold still"),
+        );
+    }
+}
+
+/// The microphone device picker.
+pub fn mic_picker(ui: &mut Ui, view: &mut View, actions: &mut Vec<Action>) {
+    let current = view.live.mic_device.clone().unwrap_or_else(|| "System default".to_owned());
+    ui.horizontal(|ui| {
+        let mut chosen = view.live.mic_device.clone();
+        egui::ComboBox::from_id_salt("mic_picker").width((ui.available_width() - 34.0).max(80.0)).selected_text(visual(&current).into_owned()).show_ui(
+            ui,
+            |ui| {
+                ui.selectable_value(&mut chosen, None, "System default");
+                for name in &view.live.mic_devices {
+                    ui.selectable_value(&mut chosen, Some(name.clone()), visual(name).into_owned());
+                }
+            },
+        );
+        if chosen != view.live.mic_device {
+            view.live.mic_device.clone_from(&chosen);
+            actions.push(Action::Mic(MicAction::SetDevice(chosen)));
+        }
+        if ui.small_button("\u{21BB}").on_hover_text("Look for microphones again").clicked() {
+            actions.push(Action::InputsRefresh);
+        }
+    });
+}
+
+/// The input sensitivity slider (a gain applied before the level meter and the lip sync).
+pub fn mic_sensitivity(ui: &mut Ui, view: &mut View, actions: &mut Vec<Action>) {
+    ui.horizontal(|ui| {
+        ui.add_sized([62.0, 14.0], egui::Label::new(egui::RichText::new("sensitivity").size(11.0).weak()));
+        let mut gain = view.live.mic_gain;
+        let slider = egui::Slider::new(&mut gain, GAIN_RANGE.0..=GAIN_RANGE.1).logarithmic(true).show_value(true).fixed_decimals(1);
+        if ui.add(slider).on_hover_text("Raise it for a quiet voice. The mouth shapes and the level meter follow it.").changed() {
+            view.live.mic_gain = gain;
+            actions.push(Action::Mic(MicAction::SetGain(gain)));
+        }
+    });
+}
+
+/// The microphone panel: device, sensitivity, level, the mouth shape the voice makes, start and stop.
 pub fn microphone(ui: &mut Ui, view: &mut View, actions: &mut Vec<Action>) {
     ui.horizontal(|ui| {
         ui.strong("Microphone");
@@ -161,6 +295,8 @@ pub fn microphone(ui: &mut Ui, view: &mut View, actions: &mut Vec<Action>) {
             chip(ui, "off", ui.visuals().widgets.inactive.weak_bg_fill);
         }
     });
+    mic_picker(ui, view, actions);
+    mic_sensitivity(ui, view, actions);
     meter(ui, "level", view.live.level, 0.0, 1.0);
     ui.horizontal(|ui| {
         ui.add_sized([62.0, 14.0], egui::Label::new(egui::RichText::new("mouth").size(11.0).weak()));
@@ -190,4 +326,16 @@ pub fn record_button(ui: &mut Ui, recording: bool) -> egui::Response {
     let label = egui::RichText::new(format!("\u{25CF} {text}")).color(if recording { Color32::WHITE } else { REC }).strong();
     let button = egui::Button::new(label).fill(if recording { REC } else { ui.visuals().widgets.inactive.weak_bg_fill });
     ui.add(button)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn points_are_drawn_once_each() {
+        let points = [[0.5, 0.5], [0.5, 0.5], [0.5001, 0.5001], [0.25, 0.75]];
+        assert_eq!(distinct_points(&points).len(), 2);
+        assert!(distinct_points(&[]).is_empty());
+    }
 }

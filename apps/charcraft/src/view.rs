@@ -72,6 +72,18 @@ pub enum Action {
     Tracking(&'static str, Value),
     /// A microphone action.
     Mic(MicAction),
+    /// Start a stream output.
+    StreamStart(Box<charcraft_stream::Spec>),
+    /// Stop the stream output.
+    StreamStop,
+    /// Ask what each stream output needs on this machine.
+    StreamRefresh,
+    /// Ask for the cameras and microphones the system has.
+    InputsRefresh,
+    /// Hold a trigger key down or let go of it.
+    Trigger(String, bool),
+    /// Pick a swap set member.
+    Swap(String, String),
     /// Close the window.
     Quit,
 }
@@ -104,8 +116,27 @@ pub struct ActiveTake {
     pub frames: u32,
 }
 
+/// The texture of the camera preview (egui's handle has no `Debug`, which the view's derive needs).
+#[derive(Clone)]
+pub struct PreviewTexture(pub egui::TextureHandle);
+
+impl std::fmt::Debug for PreviewTexture {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PreviewTexture").field("size", &self.0.size()).finish()
+    }
+}
+
+impl std::ops::Deref for PreviewTexture {
+    type Target = egui::TextureHandle;
+
+    fn deref(&self) -> &egui::TextureHandle {
+        &self.0
+    }
+}
+
 /// What the live actor last reported.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
+#[expect(clippy::struct_excessive_bools, reason = "independent flags of the live inputs")]
 pub struct LiveSnapshot {
     /// The newest tracked face.
     pub face: Option<TrackedFace>,
@@ -127,6 +158,79 @@ pub struct LiveSnapshot {
     pub source: Option<String>,
     /// Calibration progress `(done, wanted)`.
     pub calibrating: Option<(usize, usize)>,
+    /// The cameras the system reports: index and name.
+    pub cameras: Vec<(u32, String)>,
+    /// The camera list is the single scripted demo face (no camera support in this build).
+    pub camera_demo: bool,
+    /// The camera chosen in the picker.
+    pub camera_index: u32,
+    /// The microphones the system reports.
+    pub mic_devices: Vec<String>,
+    /// The microphone chosen in the picker (`None` is the system default).
+    pub mic_device: Option<String>,
+    /// The microphone input sensitivity (gain).
+    pub mic_gain: f32,
+    /// The camera image of the live preview (absent for a scripted source).
+    pub preview: Option<PreviewTexture>,
+    /// The tracked landmark points over the preview, 0 to 1 across the image.
+    pub preview_points: Vec<[f32; 2]>,
+    /// Preview pictures received.
+    pub previews: u64,
+}
+
+impl Default for LiveSnapshot {
+    fn default() -> Self {
+        Self {
+            face: None,
+            faces: 0,
+            viseme: None,
+            level: 0.0,
+            tracking: false,
+            mic: false,
+            demo_voice: false,
+            problem: None,
+            calibrating: None,
+            cameras: Vec::new(),
+            camera_demo: false,
+            camera_index: 0,
+            mic_devices: Vec::new(),
+            mic_device: None,
+            mic_gain: 1.0,
+            preview: None,
+            preview_points: Vec::new(),
+            previews: 0,
+        }
+    }
+}
+
+/// The stream output the window drives: what the Controls panel edits and what the output thread reports.
+#[derive(Debug, Clone)]
+pub struct StreamUi {
+    /// The Controls, Triggers and scene panels are open.
+    pub panels: bool,
+    /// What to start.
+    pub spec: charcraft_stream::Spec,
+    /// The newest report of the output thread.
+    pub status: charcraft_stream::Status,
+    /// What each output needs on this machine.
+    pub outputs: Vec<charcraft_stream::OutputInfo>,
+    /// Trigger keys held down by the Triggers panel.
+    pub held: std::collections::BTreeSet<String>,
+    /// Swap set members chosen in the Triggers panel (set name to layer label).
+    pub swaps: BTreeMap<String, String>,
+}
+
+impl Default for StreamUi {
+    fn default() -> Self {
+        Self {
+            panels: true,
+            spec: charcraft_stream::Spec::default(),
+            status: charcraft_stream::Status::default(),
+            outputs: Vec::new(),
+            held: std::collections::BTreeSet::new(),
+            swaps: BTreeMap::new(),
+        }
+    }
 }
 
 /// A cached waveform: the (frame rate, length, frames) it was made for, and the peaks.
@@ -176,6 +280,10 @@ pub struct View {
     pub chroma: bool,
     /// The stream view shows its overlay chips.
     pub hud: bool,
+    /// The stream view has no backdrop at all: the window and the pictures sent to outputs are transparent.
+    pub transparent: bool,
+    /// The stream output and the panels of the stream view.
+    pub stream: StreamUi,
     /// The newest live input.
     pub live: LiveSnapshot,
     /// A line for the status bar.
@@ -223,6 +331,8 @@ impl Default for View {
             handle_kind: "draggable",
             chroma: false,
             hud: true,
+            transparent: false,
+            stream: StreamUi::default(),
             live: LiveSnapshot::default(),
             status: String::new(),
             recording: None,

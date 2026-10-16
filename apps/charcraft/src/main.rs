@@ -7,6 +7,8 @@
 //!                                          open the window, wait until it settles, save a PNG of it, exit
 //! charcraft --check-live                   check live input (ONNX Runtime, face models) without a camera and exit
 //! charcraft --face-file PHOTO|GIF|DIR      track the faces in pictures instead of a camera
+//! charcraft --mode stream --stream ndi|virtual-camera|web [--transparent]
+//!                                          send the performing puppet out of the app as it starts
 //! charcraft --mcp-stdio [FILE]             also serve MCP on stdin and stdout (add --headless for no window)
 //! charcraft --control-port 0 --token-file T   serve the loopback control channel for the `anim-mcp` bridge
 //! ```
@@ -57,6 +59,12 @@ struct Cli {
     /// Light theme.
     #[arg(long)]
     light: bool,
+    /// Start a stream output at launch: ndi, virtual-camera or web.
+    #[arg(long, value_name = "KIND")]
+    stream: Option<String>,
+    /// Start the stream view without a backdrop: the window and outputs that carry alpha show only the puppet.
+    #[arg(long)]
+    transparent: bool,
     /// No window: serve MCP on stdio only.
     #[arg(long, requires = "mcp_stdio")]
     headless: bool,
@@ -114,6 +122,11 @@ fn main() -> Result<ExitCode> {
         return Ok(ExitCode::SUCCESS);
     }
 
+    let stream = cli
+        .stream
+        .as_deref()
+        .map(|text| charcraft_stream::Kind::parse(text).ok_or_else(|| eyre!("--stream must be ndi, virtual-camera or web, got {text:?}")))
+        .transpose()?;
     let demo = cli.file.is_none();
     let shooting = cli.screenshot.is_some();
     let options = Options {
@@ -124,11 +137,15 @@ fn main() -> Result<ExitCode> {
         live_demo: cli.live_demo || (shooting && cli.face_file.is_none() && !matches!(mode, Mode::Rig)),
         face_file: cli.face_file.clone(),
         dark: !cli.light,
+        stream,
+        transparent: cli.transparent,
         control: cli.control,
     };
     let (done_tx, done_rx) = crossbeam_channel::unbounded();
     let native = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default().with_inner_size(size).with_min_inner_size([640.0, 420.0]).with_title("CharCraft"),
+        // Created transparent so the stream view can drop its backdrop (transparent window capture); every other view
+        // paints its own opaque panels.
+        viewport: egui::ViewportBuilder::default().with_inner_size(size).with_min_inner_size([640.0, 420.0]).with_title("CharCraft").with_transparent(true),
         ..eframe::NativeOptions::default()
     };
     eframe::run_native(

@@ -26,7 +26,7 @@ pub const INSTRUCTIONS: &str = "CharCraft is a live character animation app (pup
 Start with session_status and list_commands. Commands are grouped: scene_* (stage, frame rate, length), track_* (puppets on the stage \
 and their behavior edits), record_* (arming, punch range, scripted or explicit input recording), take_* (list, rename, enable, move, \
 delete takes), audio_* (clips), playback_* (poses at frames), rig_* (tags, handles, origins on the puppet), tracking_* and mic_* (live \
-camera and microphone), ui_set (drive the window: mode, selection, playhead). Queries (query_*) describe puppets and behaviors without \
+camera and microphone, rest pose, device choice), stream_* (send the puppet out as NDI, a virtual camera or a web source), ui_set (drive the window: mode, selection, playhead, triggers). Queries (query_*) describe puppets and behaviors without \
 changing anything. render_frame returns a PNG of a scene frame (or one puppet with options {puppet, viseme, blink}); screenshot returns \
 the real window; export writes mp4, mov, png-sequence or png. Every edit is one undo step; run_batch makes several edits atomic. \
 Record a performance headlessly with record_script (events: face, voice, pointer, key per frame), then render or export it. \

@@ -41,6 +41,7 @@ charcraft-behaviors = { workspace = true }
 charcraft-project = { workspace = true }
 charcraft-puppet = { workspace = true }
 charcraft-record = { workspace = true }
+charcraft-stream = { workspace = true }
 charcraft-tracking = { workspace = true }
 clap = { workspace = true }
 color-eyre = { workspace = true }

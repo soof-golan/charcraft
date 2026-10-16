@@ -49,8 +49,21 @@ Commands:
 * `lipsync_record`: reads a sound file (WAV, MP3, FLAC, Ogg, AAC), finds the mouth shapes, records them as a voice
   take and places the sound on an audio track. One undo step.
 * `audio_*`: clips on audio tracks.
-* `tracking_*`, `mic_*`: live camera and microphone (app only; fail cleanly without them). `ui_set` drives the
-  window (mode rig/record/stream, selection, playhead, playing).
+* `tracking_*`, `mic_*`: live camera and microphone (app only; fail cleanly without them). `tracking_list_cameras`
+  and `tracking_start {index}` pick the camera, `tracking_set_rest_pose {target: face|body|both}` sets the rest pose
+  (the body's is the posture a webcam sees through the head: position, distance, turn and tilt), `tracking_preview`
+  says whether the live image and landmark points are flowing. `mic_devices`, `mic_set_device {device}` and
+  `mic_set_gain {gain}` choose the microphone and its sensitivity.
+* `stream_outputs`, `stream_start`, `stream_stop`, `stream_status`: send the performing puppet out of the app.
+  `stream_outputs` says what each output needs on this machine, including what to install when it cannot start.
+  `stream_start {kind: ndi|virtual_camera|web, name, width, height, fps, background: transparent|green|black|white|#rrggbb}`:
+  `ndi` is a network source and needs the NDI runtime (loaded when it starts); `virtual_camera` writes to a
+  v4l2loopback device on Linux (no alpha; transparent shows chroma green); `web` serves MJPEG video at
+  `/stream.mjpg` and a PNG with alpha at `/frame.png` on `127.0.0.1`, which OBS reads as a Browser or Media source.
+  Syphon and Spout are not available in this build; use NDI.
+* `ui_set` drives the window (mode rig/record/stream, selection, playhead, playing; in the stream view `triggers`
+  holds trigger keys down, `swaps` picks swap set members, `transparent` and `green_screen` set the backdrop,
+  `stream_panels` shows the Controls, Triggers and Scenes panels).
 
 Queries: `query_puppet_summary` (layers, groups, tags, handles, mouth shapes, swap sets), `query_puppet_outline`,
 `query_puppet_layer`, `query_behaviors_catalog` and `query_behaviors_stack` (behaviors with parameters, as the track

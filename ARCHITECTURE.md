@@ -47,6 +47,8 @@ commit; to pick up newer engine work, change the revs and run `cargo update`.
 | `charcraft-behaviors` | Face, Lip Sync, Eye Gaze, Auto Blink, Dragger, Physics/Dangle, Breathe, Walk, Triggers, Transform | charcraft-puppet, anim-lipsync, anim-rig |
 | `charcraft-tracking` | Webcam via nokhwa and face landmarks via ort (ONNX Runtime), as an actor | nokhwa, ort |
 | `charcraft-record` | Takes (recorded in the app, or decoded from a project's `.arf` recordings), the scene timeline, playback and recording | charcraft-project, charcraft-arf, anim-timeline |
+| `charcraft-stream` | Stream output as an actor: the picture fitted to a canvas and repeated at the frame rate into NDI, a v4l2loopback virtual camera or a loopback MJPEG and PNG web source | charcraft-ndi, v4l, image |
+| `charcraft-ndi` | Loads the NDI runtime at run time and sends RGBA frames through its C interface. The only crate with `unsafe` (all in `ffi.rs`); it repeats the workspace lint table with that one lint relaxed | libloading |
 
 Apps live in `apps/*`: `charcraft-app` (eframe app, binary `charcraft`) and `charcraft-cli` (headless convert,
 render, export and inspect, used by tests).
