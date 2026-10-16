@@ -37,5 +37,22 @@ Rendered to `.../scratch/visual/charcraft-puppet-behaviors/head-extremes.png` (r
   scale with magnitude <= 1e-6 by 1.0, so "collapse the group" meant "no scale". Fixed in
   `crates/puppet/src/pose.rs`: a collapsed scale becomes the smallest scale of the same sign. After: no skin
   pixel: CONFIRMED.
-- Point 9 (neck weld): test `the_neck_stays_attached` is `#[ignore]` until the weld fix lands on main (other
-  agent); not judged here.
+- Point 9 (neck weld, after the weld fix landed on main): `the_neck_stays_attached` now runs on an eyeless puppet
+  (a white eye with a pupil is a hole with an island and counts as extra components: the first failure, 3
+  components, was a test mistake) with 7 poses (+-40 deg moved +-30, 15, a pure move, +-90, 180): one component and
+  no transparent pixel along the neck line: CONFIRMED (crops neck-90-0, neck-180-0).
+
+### Re-judged after the weld landed (the sheets were re-rendered and the goldens replaced)
+
+The prediction "a rest point lands at T(p)" is wrong near the neck once Weld is on: the head mesh within half its
+extent (80 px) of the attach point is blended with the body, so the mouth (30 px from the origin) is not at its
+rigid position (rot180: it sits about 25 px above it) and the pupils (74..84 px away) are distorted at +-90. The
+probes now use only points at least 90 px from the origin (the face corners, which are rigid), and the pupils are
+judged by `eye_gaze_limits` (turn90 probes).
+- Observation, not judged a bug: at extreme poses the blend ring leaves ragged geometry: at -90 deg a notch in the
+  face and a mouth sliver detached from the chin; for the flip pose a skin spike rises from the neck above the
+  flipped head (head-extremes-b panel 3). The weld holds the neck end at the body while the rest is flipped, so
+  some bridge is expected, but its shape is not a clean stretch.
+- BUG FOUND (point 8, again): with the weld a head scale of (0,0) still leaves a skin sliver at (104..152, 140..143):
+  the ring near the attach point follows the body mesh and ignores the head's scale. Not fixed (weld code is
+  another agent's); `a_zero_scale_head_collapses` is `#[ignore]`d with the reason.

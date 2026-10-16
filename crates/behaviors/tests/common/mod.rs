@@ -12,6 +12,8 @@
     clippy::cast_sign_loss,
     clippy::cast_precision_loss,
     clippy::print_stderr,
+    clippy::many_single_char_names,
+    clippy::chunks_exact_to_as_chunks,
     reason = "test code"
 )]
 
