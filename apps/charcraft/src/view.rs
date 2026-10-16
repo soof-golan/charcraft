@@ -189,6 +189,7 @@ impl Default for LiveSnapshot {
             mic: false,
             demo_voice: false,
             problem: None,
+            source: None,
             calibrating: None,
             cameras: Vec::new(),
             camera_demo: false,
