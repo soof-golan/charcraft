@@ -58,6 +58,11 @@ pub mod ids {
     pub const LEFT_ARM: &str = "Charcraft.LeftArm";
     pub const RIGHT_ARM: &str = "Charcraft.RightArm";
     pub const BREATHE: &str = "Charcraft.Breathe";
+    pub const LEFT_CHEEK: &str = "Adobe.Face.LeftCheek";
+    pub const RIGHT_CHEEK: &str = "Adobe.Face.RightCheek";
+    pub const LEFT_EAR: &str = "Charcraft.LeftEar";
+    pub const RIGHT_EAR: &str = "Charcraft.RightEar";
+    pub const HAIR: &str = "Charcraft.Hair";
     /// Prefix of the walk-cycle handle tags (`Adobe.Walk.LeftHip`, ...).
     pub const WALK_PREFIX: &str = "Adobe.Walk.";
     /// Prefix of the lip sync layer tags.
@@ -97,8 +102,8 @@ pub const AUTO_TAGS: &[AutoTag] = &[
     handle(ids::HEAD, &["head"]),
     handle(ids::LEFT_EYE, &["lefteye"]),
     handle(ids::RIGHT_EYE, &["righteye"]),
-    handle(ids::LEFT_EYEBROW, &["lefteyebrow"]),
-    handle(ids::RIGHT_EYEBROW, &["righteyebrow"]),
+    handle(ids::LEFT_EYEBROW, &["lefteyebrow", "leftbrow"]),
+    handle(ids::RIGHT_EYEBROW, &["righteyebrow", "rightbrow"]),
     handle(ids::LEFT_PUPIL, &["leftpupil"]),
     handle(ids::RIGHT_PUPIL, &["rightpupil"]),
     handle("Adobe.Face.LeftEyelidTop", &["lefteyelidtop"]),
@@ -133,13 +138,13 @@ pub const AUTO_TAGS: &[AutoTag] = &[
     layer("Adobe.LipSynch.S", &["s", "k"]),
     layer("Adobe.LipSynch.Uh", &["uh"]),
     layer("Adobe.LipSynch.W-Oo", &["w-oo", "woo"]),
-    layer("Adobe.Face.LeftProfile", &["leftprofile"]),
-    layer("Adobe.Face.LeftQuarter", &["leftquarter"]),
-    layer("Adobe.Face.Front", &["frontal"]),
-    layer("Adobe.Face.RightQuarter", &["rightquarter"]),
+    layer("Adobe.Face.LeftProfile", &["leftprofile", "profileleft"]),
+    layer("Adobe.Face.LeftQuarter", &["leftquarter", "leftthreequarter", "left34"]),
+    layer("Adobe.Face.Front", &["frontal", "front", "frontview"]),
+    layer("Adobe.Face.RightQuarter", &["rightquarter", "rightthreequarter", "right34"]),
     layer("Adobe.Face.RightProfile", &["rightprofile"]),
-    layer("Adobe.Face.Upward", &["upward"]),
-    layer("Adobe.Face.Downward", &["downward"]),
+    layer("Adobe.Face.Upward", &["upward", "up", "lookup", "lookingup"]),
+    layer("Adobe.Face.Downward", &["downward", "down", "lookdown", "lookingdown"]),
     layer(ids::CYCLE, &["cyclelayers", "cycle"]),
     layer("Adobe.MotionTrigger.AtRest", &["atrest"]),
     layer("Adobe.MotionTrigger.MovingLeft", &["movingleft"]),
@@ -179,6 +184,33 @@ pub const AUTO_TAGS: &[AutoTag] = &[
     handle(ids::LEFT_ARM, &["leftarm", "armleft"]),
     handle(ids::RIGHT_ARM, &["rightarm", "armright"]),
     handle(ids::BREATHE, &["breathe"]),
+    layer(ids::LEFT_CHEEK, &["leftcheek"]),
+    layer(ids::RIGHT_CHEEK, &["rightcheek"]),
+    layer("Charcraft.Cheeks", &["cheek", "cheeks", "blush"]),
+    layer(ids::LEFT_EAR, &["leftear"]),
+    layer(ids::RIGHT_EAR, &["rightear"]),
+    layer("Charcraft.Ears", &["ear", "ears"]),
+    layer(ids::HAIR, &["hair", "hairback", "hairfront", "fringe", "bangs", "ponytail", "bun", "hairdo"]),
+    layer("Charcraft.LeftEyelash", &["lefteyelash", "lefteyelashes", "leftlash", "leftlashes"]),
+    layer("Charcraft.RightEyelash", &["righteyelash", "righteyelashes", "rightlash", "rightlashes"]),
+    layer("Charcraft.Eyelashes", &["eyelash", "eyelashes", "lash", "lashes"]),
+    layer("Charcraft.LeftMouthCorner", &["leftmouthcorner", "leftlipcorner", "leftsmile"]),
+    layer("Charcraft.RightMouthCorner", &["rightmouthcorner", "rightlipcorner", "rightsmile"]),
+    layer("Charcraft.Teeth", &["teeth", "tooth"]),
+    layer("Charcraft.UpperTeeth", &["upperteeth", "topteeth"]),
+    layer("Charcraft.LowerTeeth", &["lowerteeth", "bottomteeth"]),
+    layer("Charcraft.Tongue", &["tongue"]),
+    layer("Charcraft.Lips", &["lips", "lip"]),
+    layer("Charcraft.Torso", &["torso", "chest", "trunk"]),
+    layer("Charcraft.LeftLeg", &["leftleg"]),
+    layer("Charcraft.RightLeg", &["rightleg"]),
+    layer("Charcraft.Legs", &["leg", "legs"]),
+    layer("Charcraft.LeftHand", &["lefthand"]),
+    layer("Charcraft.RightHand", &["righthand"]),
+    layer("Charcraft.LeftFoot", &["leftfoot"]),
+    layer("Charcraft.RightFoot", &["rightfoot"]),
+    layer("Charcraft.Neck", &["neck"]),
+    layer("Charcraft.Shoulders", &["shoulder", "shoulders"]),
 ];
 
 /// Groups whose name matches one of these tags are independent even without a `+` (Character Animator makes the
@@ -216,10 +248,75 @@ pub fn label(name: &str) -> &str {
     name.trim_start().trim_start_matches('+').trim()
 }
 
+/// Words that name a side. A lone `l` or `r` is a mouth shape, so single letters only count next to other words.
+const SIDE_WORDS: [(&str, &str); 4] = [("left", "left"), ("l", "left"), ("right", "right"), ("r", "right")];
+
+/// The words of a name: split at blanks, `_`, `-` and camelCase humps, lower case, digits-only words dropped.
+fn words(name: &str) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    let mut current = String::new();
+    let mut previous_lower = false;
+    for c in name.trim_start().trim_start_matches('+').chars() {
+        if c.is_whitespace() || matches!(c, '_' | '-' | '.' | '/') {
+            if !current.is_empty() {
+                out.push(std::mem::take(&mut current));
+            }
+            previous_lower = false;
+            continue;
+        }
+        if c.is_uppercase() && previous_lower && !current.is_empty() {
+            out.push(std::mem::take(&mut current));
+        }
+        previous_lower = c.is_lowercase();
+        current.extend(c.to_lowercase());
+    }
+    if !current.is_empty() {
+        out.push(current);
+    }
+    out.retain(|w| !w.chars().all(|c| c.is_ascii_digit()));
+    out
+}
+
+/// The key a loosely written name stands for: `Eye Left`, `eye_L` and `LeftEyes` all give `lefteye`; a side word
+/// anywhere moves to the front and a plural loses its `s`. `None` when the name has no side word and no plural, so
+/// it has no other reading than the plain one.
+fn guessed_key(name: &str) -> Option<String> {
+    let mut parts = words(name);
+    if parts.len() < 2 && parts.iter().all(|w| w.chars().count() <= 3) {
+        return None;
+    }
+    let mut side = None;
+    if parts.len() > 1 {
+        if let Some(at) = parts.iter().position(|w| SIDE_WORDS.iter().any(|(s, _)| s == w)) {
+            let word = parts.remove(at);
+            side = SIDE_WORDS.iter().find(|(s, _)| *s == word).map(|(_, full)| *full);
+        }
+    }
+    if let Some(last) = parts.last_mut()
+        && last.chars().count() > 3
+        && last.ends_with('s')
+        && !last.ends_with("ss")
+    {
+        last.pop();
+    }
+    let rest: String = parts.concat();
+    Some(format!("{}{rest}", side.unwrap_or_default()))
+}
+
+/// The table key a name is looked up by: its plain normal form when that is in the table, otherwise the guessed
+/// form (`Eye Left` -> `lefteye`), otherwise the plain form.
+fn lookup_key(name: &str) -> String {
+    let plain = normalize(name);
+    if AUTO_TAGS.iter().any(|t| t.matches.contains(&plain.as_str())) {
+        return plain;
+    }
+    guessed_key(name).filter(|k| AUTO_TAGS.iter().any(|t| t.matches.contains(&k.as_str()))).unwrap_or(plain)
+}
+
 /// Every table entry a name gives. Handle tags only make sense on independent groups, so callers decide which
 /// kinds to apply.
 pub fn auto_tags(name: &str) -> impl Iterator<Item = &'static AutoTag> {
-    let key = normalize(name);
+    let key = lookup_key(name);
     AUTO_TAGS.iter().filter(move |t| t.matches.contains(&key.as_str()))
 }
 
@@ -373,6 +470,31 @@ mod tests {
         assert_eq!(normalize("+ ראש"), "ראש");
         assert!(is_independent("+שלום"));
         assert_eq!(label("+ مرحبا"), "مرحبا");
+    }
+
+    #[test]
+    fn loose_names_get_the_tag_adobe_would_guess() {
+        for (name, want) in [
+            ("Eye Left", ids::LEFT_EYE),
+            ("eye_R", ids::RIGHT_EYE),
+            ("LeftEyes", ids::LEFT_EYE),
+            ("Brow Right", ids::RIGHT_EYEBROW),
+            ("L Eyebrow", ids::LEFT_EYEBROW),
+            ("Right Cheek", ids::RIGHT_CHEEK),
+            ("Cheek L", ids::LEFT_CHEEK),
+            ("Hair 2", ids::HAIR),
+            ("Ears", "Charcraft.Ears"),
+            ("Ear Left", ids::LEFT_EAR),
+            ("Eyelashes", "Charcraft.Eyelashes"),
+            ("Mouth Corner Left", "Charcraft.LeftMouthCorner"),
+            ("Profile Left", "Adobe.Face.LeftProfile"),
+            ("Teeth", "Charcraft.Teeth"),
+            ("Left Leg", "Charcraft.LeftLeg"),
+        ] {
+            assert!(ids_of(name).contains(&want), "{name} should give {want}, got {:?}", ids_of(name));
+        }
+        assert!(ids_of("R").contains(&"Adobe.LipSynch.R"), "a lone R stays the mouth shape");
+        assert!(ids_of("Banana Left").is_empty());
     }
 
     #[test]
