@@ -168,6 +168,21 @@ fn script_events() -> Vec<charcraft_behaviors::ScriptEvent> {
     events
 }
 
+/// The view with the window named by `--open` showing: `export` (the dialog) or `queue` (the queue with sample items).
+fn opened_view(mut view: View, open: Option<&str>, scene_name: &str) -> View {
+    match open {
+        Some("export") => view.export.dialog = Some(export::Dialog::new(scene_name, "./")),
+        Some("queue") => {
+            view.export.queue_open = true;
+            for (format, name) in [(Format::Mp4, "scene.mp4"), (Format::Gif, "scene.gif"), (Format::AfterEffects, "scene-ae")] {
+                view.export.queue.push(format, PathBuf::from(name), export::Options::default());
+            }
+        }
+        _ => {}
+    }
+    view
+}
+
 impl CharCraftApp {
     /// Builds the app: starts the actors and the agent doors around an opened document.
     ///
@@ -207,20 +222,7 @@ impl CharCraftApp {
             export_tx,
             export_rx,
             done,
-            view: {
-                let mut view = View { mode: options.mode, dark, ..View::default() };
-                match options.open.as_deref() {
-                    Some("export") => view.export.dialog = Some(export::Dialog::new(&doc.rec.scene.name, "./")),
-                    Some("queue") => {
-                        view.export.queue_open = true;
-                        for (format, name) in [(Format::Mp4, "scene.mp4"), (Format::Gif, "scene.gif"), (Format::AfterEffects, "scene-ae")] {
-                            view.export.queue.push(format, PathBuf::from(name), export::Options::default());
-                        }
-                    }
-                    _ => {}
-                }
-                view
-            },
+            view: opened_view(View { mode: options.mode, dark, ..View::default() }, options.open.as_deref(), &doc.rec.scene.name),
             doc,
             doc_rev: 1,
             rev: 1,
