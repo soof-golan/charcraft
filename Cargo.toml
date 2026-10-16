@@ -19,8 +19,12 @@ charcraft-puppet = { path = "crates/puppet" }
 charcraft-behaviors = { path = "crates/behaviors" }
 charcraft-tracking = { path = "crates/tracking" }
 charcraft-record = { path = "crates/record" }
+<<<<<<< HEAD
 charcraft-ndi = { path = "crates/ndi" }
 charcraft-stream = { path = "crates/stream" }
+=======
+charcraft-maker = { path = "crates/maker" }
+>>>>>>> 4208989 (feat(charcraft-maker): parametric puppet generator with starter templates; the demo puppet is its classic character)
 
 # Shared engine crates from anicraft-libs, pinned to the v0.1.0 commit. To move to newer engine work, change every
 # rev below to the new commit and run `cargo update`.
