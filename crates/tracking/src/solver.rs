@@ -173,7 +173,7 @@ impl Smoothing {
 }
 
 #[derive(Clone, Copy, Debug, Default)]
-struct OneEuro {
+pub(crate) struct OneEuro {
     last: Option<(f32, f32)>,
 }
 
@@ -183,7 +183,7 @@ impl OneEuro {
         1.0 / (1.0 + tau / dt)
     }
 
-    fn apply(&mut self, x: f32, dt: f32, p: Filter) -> f32 {
+    pub(crate) fn apply(&mut self, x: f32, dt: f32, p: Filter) -> f32 {
         let Some((prev, prev_dx)) = self.last else {
             self.last = Some((x, 0.0));
             return x;

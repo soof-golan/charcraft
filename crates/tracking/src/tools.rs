@@ -26,6 +26,8 @@ use serde::Serialize;
 use serde_json::{Value, json};
 
 use crate::actor::{CameraSpec, Command, Event, Preview, Sample, Status, TrackingHandle};
+use crate::body_actor::BodyHandle;
+use crate::body_tools::BodyTools;
 use crate::solver::{RestScope, Sensitivity, Smoothing};
 
 /// How long a tool waits for the actor to answer a status query.
@@ -63,11 +65,11 @@ pub struct ToolSpec {
     pub params: Value,
 }
 
-const fn spec(name: &'static str, description: &'static str, read_only: bool, params: Value) -> ToolSpec {
+pub(crate) const fn spec(name: &'static str, description: &'static str, read_only: bool, params: Value) -> ToolSpec {
     ToolSpec { name, description, read_only, params }
 }
 
-fn object(properties: Value) -> Value {
+pub(crate) fn object(properties: Value) -> Value {
     let fields = [("type".to_owned(), json!("object")), ("properties".to_owned(), properties), ("additionalProperties".to_owned(), json!(false))];
     Value::Object(fields.into_iter().collect())
 }
@@ -161,6 +163,7 @@ pub fn tools() -> Vec<ToolSpec> {
         true,
         object(json!({})),
     ));
+    all.extend(crate::body_tools::specs());
     all
 }
 
@@ -185,7 +188,7 @@ fn filter_schema() -> Value {
 }
 
 /// Merges `patch` over `base` field by field, objects recursively.
-fn merge(base: &mut Value, patch: &Value) {
+pub(crate) fn merge(base: &mut Value, patch: &Value) {
     match (base, patch) {
         (Value::Object(base), Value::Object(patch)) => {
             for (key, value) in patch {
@@ -196,7 +199,7 @@ fn merge(base: &mut Value, patch: &Value) {
     }
 }
 
-fn parse<T: serde::de::DeserializeOwned>(value: Value) -> Result<T, ToolError> {
+pub(crate) fn parse<T: serde::de::DeserializeOwned>(value: Value) -> Result<T, ToolError> {
     serde_json::from_value(value).map_err(|e| ToolError::InvalidParams(e.to_string()))
 }
 
@@ -204,6 +207,7 @@ fn parse<T: serde::de::DeserializeOwned>(value: Value) -> Result<T, ToolError> {
 #[derive(Debug)]
 pub struct TrackingTools {
     handle: TrackingHandle,
+    body: Option<BodyTools>,
     latest: Option<Sample>,
     last_error: Option<String>,
     calibrated: bool,
@@ -216,13 +220,26 @@ impl TrackingTools {
     /// Tools over `handle`.
     #[must_use]
     pub const fn new(handle: TrackingHandle) -> Self {
-        Self { handle, latest: None, last_error: None, calibrated: false, status: None, preview: None, fresh_preview: false }
+        Self { handle, body: None, latest: None, last_error: None, calibrated: false, status: None, preview: None, fresh_preview: false }
     }
 
     /// The newest camera preview if it has not been taken yet.
     pub fn take_preview(&mut self) -> Option<Preview> {
         self.pump();
         if std::mem::take(&mut self.fresh_preview) { self.preview.clone() } else { None }
+    }
+
+    /// These tools with the body tracker too: the `tracking_body_*` tools and `tracking_set_rest_pose` then work.
+    #[must_use]
+    pub fn with_body(mut self, body: BodyHandle) -> Self {
+        self.body = Some(BodyTools::new(body));
+        self
+    }
+
+    /// The body tools, when there is a body tracker.
+    #[must_use]
+    pub const fn body(&self) -> Option<&BodyTools> {
+        self.body.as_ref()
     }
 
     /// The actor's handle, for the app's own use.
@@ -250,6 +267,9 @@ impl TrackingTools {
     pub fn pump(&mut self) {
         while let Some(event) = self.handle.try_recv() {
             self.absorb(event);
+        }
+        if let Some(body) = &mut self.body {
+            body.pump();
         }
     }
 
@@ -292,6 +312,10 @@ impl TrackingTools {
     /// [`ToolError`].
     pub fn call(&mut self, name: &str, params: &Value) -> Result<Value, ToolError> {
         let params = if params.is_null() { json!({}) } else { params.clone() };
+        if crate::body_tools::handles(name) {
+            self.pump();
+            return self.body.as_mut().map_or_else(|| Err(ToolError::Failed("this build has no body tracker".into())), |body| body.call(name, &params));
+        }
         match name {
             "tracking_status" => self.status_json(),
             "tracking_latest" => {
@@ -387,6 +411,9 @@ impl TrackingTools {
 
     /// Ends the actor and waits for its thread.
     pub fn shutdown(self) {
+        if let Some(body) = self.body {
+            body.shutdown();
+        }
         self.handle.shutdown();
     }
 }

@@ -19,6 +19,9 @@
 //!   calibration, output ranges and One-Euro smoothing.
 //! * [`model`]: the registry of open-licensed models (name, licence, URL, SHA-256) and the store that downloads them
 //!   into the platform cache directory on first use and verifies them. Weights are never committed.
+//! * [`body`], [`body_actor`], [`pose`]: full-body tracking. A pose network (`MoveNet`, in the model registry like the
+//!   face models) finds 17 keypoints; [`body::BodySolver`] measures them against a captured rest pose and hands the
+//!   puppet joints in body units; [`body_actor::BodyActor`] runs it all on its own thread like the face actor.
 //! * `camera` (feature `camera`): enumerates webcams and opens one at a requested resolution through nokhwa.
 //! * `onnx` (feature `onnx` or `onnx-dynamic`): `MediaPipe` `BlazeFace` and Face Mesh V2 on ONNX Runtime, linked
 //!   from downloaded binaries or loaded at run time. `pipeline` holds the runtime-independent geometry.
@@ -35,10 +38,14 @@
 #![cfg_attr(test, allow(clippy::arithmetic_side_effects, clippy::assert_is_empty, reason = "test code"))]
 
 pub mod actor;
+pub mod body;
+pub mod body_actor;
+pub mod body_tools;
 #[cfg(feature = "camera")]
 pub mod camera;
 mod cast;
 pub mod error;
+pub mod fanout;
 #[cfg(feature = "files")]
 pub mod files;
 pub mod frame;
@@ -51,6 +58,7 @@ pub mod model;
 #[cfg(feature = "onnx-runtime")]
 pub mod onnx;
 pub mod pipeline;
+pub mod pose;
 #[cfg(feature = "onnx-dynamic")]
 pub mod runtime_lib;
 pub mod solver;

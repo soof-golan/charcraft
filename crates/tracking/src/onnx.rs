@@ -10,8 +10,9 @@ use ort::value::Tensor;
 
 use crate::error::{Error, Result};
 use crate::landmarks::MESH_POINTS_WITH_IRIS;
-use crate::model::{FACE_DETECTOR, FACE_LANDMARKS, ModelStore};
+use crate::model::{BODY_POSE, FACE_DETECTOR, FACE_LANDMARKS, ModelStore};
 use crate::pipeline::{ANCHORS, DETECTOR_SIZE, DetectorOutput, FaceNet, FaceTracker, MESH_SIZE, MeshOutput, REGRESSION_STRIDE};
+use crate::pose::{POSE_SIZE, PoseNet, PoseTracker, output_len};
 
 fn inference(e: impl std::fmt::Display) -> Error {
     Error::Inference(e.to_string())
@@ -41,7 +42,10 @@ pub fn runtime_info() -> String {
 }
 
 /// The ONNX Runtime environment and the store the models come from.
-#[derive(Debug)]
+///
+/// Cloning gives another handle on the same environment, which is how the face tracker and the body tracker, each
+/// on its own thread, share the process's single ONNX Runtime.
+#[derive(Debug, Clone)]
 pub struct OnnxRuntime {
     // Kept alive for the sessions; ONNX Runtime allows one environment per process.
     environment: ort::environment::Environment,
@@ -90,6 +94,24 @@ impl OnnxRuntime {
         Ok(FaceTracker::new(self.net()?))
     }
 
+    /// Downloads (if needed), verifies and opens the body pose model.
+    ///
+    /// # Errors
+    /// Download, verification and session errors.
+    pub fn pose_net(&self) -> Result<OnnxPoseNet> {
+        let session = self.session(&BODY_POSE)?;
+        let whole_numbers = session.inputs().first().and_then(|i| i.dtype().tensor_type()) == Some(ort::value::TensorElementType::Int32);
+        Ok(OnnxPoseNet { session, whole_numbers })
+    }
+
+    /// A ready body tracker.
+    ///
+    /// # Errors
+    /// As [`OnnxRuntime::pose_net`].
+    pub fn body_tracker(&self) -> Result<PoseTracker<OnnxPoseNet>> {
+        Ok(PoseTracker::new(self.pose_net()?))
+    }
+
     fn session(&self, model: &crate::model::ModelInfo) -> Result<Session> {
         let path = self.store.ensure(model)?;
         let mut builder = Session::builder(&self.environment).map_err(inference)?;
@@ -107,6 +129,38 @@ pub struct OnnxNet {
 impl std::fmt::Debug for OnnxNet {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("OnnxNet").finish_non_exhaustive()
+    }
+}
+
+/// The pose model as a session. `MoveNet` converted from TensorFlow takes whole-number pixel values (`int32`);
+/// other conversions take floats, so the input type is read from the model.
+pub struct OnnxPoseNet {
+    session: Session,
+    whole_numbers: bool,
+}
+
+impl std::fmt::Debug for OnnxPoseNet {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("OnnxPoseNet").field("whole_numbers", &self.whole_numbers).finish_non_exhaustive()
+    }
+}
+
+impl PoseNet for OnnxPoseNet {
+    fn infer(&mut self, input: &[f32]) -> Result<Vec<f32>> {
+        let side = i64::try_from(POSE_SIZE).map_err(inference)?;
+        let shape = [1_i64, side, side, 3];
+        let outputs = if self.whole_numbers {
+            let pixels: Vec<i32> = input.iter().map(|v| anim_core::num::round_f64_to_i32(f64::from(*v))).collect();
+            self.session.run(ort::inputs![Tensor::from_array((shape, pixels)).map_err(inference)?]).map_err(inference)?
+        } else {
+            self.session.run(ort::inputs![Tensor::from_array((shape, input.to_vec())).map_err(inference)?]).map_err(inference)?
+        };
+        let wanted = output_len();
+        outputs
+            .iter()
+            .filter_map(|(_, v)| v.try_extract_tensor::<f32>().ok().map(|(_, d)| d.to_vec()))
+            .find(|d| d.len() == wanted)
+            .ok_or_else(|| Error::Inference(format!("the pose model has no output of {wanted} numbers")))
     }
 }
 

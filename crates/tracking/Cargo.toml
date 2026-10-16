@@ -48,3 +48,7 @@ tempfile = { workspace = true }
 [[example]]
 name = "probe"
 required-features = ["onnx-runtime"]
+
+[[example]]
+name = "pose_probe"
+required-features = ["onnx-runtime"]

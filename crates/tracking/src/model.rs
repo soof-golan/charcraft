@@ -18,6 +18,9 @@ pub enum Task {
     FaceDetection,
     /// Places 478 landmarks on a face found in a crop.
     FaceLandmarks,
+    /// Places the 17 body keypoints (nose, eyes, ears, shoulders, elbows, wrists, hips, knees, ankles) of one
+    /// person in a frame.
+    BodyPose,
 }
 
 /// A model in the registry: what it is, who made it, its licence and where the weights come from.
@@ -80,8 +83,23 @@ pub const FACE_LANDMARKS: ModelInfo = ModelInfo {
     sha256: "f38c3321ceffbc9e95103480ad38cc3f52e7e1bde2bcee7cd9355d0b9138ac0c",
 };
 
+/// `MoveNet` `SinglePose` Lightning (17 body keypoints, 192 x 192 input), converted to ONNX.
+pub const BODY_POSE: ModelInfo = ModelInfo {
+    id: "movenet-singlepose-lightning-onnx",
+    task: Task::BodyPose,
+    name: "MoveNet SinglePose Lightning, 17 body keypoints (ONNX)",
+    authors: "Google LLC (MoveNet); ONNX conversion by Joshua Lochner (Xenova)",
+    licence: "Apache-2.0",
+    licence_url: "https://www.apache.org/licenses/LICENSE-2.0",
+    homepage: "https://huggingface.co/Xenova/movenet-singlepose-lightning",
+    url: "https://huggingface.co/Xenova/movenet-singlepose-lightning/resolve/ed0f314bb7356fd1dbf1e4f52c2d40791bf6534f/onnx/model.onnx",
+    file_name: "movenet_singlepose_lightning.onnx",
+    size: 9_413_268,
+    sha256: "1ad4f8d6c2f776a9967db3993c9ca740bc350104f9d37c151dc183fc29a464ad",
+};
+
 /// Every registered model.
-pub const MODELS: &[ModelInfo] = &[FACE_DETECTOR, FACE_LANDMARKS];
+pub const MODELS: &[ModelInfo] = &[FACE_DETECTOR, FACE_LANDMARKS, BODY_POSE];
 
 /// Looks a model up by id.
 #[must_use]

@@ -16,6 +16,7 @@ beside every installed file.
 |---|---|---|---|
 | MediaPipe BlazeFace short-range detector (ONNX) | Google LLC (MediaPipe); conversion by Fernando Tonon | huggingface.co/fernandotonon/QtMeshEditor-blazeface-onnx | Apache-2.0 |
 | MediaPipe Face Mesh V2, 478 landmarks (ONNX) | Google LLC (MediaPipe); conversion by naklitechie | huggingface.co/naklitechie/face-landmarks-onnx | Apache-2.0 |
+| MoveNet SinglePose Lightning, 17 body keypoints (ONNX) | Google LLC (MoveNet); conversion by Joshua Lochner (Xenova) | huggingface.co/Xenova/movenet-singlepose-lightning | Apache-2.0 |
 
 ## Redistributed in release packages (tool-generated binaries, never committed)
 

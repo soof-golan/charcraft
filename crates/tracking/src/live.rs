@@ -6,7 +6,10 @@
 //! reported as it is (no camera, access denied, library or model missing) and never answered with the demo face.
 
 use crate::actor::{CameraSpec, SourceFactory, TrackingActor, TrackingHandle};
+use crate::body::{BodySource, TrackedBodyCamera};
+use crate::body_actor::{BodyActor, BodyHandle, BodySourceFactory};
 use crate::camera::CameraSource;
+use crate::fanout::CameraHub;
 use crate::files::ImageFiles;
 use crate::onnx::OnnxRuntime;
 use crate::source::{FaceSource, FrameSource, ScriptedSource, TrackedCamera};
@@ -77,4 +80,40 @@ pub fn self_check() -> crate::Result<Vec<String>> {
 #[must_use]
 pub fn spawn() -> TrackingHandle {
     TrackingActor::spawn(factory())
+}
+
+/// A camera hub that opens the real webcam, for the face and body trackers to share.
+#[must_use]
+pub fn camera_hub() -> CameraHub {
+    CameraHub::start(Box::new(|spec| {
+        open_frames(spec)
+    }))
+}
+
+/// Like [`factory`], reading the shared camera and using an already started ONNX Runtime.
+pub fn shared_face_factory(hub: CameraHub, runtime: OnnxRuntime) -> SourceFactory {
+    Box::new(move |spec| {
+        if spec.demo {
+            let source: Box<dyn FaceSource> = Box::new(ScriptedSource::demo(240, 30));
+            return Ok(source);
+        }
+        let tracker = runtime.tracker()?;
+        let source: Box<dyn FaceSource> = Box::new(TrackedCamera::new(hub.subscribe(spec)?, tracker));
+        Ok(source)
+    })
+}
+
+/// The body tracker's factory: the shared camera and the pose model (fetched on first use).
+pub fn body_factory(hub: CameraHub, runtime: OnnxRuntime) -> BodySourceFactory {
+    Box::new(move |spec| {
+        let tracker = runtime.body_tracker()?;
+        let source: Box<dyn BodySource> = Box::new(TrackedBodyCamera::new(hub.subscribe(spec)?, tracker));
+        Ok(source)
+    })
+}
+
+/// Starts a body tracking actor on the shared camera and the pose model.
+#[must_use]
+pub fn spawn_body(hub: CameraHub, runtime: OnnxRuntime) -> BodyHandle {
+    BodyActor::spawn(body_factory(hub, runtime))
 }
