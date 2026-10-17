@@ -10,10 +10,10 @@
 )]
 #![allow(clippy::many_single_char_names, clippy::missing_const_for_fn, clippy::assert_is_empty, reason = "test code")]
 
-use anim_artwork::{ArtNode, ArtworkTree};
+use anim_artwork::synthetic::face;
 use anim_audio::{MixFormat, PcmBuffer};
-use anim_core::{FrameRate, Point, Rgba8, Size, Tick, Vec2};
-use anim_display::{DisplayList, Image, Node};
+use anim_core::{FrameRate, Rgba8, Size, Tick, Vec2};
+use anim_display::{DisplayList, Node};
 use anim_export::{FrameSource, RasterOptions, render_frame};
 use charcraft_behaviors::{FaceInput, Script, ScriptEvent};
 use charcraft_puppet::{Puppet, Viseme};
@@ -21,56 +21,10 @@ use charcraft_record::{AudioClip, Cast, CastMember, MediaStore, ParamGroup, Pupp
 
 const SIZE: u32 = 200;
 
-fn rect(name: &str, x: f64, y: f64, w: u32, h: u32, rgb: [u8; 3]) -> ArtNode {
-    let n = usize::try_from(w * h).unwrap();
-    let px: Vec<u8> = [rgb[0], rgb[1], rgb[2], 255].iter().copied().cycle().take(n * 4).collect();
-    ArtNode::raster(name, Image::new(w, h, px).unwrap(), Point::new(x, y))
-}
-
-fn hidden(mut node: ArtNode) -> ArtNode {
-    node.visible = false;
-    node
-}
-
-fn eye(side: &str, x: f64) -> ArtNode {
-    ArtNode::group(
-        format!("{side} Eye"),
-        vec![
-            rect("White", x, 50.0, 30, 20, [255, 255, 255]),
-            rect(&format!("+ {side} Pupil"), x + 10.0, 55.0, 10, 10, [10, 10, 10]),
-            hidden(rect(&format!("{side} Blink"), x, 58.0, 30, 4, [30, 60, 220])),
-        ],
-    )
-}
-
 /// A face of rectangles named like a Character Animator puppet: a head, two eyes, brows and 14 mouth shapes.
 fn puppet() -> Puppet {
-    let mouth = ArtNode::group(
-        "mouth",
-        Viseme::ALL
-            .iter()
-            .enumerate()
-            .map(|(i, v)| {
-                let i = u8::try_from(i).unwrap();
-                let node = rect(v.label(), 85.0, 90.0, 30, 15, [20 + i * 15, 220 - i * 12, 40 + i * 5]);
-                if *v == Viseme::Neutral { node } else { hidden(node) }
-            })
-            .collect(),
-    );
-    let head = ArtNode::group(
-        "Head",
-        vec![
-            rect("Face", 50.0, 20.0, 100, 100, [240, 190, 160]),
-            eye("Left", 110.0),
-            eye("Right", 60.0),
-            rect("+Left Eyebrow", 110.0, 36.0, 30, 10, [90, 40, 10]),
-            rect("+ right eyebrow", 60.0, 36.0, 30, 10, [90, 40, 10]),
-            mouth,
-        ],
-    );
-    let body = ArtNode::group("Body", vec![rect("Torso", 60.0, 120.0, 80, 80, [120, 120, 130])]);
-    let tree = ArtworkTree { size: Size::new(f64::from(SIZE), f64::from(SIZE)), root: ArtNode::group("", vec![body, head]), warnings: Vec::new() };
-    Puppet::from_artwork(&tree).unwrap()
+    let labels: Vec<&str> = Viseme::ALL.iter().map(|v| v.label()).collect();
+    Puppet::from_artwork(&face(&labels, Viseme::Neutral.label())).unwrap()
 }
 
 fn cast() -> Cast {

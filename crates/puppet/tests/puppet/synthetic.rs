@@ -10,6 +10,7 @@
     reason = "test code"
 )]
 
+use anim_artwork::synthetic::{face, hidden, mouth_colour, rect};
 use anim_artwork::{ArtNode, ArtworkTree};
 use anim_core::{Point, Rgba8, Size, Vec2};
 use anim_display::{Image, ImageStore, Node};
@@ -18,17 +19,6 @@ use charcraft_puppet::{HandleKind, LayerId, Puppet, PuppetPose, Sprite, Viseme, 
 
 const W: u32 = 200;
 
-fn rect(name: &str, x: f64, y: f64, w: u32, h: u32, rgb: [u8; 3]) -> ArtNode {
-    let n = usize::try_from(w * h).unwrap();
-    let px: Vec<u8> = [rgb[0], rgb[1], rgb[2], 255].iter().copied().cycle().take(n * 4).collect();
-    ArtNode::raster(name, Image::new(w, h, px).unwrap(), Point::new(x, y))
-}
-
-const fn hidden(mut node: ArtNode) -> ArtNode {
-    node.visible = false;
-    node
-}
-
 const SKIN: [u8; 3] = [240, 190, 160];
 const WHITE: [u8; 3] = [255, 255, 255];
 const BLACK: [u8; 3] = [10, 10, 10];
@@ -36,48 +26,9 @@ const BLUE: [u8; 3] = [30, 60, 220];
 const BROW: [u8; 3] = [90, 40, 10];
 const GRAY: [u8; 3] = [120, 120, 130];
 
-fn viseme_color(i: usize) -> [u8; 3] {
-    let i = u8::try_from(i).unwrap();
-    [20 + i * 15, 220 - i * 12, 40 + i * 5]
-}
-
-fn mouth() -> ArtNode {
-    let children = Viseme::ALL
-        .iter()
-        .enumerate()
-        .map(|(i, v)| {
-            let node = rect(v.label(), 85.0, 90.0, 30, 15, viseme_color(i));
-            if *v == Viseme::Neutral { node } else { hidden(node) }
-        })
-        .collect();
-    ArtNode::group("mouth", children)
-}
-
-fn eye(side: &str, x: f64) -> ArtNode {
-    ArtNode::group(
-        format!("{side} Eye"),
-        vec![
-            rect("White", x, 50.0, 30, 20, WHITE),
-            rect(&format!("+ {side} Pupil"), x + 10.0, 55.0, 10, 10, BLACK),
-            hidden(rect(&format!("{side} Blink"), x, 58.0, 30, 4, BLUE)),
-        ],
-    )
-}
-
 fn puppet_tree() -> ArtworkTree {
-    let head = ArtNode::group(
-        "Head",
-        vec![
-            rect("Face", 50.0, 20.0, 100, 100, SKIN),
-            eye("Left", 110.0),
-            eye("Right", 60.0),
-            rect("+Left Eyebrow", 110.0, 36.0, 30, 10, BROW),
-            rect("+ right eyebrow", 60.0, 36.0, 30, 10, BROW),
-            mouth(),
-        ],
-    );
-    let body = ArtNode::group("Body", vec![rect("Torso", 60.0, 120.0, 80, 80, GRAY)]);
-    ArtworkTree { size: Size::new(f64::from(W), f64::from(W)), root: ArtNode::group("", vec![body, head]), warnings: Vec::new() }
+    let labels: Vec<&str> = Viseme::ALL.iter().map(|v| v.label()).collect();
+    face(&labels, Viseme::Neutral.label())
 }
 
 fn render(puppet: &Puppet, pose: &PuppetPose) -> Image {
@@ -161,7 +112,7 @@ fn every_viseme_shows_its_own_shape() {
     let p = Puppet::from_artwork(&puppet_tree()).unwrap();
     for (i, v) in Viseme::ALL.iter().enumerate() {
         let img = render(&p, &PuppetPose::neutral().with_viseme(*v));
-        assert_eq!(px(&img, 100, 97), viseme_color(i), "{}", v.label());
+        assert_eq!(px(&img, 100, 97), mouth_colour(i), "{}", v.label());
     }
 }
 
@@ -174,7 +125,7 @@ fn a_missing_viseme_falls_back_to_neutral() {
     }
     let p = Puppet::from_artwork(&tree).unwrap();
     let img = render(&p, &PuppetPose::neutral().with_viseme(Viseme::Ee));
-    assert_eq!(px(&img, 100, 97), viseme_color(0));
+    assert_eq!(px(&img, 100, 97), mouth_colour(0));
 }
 
 #[test]

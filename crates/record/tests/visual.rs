@@ -26,12 +26,12 @@
 
 use std::collections::BTreeSet;
 
-use anim_artwork::{ArtNode, ArtworkTree};
+use anim_artwork::synthetic::{self, face};
 use anim_audio::{MixFormat, PcmBuffer};
-use anim_core::{FrameRate, Point, Size, TICKS_PER_SECOND, Tick, TimeRange, Vec2};
-use anim_display::Image;
+use anim_core::{FrameRate, Size, TICKS_PER_SECOND, Tick, TimeRange, Vec2};
 use anim_export::{FrameSource, RasterOptions, RgbaFrame, render_frame};
 use anim_lipsync::{VisemeKey, analyze, viseme_at};
+use anim_testkit::synth;
 use charcraft_behaviors::api::StackOp;
 use charcraft_behaviors::{FaceInput, Inputs, Script, ScriptEvent};
 use charcraft_puppet::{Puppet, Viseme as PuppetViseme};
@@ -85,59 +85,14 @@ fn rgb(frame: &RgbaFrame, x: u32, y: u32) -> [u8; 3] {
 
 // ---- the puppet: a face of rectangles with 14 flat mouth shapes ---------------------------------------------
 
-fn rect(name: &str, x: f64, y: f64, w: u32, h: u32, rgb: [u8; 3]) -> ArtNode {
-    let n = (w * h) as usize;
-    let px: Vec<u8> = [rgb[0], rgb[1], rgb[2], 255].iter().copied().cycle().take(n * 4).collect();
-    ArtNode::raster(name, Image::new(w, h, px).unwrap(), Point::new(x, y))
-}
-
-fn hidden(mut node: ArtNode) -> ArtNode {
-    node.visible = false;
-    node
-}
-
-fn eye(side: &str, x: f64) -> ArtNode {
-    ArtNode::group(
-        format!("{side} Eye"),
-        vec![
-            rect("White", x, 50.0, 30, 20, [255, 255, 255]),
-            rect(&format!("+ {side} Pupil"), x + 10.0, 55.0, 10, 10, [10, 10, 10]),
-            hidden(rect(&format!("{side} Blink"), x, 58.0, 30, 4, [30, 60, 220])),
-        ],
-    )
-}
-
 /// The flat colour of a mouth shape.
 fn shape_colour(v: PuppetViseme) -> [u8; 3] {
-    let i = PuppetViseme::ALL.iter().position(|x| *x == v).unwrap() as u8;
-    [20 + i * 15, 220 - i * 12, 40 + i * 5]
+    synthetic::mouth_colour(PuppetViseme::ALL.iter().position(|x| *x == v).unwrap())
 }
 
 fn puppet() -> Puppet {
-    let mouth = ArtNode::group(
-        "mouth",
-        PuppetViseme::ALL
-            .iter()
-            .map(|v| {
-                let node = rect(v.label(), 85.0, 90.0, 30, 15, shape_colour(*v));
-                if *v == PuppetViseme::Neutral { node } else { hidden(node) }
-            })
-            .collect(),
-    );
-    let head = ArtNode::group(
-        "Head",
-        vec![
-            rect("Face", 50.0, 20.0, 100, 100, SKIN),
-            eye("Left", 110.0),
-            eye("Right", 60.0),
-            rect("+Left Eyebrow", 110.0, 36.0, 30, 10, [90, 40, 10]),
-            rect("+ right eyebrow", 60.0, 36.0, 30, 10, [90, 40, 10]),
-            mouth,
-        ],
-    );
-    let body = ArtNode::group("Body", vec![rect("Torso", 60.0, 120.0, 80, 80, [120, 120, 130])]);
-    let tree = ArtworkTree { size: Size::new(f64::from(SIZE), f64::from(SIZE)), root: ArtNode::group("", vec![body, head]), warnings: Vec::new() };
-    Puppet::from_artwork(&tree).unwrap()
+    let labels: Vec<&str> = PuppetViseme::ALL.iter().map(|v| v.label()).collect();
+    Puppet::from_artwork(&face(&labels, PuppetViseme::Neutral.label())).unwrap()
 }
 
 fn cast() -> Cast {
@@ -174,69 +129,14 @@ fn mouth_colour(frames: &SceneFrames<'_>, f: u32) -> [u8; 3] {
 
 // ---- synthetic speech ------------------------------------------------------------------------------------
 
-fn n(seconds: f32, rate: u32) -> usize {
-    (seconds * rate as f32).round() as usize
-}
-
-fn resonate(x: &mut [f32], rate: u32, hz: f32, bw: f32) {
-    let r = (-std::f32::consts::PI * bw / rate as f32).exp();
-    let c1 = 2.0 * r * (std::f32::consts::TAU * hz / rate as f32).cos();
-    let c2 = -r * r;
-    let (mut y1, mut y2) = (0.0, 0.0);
-    for v in x.iter_mut() {
-        let y = *v + c1 * y1 + c2 * y2;
-        y2 = y1;
-        y1 = y;
-        *v = y;
-    }
-}
-
-/// A vowel: a 120 Hz glottal pulse train with a spectral tilt through a formant cascade, rms `level`, 10 ms fades.
-fn vowel(formants: &[f32], seconds: f32, rate: u32, level: f32) -> Vec<f32> {
-    let len = n(seconds, rate);
-    let mut src = vec![0.0_f32; len];
-    let mut phase = 0.0_f32;
-    for v in &mut src {
-        phase += 120.0 / rate as f32;
-        if phase >= 1.0 {
-            phase -= 1.0;
-            *v = 1.0;
-        }
-    }
-    let mut y = 0.0;
-    for v in &mut src {
-        y = 0.5 * y + *v;
-        *v = y;
-    }
-    for &f in formants {
-        resonate(&mut src, rate, f, 70.0 + f * 0.04);
-    }
-    let rms = (src.iter().map(|v| v * v).sum::<f32>() / len.max(1) as f32).sqrt().max(1e-9);
-    for v in &mut src {
-        *v *= level / rms;
-    }
-    let k = n(0.01, rate).min(len / 2);
-    for i in 0..k {
-        let g = i as f32 / k as f32;
-        src[i] *= g;
-        let last = len - 1 - i;
-        src[last] *= g;
-    }
-    src
-}
-
 const AH: [f32; 3] = [800.0, 1300.0, 2600.0];
 const EE: [f32; 3] = [300.0, 2250.0, 3000.0];
 const OH: [f32; 3] = [540.0, 880.0, 2500.0];
 
+/// Silence, then Ah, Ee, a pause and Oh, each vowel half a second of a 120 Hz voice.
 fn speech(rate: u32) -> Vec<f32> {
-    let mut x = vec![0.0; n(0.30, rate)];
-    x.extend(vowel(&AH, 0.5, rate, 0.1));
-    x.extend(vowel(&EE, 0.5, rate, 0.1));
-    x.extend(vec![0.0; n(0.40, rate)]);
-    x.extend(vowel(&OH, 0.5, rate, 0.1));
-    x.extend(vec![0.0; n(0.30, rate)]);
-    x
+    let vowel = |formants: &[f32]| synth::vowel(formants, 120.0, 0.5, rate, 0.1);
+    synth::cat(&[synth::silence(0.30, rate), vowel(&AH), vowel(&EE), synth::silence(0.40, rate), vowel(&OH), synth::silence(0.30, rate)])
 }
 
 // ---- speech-to-mouth -------------------------------------------------------------------------------------
