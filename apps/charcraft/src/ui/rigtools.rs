@@ -327,6 +327,12 @@ fn add_handle(puppet: &Puppet, key: &str, group: &str, kind: HandleKind, at: Pos
     actions.push(rig_edit(key, op));
 }
 
+/// Where a handle or origin placed or dragged at `at` lands: on the grid or a guide when snapping is on. Holding Ctrl
+/// lets go of the grid.
+fn snapped(grid: &crate::grid::GridState, p: &StagePointer, at: Pos2) -> Pos2 {
+    if p.modifiers.ctrl { at } else { grid.snap(crate::grid::GridView::Rig, at, p.zoom) }
+}
+
 /// Pointer work on the artwork. Returns nothing; the actions carry the edits.
 pub fn pointer(puppet: &Puppet, key: &str, view: &mut View, p: &StagePointer, actions: &mut Vec<Action>) {
     let tolerance = 10.0 / p.zoom.max(0.05);
@@ -338,6 +344,9 @@ pub fn pointer(puppet: &Puppet, key: &str, view: &mut View, p: &StagePointer, ac
         Tool::Mesh => (false, false),
     };
     let selected = view.layer.clone();
+    // Where a placed or dragged handle or origin lands: on the grid or a guide when snapping is on (Ctrl lets go).
+    let landing = snapped(&view.grid, p, p.pos);
+    let landing_origin = snapped(&view.grid, p, p.origin);
     match p.phase {
         PointerPhase::Down => {
             let at = p.origin;
@@ -354,12 +363,12 @@ pub fn pointer(puppet: &Puppet, key: &str, view: &mut View, p: &StagePointer, ac
                 Some(Hit::Origin { group }) => view.rig.drag = Some(Drag::Origin { group }),
                 None if tool == Tool::Stick => {
                     if let Some(group) = group_at(puppet, at, selected.as_deref()) {
-                        view.rig.drag = Some(Drag::Stick { group, start: at, now: p.pos });
+                        view.rig.drag = Some(Drag::Stick { group, start: landing_origin, now: landing });
                     }
                 }
                 None if tool == Tool::Origin => {
                     if let Some(group) = group_at(puppet, at, selected.as_deref()) {
-                        actions.push(rig_edit(key, json!({ "op": "set_origin", "group": group, "origin": pt(p.pos) })));
+                        actions.push(rig_edit(key, json!({ "op": "set_origin", "group": group, "origin": pt(landing) })));
                         view.rig.drag = Some(Drag::Origin { group });
                     }
                 }
@@ -369,10 +378,10 @@ pub fn pointer(puppet: &Puppet, key: &str, view: &mut View, p: &StagePointer, ac
         PointerPhase::Drag => match view.rig.drag.clone() {
             Some(Drag::Handle { group, key: k, end }) => {
                 let current = find_layer(puppet, Some(&group)).and_then(|g| g.handles.iter().find(|h| h.key == k));
-                let mut op = json!({ "op": "move_handle", "group": group, "key": k, "position": pt(p.pos) });
+                let mut op = json!({ "op": "move_handle", "group": group, "key": k, "position": pt(landing) });
                 if let (true, Some(h), Some(map)) = (end, current, op.as_object_mut()) {
                     map.insert("position".to_owned(), json!([h.position.x, h.position.y]));
-                    map.insert("end".to_owned(), json!(pt(p.pos)));
+                    map.insert("end".to_owned(), json!(pt(landing)));
                 }
                 if let Value::Object(map) = &mut op {
                     map.insert("puppet".to_owned(), json!(key));
@@ -380,10 +389,10 @@ pub fn pointer(puppet: &Puppet, key: &str, view: &mut View, p: &StagePointer, ac
                 actions.push(Action::RunMerged("rig.edit", op, "rig-handle"));
             }
             Some(Drag::Origin { group }) => {
-                let op = json!({ "op": "set_origin", "group": group, "origin": pt(p.pos), "puppet": key });
+                let op = json!({ "op": "set_origin", "group": group, "origin": pt(landing), "puppet": key });
                 actions.push(Action::RunMerged("rig.edit", op, "rig-origin"));
             }
-            Some(Drag::Stick { group, start, .. }) => view.rig.drag = Some(Drag::Stick { group, start, now: p.pos }),
+            Some(Drag::Stick { group, start, .. }) => view.rig.drag = Some(Drag::Stick { group, start, now: landing }),
             None => view.pointer = Some((f64::from(p.pos.x), f64::from(p.pos.y), true)),
         },
         PointerPhase::Up => {
@@ -409,7 +418,7 @@ pub fn pointer(puppet: &Puppet, key: &str, view: &mut View, p: &StagePointer, ac
                 (Tool::Handle | Tool::Pin, None) => {
                     if let Some(group) = group_at(puppet, p.pos, selected.as_deref()) {
                         let kind = if tool == Tool::Pin { HandleKind::Fixed } else { view.rig.kind };
-                        add_handle(puppet, key, &group, kind, p.pos, None, actions);
+                        add_handle(puppet, key, &group, kind, landing, None, actions);
                         view.layer = Some(group);
                     } else {
                         actions.push(Action::SelectLayer(super::rig::pick(puppet, p.pos)));

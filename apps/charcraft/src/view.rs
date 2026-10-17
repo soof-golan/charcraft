@@ -449,6 +449,8 @@ pub struct View {
     pub midi: crate::midi::MidiSnapshot,
     /// The saved behavior presets: names by behavior id.
     pub presets: BTreeMap<String, Vec<String>>,
+    /// Grid, guides and snapping.
+    pub grid: crate::grid::GridState,
     /// A line for the status bar.
     pub status: String,
     /// The take being recorded.
@@ -533,6 +535,7 @@ impl Default for View {
             live: LiveSnapshot::default(),
             midi: crate::midi::MidiSnapshot::default(),
             presets: BTreeMap::new(),
+            grid: crate::grid::GridState::default(),
             status: String::new(),
             recording: None,
             prompt: None,

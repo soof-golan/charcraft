@@ -22,6 +22,7 @@ use serde_json::{Value, json};
 
 use crate::compose::Stage;
 use crate::export::{self, Format, Job};
+use crate::grid::{self, GridState};
 use crate::midi::{Effect, MidiBank, apply_control};
 use crate::projectio;
 use crate::session::{AppDoc, Links, SaveFormat, WorldJob};
@@ -92,6 +93,8 @@ pub struct Hooks {
     pub last_job: Option<String>,
     /// MIDI devices, learn mode, held notes and the controller bindings.
     pub midi: MidiBank,
+    /// The grid, the guides and snapping of the Rig and Scene views.
+    pub grid: GridState,
     /// The hooks edited the document on their own (a learned MIDI note): the window must read it again.
     pub doc_touched: bool,
     links: Links,
@@ -112,6 +115,7 @@ impl Hooks {
             events: VecDeque::new(),
             last_job: None,
             midi: MidiBank::new(MidiHandle::spawn(charcraft_midi::system_backend(), || {})),
+            grid: GridState::default(),
             doc_touched: false,
             links,
             stage: None,
@@ -327,6 +331,15 @@ impl AppHooks<AppDoc> for Hooks {
             ),
             QuerySpec::new("view_state", "What the window shows: mode, selected track and layer, playhead, playing, recording."),
             QuerySpec::new(
+                "grid_state",
+                "The grid, guides and snapping of the Rig and Scene views: settings (show_grid, show_guides, show_rulers, lock_guides, size, size_y, snap, snap_to_grid, snap_to_guides, snap_pixels) and the guides of each view.",
+            ),
+            QuerySpec::new(
+                "grid_snap",
+                "Where a point lands when a handle or origin is dropped on it with the current grid settings: view (rig|scene), x, y in stage pixels, optional zoom. Answers x, y and whether it moved. Unchanged while snap is off.",
+            )
+            .with_schema(json!({ "type": "object", "required": ["x", "y"], "properties": { "view": { "enum": ["rig", "scene"] }, "x": { "type": "number" }, "y": { "type": "number" }, "zoom": { "type": "number" } } })),
+            QuerySpec::new(
                 "midi_state",
                 "MIDI: the devices plugged in (ports), the open one (connected), learn mode, the newest messages, the trigger tokens of held notes, the controller bound to each Controls slider and the slider values.",
             ),
@@ -384,6 +397,8 @@ impl AppHooks<AppDoc> for Hooks {
             }
             "view_state" => serde_json::to_value(&self.view).map_err(failed)?,
             "midi_state" => serde_json::to_value(self.midi.snapshot()).map_err(failed)?,
+            "grid_state" => grid::state_json(&self.grid),
+            "grid_snap" => grid::snap_json(&self.grid, params).map_err(|e| ControlError::invalid(e.to_string()))?,
             other => return Err(ControlError::new(ErrorKind::NotFound, format!("no query named {other:?}"))),
         };
         Ok(HookOutcome::Ready(Reply::value(value)))
@@ -602,6 +617,9 @@ impl AppHooks<AppDoc> for Hooks {
     fn tick(&mut self, session: &mut Session<AppDoc>) {
         while let Ok(job) = self.links.jobs_in.try_recv() {
             self.run_job(session, job);
+        }
+        for op in self.links.grid_in.try_iter() {
+            self.grid.apply(op);
         }
         let ops: Vec<_> = self.links.midi_in.try_iter().collect();
         for effect in self.midi.pump(ops) {

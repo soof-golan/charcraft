@@ -77,6 +77,8 @@ pub struct Prefs {
     pub shortcuts: BTreeMap<String, String>,
     /// The MIDI controller each Controls slider follows, and the device that was open.
     pub midi: crate::midi::MidiPrefs,
+    /// Grid, guides and snapping settings.
+    pub grid: crate::grid::GridSettings,
 }
 
 impl Default for Prefs {
@@ -93,6 +95,7 @@ impl Default for Prefs {
             workspaces: BTreeMap::new(),
             shortcuts: BTreeMap::new(),
             midi: crate::midi::MidiPrefs::default(),
+            grid: crate::grid::GridSettings::default(),
         }
     }
 }

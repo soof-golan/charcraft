@@ -54,6 +54,9 @@ struct Cli {
     /// Pretend a MIDI keyboard is plugged in and played: a device, a note bound to the fringe, a knob bound to the mic.
     #[arg(long)]
     demo_midi: bool,
+    /// Show the grid and two guides and turn snapping on (screenshots and demos).
+    #[arg(long)]
+    demo_grid: bool,
     /// Track the faces in this photo, animated GIF or folder of images instead of a camera (needs the live build).
     #[arg(long, value_name = "FILE_OR_DIR")]
     face_file: Option<PathBuf>,
@@ -173,6 +176,7 @@ fn main() -> Result<ExitCode> {
         // The rig view starts neutral: a demo face would pose the head and neck and the artwork could not be judged.
         live_demo: cli.live_demo || (shooting && cli.face_file.is_none() && !matches!(mode, Mode::Rig | Mode::Start)),
         demo_midi: cli.demo_midi,
+        demo_grid: cli.demo_grid,
         face_file: cli.face_file.clone(),
         dark: !cli.light,
         stream,

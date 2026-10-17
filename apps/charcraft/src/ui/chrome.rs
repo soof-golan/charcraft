@@ -273,6 +273,7 @@ pub fn top_bar(ui: &mut Ui, view: &mut View, ctx: &Ctx<'_>, actions: &mut Vec<Ac
             ui.menu_button("Puppet", |ui| super::puppet_menu(ui, view, ctx, actions));
             scene_menu(ui, view, ctx, actions);
             timeline_menu(ui, view, ctx, actions);
+            ui.menu_button("View", |ui| super::grid::items(ui, view, actions));
             window_menu(ui, view, actions);
             help_menu(ui, view);
         });

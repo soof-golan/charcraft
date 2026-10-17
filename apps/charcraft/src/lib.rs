@@ -43,6 +43,7 @@ pub mod compose;
 pub mod control;
 pub mod demo;
 pub mod export;
+pub mod grid;
 pub mod hooks;
 pub mod live;
 pub mod midi;

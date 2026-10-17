@@ -274,6 +274,10 @@ pub struct Links {
     pub midi_in: Receiver<crate::midi::MidiOp>,
     /// Where the user's behavior presets are kept.
     pub presets: crate::presets::PresetLibrary,
+    /// Requests to the grid and guides, handled by the hooks.
+    pub grid: Sender<crate::grid::GridOp>,
+    /// The other end of [`Self::grid`], drained by the hooks.
+    pub grid_in: Receiver<crate::grid::GridOp>,
     /// Files to open with the system's default application (Edit Original), opened by the hooks.
     pub opens: Sender<PathBuf>,
     /// The other end of [`Self::opens`], drained by the hooks.
@@ -315,6 +319,7 @@ impl Links {
         let (puppets, puppets_in) = crossbeam_channel::unbounded();
         let (opens, opens_in) = crossbeam_channel::unbounded();
         let (midi, midi_in) = crossbeam_channel::unbounded();
+        let (grid, grid_in) = crossbeam_channel::unbounded();
         Self {
             live,
             jobs,
@@ -328,6 +333,8 @@ impl Links {
             midi,
             midi_in,
             presets: crate::presets::PresetLibrary::user(),
+            grid,
+            grid_in,
             opens,
             opens_in,
         }
@@ -1003,6 +1010,7 @@ pub fn registry() -> Result<CommandRegistry<AppDoc>, RegistryError> {
             .chain(crate::puppet_cmds::commands())
             .chain(crate::midi::commands())
             .chain(crate::presets::commands())
+            .chain(crate::grid::commands())
             .map(place),
     )?;
     Ok(registry)

@@ -211,6 +211,7 @@ fn stage(ui: &mut Ui, puppet: &Puppet, key: &str, view: &mut View, ctx: &Ctx<'_>
     view.rig_stage.doc_size = vec2(f64_to_f32(puppet.size.width), f64_to_f32(puppet.size.height));
     view.rig_stage.stage_color = if view.dark { Color32::from_rgb(0xec, 0xee, 0xf4) } else { Color32::WHITE };
     let texture = ctx.texture.map(|(t, _)| t);
+    view.grid.apply_to(crate::grid::GridView::Rig, &mut view.rig_stage);
     for event in anim_ui::stage_view(ui, &view.rig_stage, texture) {
         match event {
             StageEvent::ViewChanged(v) => {
@@ -218,7 +219,7 @@ fn stage(ui: &mut Ui, puppet: &Puppet, key: &str, view: &mut View, ctx: &Ctx<'_>
                 view.rig_stage.fit_request = false;
             }
             StageEvent::Pointer(p) => rigtools::pointer(puppet, key, view, &p, actions),
-            _ => {}
+            guide => actions.extend(super::grid::guide_action(crate::grid::GridView::Rig, &guide)),
         }
     }
 }

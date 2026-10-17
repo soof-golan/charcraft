@@ -158,11 +158,20 @@ pub fn scene_panel(ui: &mut Ui, view: &mut View, ctx: &Ctx<'_>, actions: &mut Ve
     let scene = &ctx.doc.rec.scene;
     view.scene_stage.doc_size = vec2(anim_core::num::f64_to_f32(scene.size.width), anim_core::num::f64_to_f32(scene.size.height));
     view.scene_stage.stage_color = scene.background.map_or(Color32::TRANSPARENT, |c| Color32::from_rgba_unmultiplied(c.r, c.g, c.b, c.a));
-    view.scene_stage.show_rulers = false;
+    view.grid.apply_to(crate::grid::GridView::Scene, &mut view.scene_stage);
+    if stream {
+        // The performance view stays clean: no rulers, grid or guides over the picture.
+        view.scene_stage.show_rulers = false;
+        view.scene_stage.show_grid = false;
+        view.scene_stage.show_guides = false;
+    }
     for event in anim_ui::stage_view(&mut canvas, &view.scene_stage, ctx.texture.map(|(t, _)| t)) {
-        if let anim_ui::StageEvent::ViewChanged(v) = event {
-            view.scene_stage.view = v;
-            view.scene_stage.fit_request = false;
+        match event {
+            anim_ui::StageEvent::ViewChanged(v) => {
+                view.scene_stage.view = v;
+                view.scene_stage.fit_request = false;
+            }
+            guide => actions.extend(super::grid::guide_action(crate::grid::GridView::Scene, &guide)),
         }
     }
     let at = canvas.min_rect();
@@ -177,7 +186,8 @@ pub fn scene_panel(ui: &mut Ui, view: &mut View, ctx: &Ctx<'_>, actions: &mut Ve
             ui.close();
         }
         ui.separator();
-        ui.checkbox(&mut view.scene_stage.show_grid, "Show Grid");
+        super::grid::items(ui, view, actions);
+        ui.separator();
         ui.checkbox(&mut view.monitor, "Monitor Live Performance");
     });
     let _ = at;

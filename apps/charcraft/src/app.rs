@@ -52,6 +52,8 @@ pub struct Options {
     pub live_demo: bool,
     /// Pretend a MIDI keyboard is plugged in and played (screenshots and demos): a device, a bound note, a bound knob.
     pub demo_midi: bool,
+    /// Show the grid, two guides and turn snapping on (screenshots and demos).
+    pub demo_grid: bool,
     /// Track the faces in this photo, animated GIF or folder of images instead of a camera.
     pub face_file: Option<PathBuf>,
     /// Dark theme.
@@ -239,6 +241,7 @@ impl CharCraftApp {
             if options.demo_midi { Box::new(charcraft_midi::MockBackend::new(&["Demo Keyboard"])) } else { charcraft_midi::system_backend() };
         host.hooks_mut().midi = MidiBank::new(charcraft_midi::MidiHandle::spawn(midi_backend, wake.clone()));
         host.hooks_mut().midi.restore(&ws.prefs().midi);
+        host.hooks_mut().grid = crate::grid::GridState::with_settings(ws.prefs().grid);
         let control = Control::start(&options.control, wake)?;
         let (export_tx, export_rx) = unbounded();
         let doc = host.session().doc().clone();
@@ -295,6 +298,17 @@ impl CharCraftApp {
         }
         if options.demo_midi {
             app.demo_midi();
+        }
+        if options.demo_grid {
+            use crate::grid::{GridOp, GridPatch, GridView};
+            use anim_ui::stage::{Axis, Guide};
+            let links = &app.host.session().doc().links;
+            let patch = GridPatch { show_grid: Some(true), snap: Some(true), size: Some(40.0), ..GridPatch::default() };
+            let _ = links.grid.send(GridOp::Set(patch));
+            for (axis, pos) in [(Axis::Vertical, 320.0), (Axis::Horizontal, 460.0)] {
+                let _ = links.grid.send(GridOp::AddGuide(GridView::Rig, Guide { axis, pos }));
+                let _ = links.grid.send(GridOp::AddGuide(GridView::Scene, Guide { axis, pos }));
+            }
         }
         if options.live_demo {
             let link = app.live.link();
@@ -379,11 +393,17 @@ impl CharCraftApp {
         let hooks = self.host.hooks_mut();
         self.view.midi = hooks.midi.snapshot();
         let saved = hooks.midi.take_prefs();
+        let grid = hooks.grid.take_prefs();
+        self.view.grid = hooks.grid.clone();
         if std::mem::take(&mut hooks.doc_touched) {
             self.rev = self.rev.saturating_add(1);
         }
         if let Some(midi) = saved {
             self.ws.store.update(|p| p.midi = midi);
+            self.view.prefs = self.ws.prefs().clone();
+        }
+        if let Some(settings) = grid {
+            self.ws.store.update(|p| p.grid = settings);
             self.view.prefs = self.ws.prefs().clone();
         }
     }

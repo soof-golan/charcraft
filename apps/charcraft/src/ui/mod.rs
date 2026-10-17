@@ -19,6 +19,7 @@ pub mod chrome;
 pub mod dock;
 pub mod edit;
 pub mod export;
+pub mod grid;
 pub mod layers;
 pub mod midi;
 pub mod panels;
