@@ -75,6 +75,8 @@ pub struct Prefs {
     pub workspaces: BTreeMap<String, Workspace>,
     /// Shortcuts the user changed: command id to chord text; an empty text turns the shortcut off.
     pub shortcuts: BTreeMap<String, String>,
+    /// The MIDI controller each Controls slider follows, and the device that was open.
+    pub midi: crate::midi::MidiPrefs,
 }
 
 impl Default for Prefs {
@@ -90,6 +92,7 @@ impl Default for Prefs {
             panels: PanelState::default(),
             workspaces: BTreeMap::new(),
             shortcuts: BTreeMap::new(),
+            midi: crate::midi::MidiPrefs::default(),
         }
     }
 }

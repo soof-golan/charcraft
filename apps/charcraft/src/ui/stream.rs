@@ -11,7 +11,7 @@ use charcraft_stream::{Background, KEY_GREEN, Kind, OutputInfo};
 use egui::{Align2, Color32, FontId, Rect, RichText, Sense, Ui, pos2, vec2};
 use serde_json::json;
 
-use super::panels::{camera_picker, chip, meter, mic_picker, mic_sensitivity, rest_pose, video_preview};
+use super::panels::{camera_picker, chip, meter, mic_picker, rest_pose, video_preview};
 use crate::live::MicAction;
 use crate::view::{Action, Ctx, View};
 
@@ -137,7 +137,6 @@ fn controls(ui: &mut Ui, view: &mut View, actions: &mut Vec<Action>) {
     ui.separator();
     ui.label(RichText::new("Microphone").strong());
     mic_picker(ui, view, actions);
-    mic_sensitivity(ui, view, actions);
     meter(ui, "level", view.live.level, 0.0, 1.0);
     ui.horizontal_wrapped(|ui| {
         if view.live.mic {
@@ -152,6 +151,12 @@ fn controls(ui: &mut Ui, view: &mut View, actions: &mut Vec<Action>) {
             actions.push(Action::Mic(MicAction::DemoVoice(demo)));
         }
     });
+    ui.separator();
+    ui.label(RichText::new("Sliders").strong());
+    super::midi::controls(ui, view, actions);
+    ui.separator();
+    ui.label(RichText::new("MIDI").strong());
+    super::midi::device(ui, view, actions);
     ui.separator();
     ui.label(RichText::new("Backdrop").strong());
     ui.horizontal_wrapped(|ui| {
@@ -280,11 +285,21 @@ fn triggers(ui: &mut Ui, view: &View, ctx: &Ctx<'_>, actions: &mut Vec<Action>) 
             None => keys.push((key.clone(), vec![name])),
         }
     }
-    if keys.is_empty() && puppet.swap_sets.is_empty() {
+    let notes: Vec<_> = puppet.layers().iter().filter_map(|l| l.midi_trigger.map(|m| (l, m))).collect();
+    if keys.is_empty() && notes.is_empty() && puppet.swap_sets.is_empty() {
         ui.weak("This puppet has no triggers. Give a layer a key trigger in Rig mode.");
         return;
     }
     ui.horizontal_wrapped(|ui| {
+        for (layer, trigger) in &notes {
+            let token = trigger.token();
+            let mut on = view.stream.held.contains(&token) || view.midi.held.contains(&token);
+            let name = if layer.label.is_empty() { &layer.name } else { &layer.label };
+            let label = format!("\u{266A} {}: {}", super::midi::trigger_text(trigger), name);
+            if ui.toggle_value(&mut on, shown(&label)).on_hover_text("A MIDI note. Click to turn the trigger on or off.").changed() {
+                actions.push(Action::Trigger(token, on));
+            }
+        }
         for (key, names) in &keys {
             let lower = key.to_lowercase();
             let mut on = view.stream.held.contains(&lower);
@@ -378,7 +393,16 @@ pub fn camera_panel(ui: &mut Ui, view: &mut View, actions: &mut Vec<Action>) {
 
 /// The Controls panel: the trigger buttons and swap sets.
 pub fn controls_panel(ui: &mut Ui, view: &mut View, ctx: &Ctx<'_>, actions: &mut Vec<Action>) {
-    egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| triggers(ui, view, ctx, actions));
+    egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
+        ui.label(RichText::new("Sliders").strong());
+        super::midi::controls(ui, view, actions);
+        ui.separator();
+        ui.label(RichText::new("MIDI").strong());
+        super::midi::device(ui, view, actions);
+        ui.separator();
+        ui.label(RichText::new("Triggers").strong());
+        triggers(ui, view, ctx, actions);
+    });
 }
 
 /// The Stream Output panel: NDI, virtual camera and web source.

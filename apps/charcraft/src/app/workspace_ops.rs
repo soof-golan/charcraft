@@ -20,7 +20,7 @@ use crate::world::SourceKind;
 /// What the app keeps for the workspace.
 pub struct WorkspaceState {
     /// The stored preferences.
-    store: SettingsStore<Prefs>,
+    pub(super) store: SettingsStore<Prefs>,
     /// The project panel's rows and what they were made from (revision, puppets generation, epoch).
     rows: Vec<PuppetRow>,
     rows_key: (u64, u64, u64),

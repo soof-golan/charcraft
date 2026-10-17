@@ -14,6 +14,7 @@ use anim_mcp::{ControlError, ErrorKind, Reply, Ticket, props, run_job};
 use anim_render::Renderer;
 use anim_session::Session;
 use charcraft_behaviors::api::{catalog, stack_info};
+use charcraft_midi::MidiHandle;
 use charcraft_puppet::PuppetPose;
 use charcraft_record::{Evaluator, Scene, track_stack};
 use serde::{Deserialize, Serialize};
@@ -21,6 +22,7 @@ use serde_json::{Value, json};
 
 use crate::compose::Stage;
 use crate::export::{self, Format, Job};
+use crate::midi::{Effect, MidiBank, apply_control};
 use crate::projectio;
 use crate::session::{AppDoc, Links, SaveFormat, WorldJob};
 use crate::state::Mode;
@@ -88,6 +90,10 @@ pub struct Hooks {
     pub events: VecDeque<DocEvent>,
     /// What the last save, export or revert said.
     pub last_job: Option<String>,
+    /// MIDI devices, learn mode, held notes and the controller bindings.
+    pub midi: MidiBank,
+    /// The hooks edited the document on their own (a learned MIDI note): the window must read it again.
+    pub doc_touched: bool,
     links: Links,
     stage: Option<(u64, u64, Stage)>,
     noted_path: Option<PathBuf>,
@@ -105,9 +111,32 @@ impl Hooks {
             shots: VecDeque::new(),
             events: VecDeque::new(),
             last_job: None,
+            midi: MidiBank::new(MidiHandle::spawn(charcraft_midi::system_backend(), || {})),
+            doc_touched: false,
             links,
             stage: None,
             noted_path: None,
+        }
+    }
+
+    /// Does what a MIDI message asked for: a rig edit for a learned note, a slider moved by a controller.
+    fn run_midi_effect(&mut self, session: &mut Session<AppDoc>, effect: Effect) {
+        match effect {
+            Effect::BindTrigger { puppet, layer, trigger } => {
+                let params = json!({ "puppet": puppet, "op": "set_midi_trigger", "layer": layer, "note": trigger.note, "channel": trigger.channel });
+                self.last_job = Some(match session.execute("rig.edit", &params) {
+                    Ok(_) => {
+                        self.doc_touched = true;
+                        format!("{layer} now shows while MIDI note {} is held", charcraft_midi::note_name(trigger.note))
+                    }
+                    Err(e) => format!("MIDI trigger failed: {e}"),
+                });
+            }
+            Effect::Control { control, value } => {
+                if let Err(e) = apply_control(&self.links, &control, value) {
+                    self.last_job = Some(e);
+                }
+            }
         }
     }
 
@@ -298,6 +327,10 @@ impl AppHooks<AppDoc> for Hooks {
             ),
             QuerySpec::new("view_state", "What the window shows: mode, selected track and layer, playhead, playing, recording."),
             QuerySpec::new(
+                "midi_state",
+                "MIDI: the devices plugged in (ports), the open one (connected), learn mode, the newest messages, the trigger tokens of held notes, the controller bound to each Controls slider and the slider values.",
+            ),
+            QuerySpec::new(
                 "import_warnings",
                 "The import warnings list: what the loaders could not carry over and what the layer names give away (duplicate names, a face without eyes, handle tags on plain groups). Each row has the puppet, the kind, the layer path and a sentence.",
             ),
@@ -350,6 +383,7 @@ impl AppHooks<AppDoc> for Hooks {
                 json!({ "count": rows.len(), "warnings": rows, "artwork_changed_on_disk": self.world.stale })
             }
             "view_state" => serde_json::to_value(&self.view).map_err(failed)?,
+            "midi_state" => serde_json::to_value(self.midi.snapshot()).map_err(failed)?,
             other => return Err(ControlError::new(ErrorKind::NotFound, format!("no query named {other:?}"))),
         };
         Ok(HookOutcome::Ready(Reply::value(value)))
@@ -568,6 +602,10 @@ impl AppHooks<AppDoc> for Hooks {
     fn tick(&mut self, session: &mut Session<AppDoc>) {
         while let Ok(job) = self.links.jobs_in.try_recv() {
             self.run_job(session, job);
+        }
+        let ops: Vec<_> = self.links.midi_in.try_iter().collect();
+        for effect in self.midi.pump(ops) {
+            self.run_midi_effect(session, effect);
         }
         // A plain save (or save as) to a .charcraft file is a recent file too.
         if let Some(path) = session.path().map(Path::to_path_buf)

@@ -20,6 +20,7 @@ pub mod dock;
 pub mod edit;
 pub mod export;
 pub mod layers;
+pub mod midi;
 pub mod panels;
 pub mod params;
 pub mod prefs;

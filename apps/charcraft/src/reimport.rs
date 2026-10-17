@@ -120,6 +120,7 @@ pub fn remap_op(op: &PuppetOp, old: &Skeleton, new: &Skeleton, map: &BTreeMap<St
         PuppetOp::RenameSwapSet { name, new_name } => PuppetOp::RenameSwapSet { name: name.clone(), new_name: new_name.clone() },
         PuppetOp::SetOrigin { group, origin } => PuppetOp::SetOrigin { group: resolve_group(old, new, map, group)?.0, origin: *origin },
         PuppetOp::SetKeyTrigger { layer, key } => PuppetOp::SetKeyTrigger { layer: resolve(old, map, layer)?, key: key.clone() },
+        PuppetOp::SetMidiTrigger { layer, note, channel } => PuppetOp::SetMidiTrigger { layer: resolve(old, map, layer)?, note: *note, channel: *channel },
         PuppetOp::AddSwapSet { name, members } => {
             let kept: Vec<String> = members.iter().filter_map(|m| resolve(old, map, m).ok()).collect();
             if kept.len() < 2 {

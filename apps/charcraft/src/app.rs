@@ -23,6 +23,7 @@ use crate::control::{Control, ControlArgs};
 use crate::export::{self, Format};
 use crate::hooks::{Hooks, PendingShot, ViewStatus, make_host};
 use crate::live::{LiveEvent, LiveHandle, MicAction, behavior_body, behavior_face};
+use crate::midi::MidiBank;
 use crate::render::{RenderHandle, RenderRequest};
 use crate::session::{AppDoc, Links, registry};
 use crate::state::{Mode, UiSet};
@@ -49,6 +50,8 @@ pub struct Options {
     pub demo_takes: bool,
     /// Start the demo face and the demo voice.
     pub live_demo: bool,
+    /// Pretend a MIDI keyboard is plugged in and played (screenshots and demos): a device, a bound note, a bound knob.
+    pub demo_midi: bool,
     /// Track the faces in this photo, animated GIF or folder of images instead of a camera.
     pub face_file: Option<PathBuf>,
     /// Dark theme.
@@ -232,6 +235,10 @@ impl CharCraftApp {
         let info = HostInfo { name: "charcraft".into(), version: env!("CARGO_PKG_VERSION").into() };
         let mut host = make_host(opened, links, registry, confinement, info);
         host.hooks_mut().windowed = true;
+        let midi_backend: Box<dyn charcraft_midi::Backend> =
+            if options.demo_midi { Box::new(charcraft_midi::MockBackend::new(&["Demo Keyboard"])) } else { charcraft_midi::system_backend() };
+        host.hooks_mut().midi = MidiBank::new(charcraft_midi::MidiHandle::spawn(midi_backend, wake.clone()));
+        host.hooks_mut().midi.restore(&ws.prefs().midi);
         let control = Control::start(&options.control, wake)?;
         let (export_tx, export_rx) = unbounded();
         let doc = host.session().doc().clone();
@@ -285,6 +292,9 @@ impl CharCraftApp {
         app.view.prefs_open = options.prefs_open;
         if options.demo_takes {
             app.demo_performance();
+        }
+        if options.demo_midi {
+            app.demo_midi();
         }
         if options.live_demo {
             let link = app.live.link();
@@ -342,7 +352,41 @@ impl CharCraftApp {
         self.rev = self.rev.saturating_add(1);
     }
 
+    /// Plugs in a pretend keyboard, binds a note to the fringe and a knob to the microphone sensitivity, and holds the note.
+    fn demo_midi(&mut self) {
+        use crate::midi::MidiOp;
+        use charcraft_midi::{CcBinding, MidiMessage};
+        let session = self.host.session_mut();
+        let edit = json!({ "op": "set_midi_trigger", "layer": "Head/Fringe", "note": 60, "channel": 1 });
+        if let Err(e) = session.execute("rig.edit", &edit) {
+            self.view.status = format!("rig.edit: {e}");
+        }
+        let links = &session.doc().links;
+        let send = |bytes: [u8; 3]| links.midi.send(MidiOp::Send(bytes.to_vec()));
+        let _ = links.midi.send(MidiOp::Refresh);
+        let _ = links.midi.send(MidiOp::Connect(Some("Demo Keyboard".to_owned())));
+        let _ = links.midi.send(MidiOp::Bind { control: "mic_gain".to_owned(), binding: CcBinding { channel: Some(1), controller: 74 } });
+        let _ = send(MidiMessage::ControlChange { channel: 1, controller: 74, value: 80 }.to_bytes());
+        let _ = send(MidiMessage::NoteOn { channel: 1, note: 60, velocity: 100 }.to_bytes());
+        self.rev = self.rev.saturating_add(1);
+    }
+
     // --- taking in the world --------------------------------------------------------------------------------------
+
+    /// Copies the MIDI state to the view, saves the controller bindings when they changed and tells the window
+    /// when a learned note edited the document.
+    fn sync_midi(&mut self) {
+        let hooks = self.host.hooks_mut();
+        self.view.midi = hooks.midi.snapshot();
+        let saved = hooks.midi.take_prefs();
+        if std::mem::take(&mut hooks.doc_touched) {
+            self.rev = self.rev.saturating_add(1);
+        }
+        if let Some(midi) = saved {
+            self.ws.store.update(|p| p.midi = midi);
+            self.view.prefs = self.ws.prefs().clone();
+        }
+    }
 
     fn begin_frame(&mut self, ctx: &Context) {
         let now = Instant::now();
@@ -365,6 +409,7 @@ impl CharCraftApp {
         self.pump_render_results(ctx);
         self.pump_start_thumbs(ctx);
         self.pump_workspace();
+        self.sync_midi();
         let view = &self.view;
         let hooks = self.host.hooks_mut();
         hooks.view = ViewStatus {
@@ -743,6 +788,8 @@ impl CharCraftApp {
         }
         // Triggers held from the stream view's Triggers panel (or over MCP) count as keys held down.
         inputs.keys.extend(self.view.stream.held.iter().cloned());
+        // Notes held on a MIDI keyboard are trigger tokens (`midi:60`, `midi:1:60`).
+        inputs.keys.extend(self.view.midi.held.iter().cloned());
         if let Some(active) = self.view.recording.as_mut() {
             let mut recorded = inputs.clone();
             recorded.time = Tick::from_seconds_f64(self.view.playhead);

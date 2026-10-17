@@ -268,6 +268,10 @@ pub struct Links {
     pub puppets: Sender<Delivery>,
     /// The other end of [`Self::puppets`], drained by the hooks.
     pub puppets_in: Receiver<Delivery>,
+    /// Requests to the MIDI bank (devices, learn mode, bindings), handled by the hooks.
+    pub midi: Sender<crate::midi::MidiOp>,
+    /// The other end of [`Self::midi`], drained by the hooks.
+    pub midi_in: Receiver<crate::midi::MidiOp>,
     /// Files to open with the system's default application (Edit Original), opened by the hooks.
     pub opens: Sender<PathBuf>,
     /// The other end of [`Self::opens`], drained by the hooks.
@@ -308,7 +312,8 @@ impl Links {
         let (jobs, jobs_in) = crossbeam_channel::unbounded();
         let (puppets, puppets_in) = crossbeam_channel::unbounded();
         let (opens, opens_in) = crossbeam_channel::unbounded();
-        Self { live, jobs, jobs_in, ui, sounds, sounds_in, output: OutputLink::disconnected(), puppets, puppets_in, opens, opens_in }
+        let (midi, midi_in) = crossbeam_channel::unbounded();
+        Self { live, jobs, jobs_in, ui, sounds, sounds_in, output: OutputLink::disconnected(), puppets, puppets_in, midi, midi_in, opens, opens_in }
     }
 
     /// These links with the stream output thread attached.
@@ -493,6 +498,13 @@ fn check_edit(skeleton: &Skeleton, op: &PuppetOp) -> Result<Option<String>, Comm
         PuppetOp::SetKeyTrigger { layer, key } => {
             skeleton.need(layer)?;
             key.as_deref().map_or(Ok(()), |k| text("trigger key", k))?;
+            Ok(None)
+        }
+        PuppetOp::SetMidiTrigger { layer, note, channel } => {
+            skeleton.need(layer)?;
+            if note.is_some_and(|n| n > 127) || channel.is_some_and(|c| !(1..=16).contains(&c)) {
+                return Err(CommandError::invalid_params("MIDI notes are 0 to 127 and channels 1 to 16"));
+            }
             Ok(None)
         }
         PuppetOp::AddSwapSet { name, members } => {
@@ -830,8 +842,8 @@ const NO_PARAMS: &str = r#"{"type":"object","properties":{},"additionalPropertie
 fn app_commands() -> Vec<CommandSpec<AppDoc>> {
     let mut all = vec![
         CommandSpec::new("rig.edit", "Edit puppet rig", rig_edit)
-            .describe("Edit a puppet's rigging. Pick the edit with 'op': add_tag/remove_tag (layer, tag), add_handle (group, name, kind Fixed|Draggable|Dangle|Attach|Stick|Walk, position [x,y] in artwork pixels; the answer names the handle key), move_handle (group, key, position, optional end for sticks), remove_handle (group, key), set_origin (group, origin), set_independent (layer, independent), set_attach_style (group, style weld|hinge|free), set_warp_independent (group, on), set_mesh_density (group, density 0.5 to 4), set_hide_others (layer, on), set_cycle (layer, cycle {step_millis, mode loop|ping_pong|once} or null), set_key_trigger (layer, key or null), add_swap_set (name, members), remove_swap_set (name), rename_swap_set (name, new_name), set_visible (layer, visible). Layers are paths (Head/Left Eye) or labels; use rig_layers to list them. 'puppet' picks the puppet (default: the first).")
-            .with_schema(r#"{"type":"object","required":["op"],"properties":{"puppet":{"type":"string"},"op":{"enum":["add_tag","remove_tag","add_handle","move_handle","remove_handle","set_origin","set_independent","set_attach_style","set_warp_independent","set_mesh_density","set_hide_others","set_cycle","set_key_trigger","add_swap_set","remove_swap_set","rename_swap_set","set_visible"]},"layer":{"type":"string"},"end":{"type":"array","items":{"type":"number"},"minItems":2,"maxItems":2},"independent":{"type":"boolean"},"style":{"enum":["weld","hinge","free"]},"on":{"type":"boolean"},"density":{"type":"number","exclusiveMinimum":0},"new_name":{"type":"string"},"cycle":{"type":["object","null"],"properties":{"step_millis":{"type":"integer","minimum":10,"maximum":60000},"mode":{"enum":["loop","ping_pong","once"]}},"required":["step_millis"]},"tag":{"type":"string"},"group":{"type":"string"},"name":{"type":"string"},"kind":{"enum":["Fixed","Draggable","Dangle","Attach","Stick","Walk"]},"position":{"type":"array","items":{"type":"number"},"minItems":2,"maxItems":2},"origin":{"type":"array","items":{"type":"number"},"minItems":2,"maxItems":2},"key":{"type":["string","null"]},"members":{"type":"array","items":{"type":"string"},"minItems":2},"visible":{"type":"boolean"}}}"#),
+            .describe("Edit a puppet's rigging. Pick the edit with 'op': add_tag/remove_tag (layer, tag), add_handle (group, name, kind Fixed|Draggable|Dangle|Attach|Stick|Walk, position [x,y] in artwork pixels; the answer names the handle key), move_handle (group, key, position, optional end for sticks), remove_handle (group, key), set_origin (group, origin), set_independent (layer, independent), set_attach_style (group, style weld|hinge|free), set_warp_independent (group, on), set_mesh_density (group, density 0.5 to 4), set_hide_others (layer, on), set_cycle (layer, cycle {step_millis, mode loop|ping_pong|once} or null), set_key_trigger (layer, key or null), set_midi_trigger (layer, note 0 to 127 or absent to remove, channel 1 to 16 or absent for any), add_swap_set (name, members), remove_swap_set (name), rename_swap_set (name, new_name), set_visible (layer, visible). Layers are paths (Head/Left Eye) or labels; use rig_layers to list them. 'puppet' picks the puppet (default: the first).")
+            .with_schema(r#"{"type":"object","required":["op"],"properties":{"puppet":{"type":"string"},"op":{"enum":["add_tag","remove_tag","add_handle","move_handle","remove_handle","set_origin","set_independent","set_attach_style","set_warp_independent","set_mesh_density","set_hide_others","set_cycle","set_key_trigger","set_midi_trigger","add_swap_set","remove_swap_set","rename_swap_set","set_visible"]},"layer":{"type":"string"},"note":{"type":["integer","null"],"minimum":0,"maximum":127},"channel":{"type":["integer","null"],"minimum":1,"maximum":16},"end":{"type":"array","items":{"type":"number"},"minItems":2,"maxItems":2},"independent":{"type":"boolean"},"style":{"enum":["weld","hinge","free"]},"on":{"type":"boolean"},"density":{"type":"number","exclusiveMinimum":0},"new_name":{"type":"string"},"cycle":{"type":["object","null"],"properties":{"step_millis":{"type":"integer","minimum":10,"maximum":60000},"mode":{"enum":["loop","ping_pong","once"]}},"required":["step_millis"]},"tag":{"type":"string"},"group":{"type":"string"},"name":{"type":"string"},"kind":{"enum":["Fixed","Draggable","Dangle","Attach","Stick","Walk"]},"position":{"type":"array","items":{"type":"number"},"minItems":2,"maxItems":2},"origin":{"type":"array","items":{"type":"number"},"minItems":2,"maxItems":2},"key":{"type":["string","null"]},"members":{"type":"array","items":{"type":"string"},"minItems":2},"visible":{"type":"boolean"}}}"#),
         CommandSpec::new("rig.layers", "List puppet layers", rig_layers)
             .transient()
             .describe("The layers of a puppet (path, label, independent group) and the cast keys of the loaded puppets.")
@@ -967,7 +979,7 @@ fn place(spec: CommandSpec<AppDoc>) -> CommandSpec<AppDoc> {
 pub fn registry() -> Result<CommandRegistry<AppDoc>, RegistryError> {
     let mut registry = CommandRegistry::with_history_commands();
     registry
-        .register_all(wrapped().into_iter().chain(app_commands()).chain(crate::project_cmds::commands()).chain(crate::puppet_cmds::commands()).map(place))?;
+        .register_all(wrapped().into_iter().chain(app_commands()).chain(crate::project_cmds::commands()).chain(crate::puppet_cmds::commands()).chain(crate::midi::commands()).map(place))?;
     Ok(registry)
 }
 
@@ -1123,6 +1135,7 @@ mod tests {
             "set_hide_others",
             "set_cycle",
             "set_key_trigger",
+            "set_midi_trigger",
             "add_swap_set",
             "remove_swap_set",
             "rename_swap_set",

@@ -45,6 +45,7 @@ pub mod demo;
 pub mod export;
 pub mod hooks;
 pub mod live;
+pub mod midi;
 pub mod project_cmds;
 pub mod projectio;
 pub mod puppet_cmds;

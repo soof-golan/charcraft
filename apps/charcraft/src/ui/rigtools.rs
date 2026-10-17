@@ -843,10 +843,13 @@ fn path_name(puppet: &Puppet, path: &str) -> String {
 /// The Triggers tab: the layers with a key, and the swap sets.
 pub fn triggers(ui: &mut Ui, puppet: &Puppet, key: &str, view: &mut View, actions: &mut Vec<Action>) {
     ui.label(RichText::new("Triggers").strong());
-    ui.weak("A layer with a key shows while the key is down. Pick a layer, then give it a key.");
-    let triggered: Vec<&Layer> = puppet.layers().iter().filter(|l| l.key_trigger.is_some()).collect();
+    ui.weak("A layer with a key or a MIDI note shows while it is down. Pick a layer, then give it a key or learn a note.");
+    ui.label(RichText::new("MIDI").strong());
+    super::midi::device(ui, view, actions);
+    ui.separator();
+    let triggered: Vec<&Layer> = puppet.layers().iter().filter(|l| l.key_trigger.is_some() || l.midi_trigger.is_some()).collect();
     if triggered.is_empty() {
-        ui.weak("No layer has a key yet.");
+        ui.weak("No layer has a key or a note yet.");
     }
     for layer in triggered {
         ui.horizontal(|ui| {
@@ -863,13 +866,20 @@ pub fn triggers(ui: &mut Ui, puppet: &Puppet, key: &str, view: &mut View, action
             if ui.checkbox(&mut hide, "Hide others").changed() {
                 actions.push(rig_edit(key, json!({ "op": "set_hide_others", "layer": layer.path, "on": hide })));
             }
-            if ui.small_button("\u{00D7}").on_hover_text("Remove the trigger").clicked() {
+            if ui.small_button("\u{00D7}").on_hover_text("Remove the key").clicked() {
                 actions.push(rig_edit(key, json!({ "op": "set_key_trigger", "layer": layer.path, "key": null })));
             }
+            super::midi::trigger_learn(ui, view, key, &layer.path, layer.midi_trigger.as_ref(), actions);
         });
     }
     ui.add_space(4.0);
     if let Some(layer) = find_layer(puppet, view.layer.as_deref()) {
+        if layer.midi_trigger.is_none() {
+            ui.horizontal(|ui| {
+                ui.label(format!("MIDI note for {}", visual(&layer.name)));
+                super::midi::trigger_learn(ui, view, key, &layer.path, None, actions);
+            });
+        }
         ui.horizontal(|ui| {
             ui.label(format!("New trigger on {}", visual(&layer.name)));
             if view.rig.capture {

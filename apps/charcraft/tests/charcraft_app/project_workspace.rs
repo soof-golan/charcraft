@@ -6,30 +6,14 @@
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
-use anim_mcp::{Backend, Confinement, HeadlessSession, HostInfo, Request, spawn_headless};
+use anim_mcp::{Backend, Confinement, HostInfo, Request, spawn_headless};
 use charcraft_app::hooks::make_host;
 use charcraft_app::live::LiveLink;
 use charcraft_app::session::{Links, registry};
 use charcraft_app::world::{SourceKind, World};
 use serde_json::{Value, json};
 
-fn headless() -> HeadlessSession {
-    spawn_headless(|| {
-        let opened = World::demo().unwrap();
-        let (ui, _rx) = crossbeam_channel::unbounded();
-        let links = Links::new(LiveLink::disconnected(), ui);
-        make_host(opened, links, registry().unwrap(), Confinement::unrestricted(), HostInfo { name: "charcraft".into(), version: "test".into() })
-    })
-    .unwrap()
-}
-
-fn run(backend: &Backend, id: &str, params: Value) -> Result<Value, String> {
-    backend.call(Request::CommandRun { id: id.into(), params, merge_key: None }).map(|r| r.value["result"].clone()).map_err(|e| e.to_string())
-}
-
-fn query(backend: &Backend, name: &str) -> Value {
-    backend.call(Request::Query { name: name.into(), params: json!({}) }).unwrap().value
-}
+use crate::common::{headless, query, run};
 
 /// Waits for the job a command queued to say something different from `before`.
 fn job_result(backend: &Backend, before: &Value) -> String {

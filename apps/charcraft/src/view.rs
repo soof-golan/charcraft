@@ -445,6 +445,8 @@ pub struct View {
     pub stream: StreamUi,
     /// The newest live input.
     pub live: LiveSnapshot,
+    /// MIDI: devices, learn mode, held notes and bindings.
+    pub midi: crate::midi::MidiSnapshot,
     /// A line for the status bar.
     pub status: String,
     /// The take being recorded.
@@ -527,6 +529,7 @@ impl Default for View {
             transparent: false,
             stream: StreamUi::default(),
             live: LiveSnapshot::default(),
+            midi: crate::midi::MidiSnapshot::default(),
             status: String::new(),
             recording: None,
             prompt: None,
