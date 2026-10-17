@@ -22,21 +22,15 @@ use std::cell::OnceCell;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::hint::black_box;
 
-use anim_artwork::{ArtNode, ArtworkTree};
-use anim_core::{Point, Size};
-use anim_display::Image;
+use anim_artwork::ArtNode;
+use anim_artwork::synthetic::{rect, tree};
+use anim_core::Point;
 use charcraft_behaviors::{BehaviorStack, FaceInput, Rig, Script, ScriptEvent, simulate};
 use charcraft_project::Project;
 use charcraft_puppet::{HandleKind, Puppet};
 use criterion::{Criterion, criterion_group, criterion_main};
 
 const FRAMES: u32 = 600;
-
-fn rect(name: &str, x: f64, y: f64, w: u32, h: u32, rgb: [u8; 3]) -> ArtNode {
-    let n = usize::try_from(w * h).unwrap();
-    let px: Vec<u8> = [rgb[0], rgb[1], rgb[2], 255].iter().copied().cycle().take(n * 4).collect();
-    ArtNode::raster(name, Image::new(w, h, px).unwrap(), Point::new(x, y))
-}
 
 /// A torso with `groups` independent arms and tails, each with a draggable and a dangling handle.
 fn stress_puppet(groups: u32) -> Puppet {
@@ -46,8 +40,7 @@ fn stress_puppet(groups: u32) -> Puppet {
         let y = 100.0 + f64::from(i / 8) * 150.0;
         kids.push(ArtNode::group(format!("+ Limb {i}"), vec![rect("Limb", x, y, 100, 120, [30, 60, 220])]));
     }
-    let tree = ArtworkTree { size: Size::new(1000.0, 1400.0), root: ArtNode::group("", kids), warnings: Vec::new() };
-    let mut p = Puppet::from_artwork(&tree).unwrap();
+    let mut p = Puppet::from_artwork(&tree(1000, 1400, kids)).unwrap();
     for i in 0..groups {
         let x = 20.0 + f64::from(i % 8) * 120.0;
         let y = 100.0 + f64::from(i / 8) * 150.0;

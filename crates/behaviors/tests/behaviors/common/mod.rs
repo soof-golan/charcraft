@@ -76,25 +76,7 @@ fn save_png(name: &str, w: u32, h: u32, rgba: &[u8]) {
     }
 }
 
-pub fn rect(name: &str, x: f64, y: f64, w: u32, h: u32, rgb: [u8; 3]) -> ArtNode {
-    let n = usize::try_from(w * h).unwrap();
-    let px: Vec<u8> = [rgb[0], rgb[1], rgb[2], 255].iter().copied().cycle().take(n * 4).collect();
-    ArtNode::raster(name, Image::new(w, h, px).unwrap(), Point::new(x, y))
-}
-
-pub const fn hidden(mut node: ArtNode) -> ArtNode {
-    node.visible = false;
-    node
-}
-
-pub fn tree(w: u32, h: u32, children: Vec<ArtNode>) -> ArtworkTree {
-    ArtworkTree { size: Size::new(f64::from(w), f64::from(h)), root: ArtNode::group("", children), warnings: Vec::new() }
-}
-
-pub fn viseme_color(i: usize) -> [u8; 3] {
-    let i = u8::try_from(i).unwrap();
-    [20 + i * 15, 220 - i * 12, 40 + i * 5]
-}
+pub use anim_artwork::synthetic::{hidden, mouth_colour as viseme_color, rect, tree};
 
 /// A 14-shape mouth group at 100..140 x 100..120; the shapes in `keep` exist, the first of `visible` is shown.
 pub fn mouth_with(keep: &[Viseme], visible: Viseme) -> ArtNode {

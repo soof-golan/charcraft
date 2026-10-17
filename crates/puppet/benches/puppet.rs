@@ -23,23 +23,12 @@ use std::cell::OnceCell;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::hint::black_box;
 
+use anim_artwork::synthetic::{hidden, rect, tree};
 use anim_artwork::{ArtNode, ArtworkTree};
-use anim_core::{Point, Size, Vec2};
-use anim_display::Image;
+use anim_core::{Point, Vec2};
 use charcraft_project::Project;
 use charcraft_puppet::{HandleKind, Puppet, PuppetPose, Viseme, Xform};
 use criterion::{BatchSize, Criterion, criterion_group, criterion_main};
-
-fn rect(name: &str, x: f64, y: f64, w: u32, h: u32, rgb: [u8; 3]) -> ArtNode {
-    let n = usize::try_from(w * h).unwrap();
-    let px: Vec<u8> = [rgb[0], rgb[1], rgb[2], 255].iter().copied().cycle().take(n * 4).collect();
-    ArtNode::raster(name, Image::new(w, h, px).unwrap(), Point::new(x, y))
-}
-
-fn hidden(mut node: ArtNode) -> ArtNode {
-    node.visible = false;
-    node
-}
 
 fn eye(side: &str, x: f64) -> ArtNode {
     ArtNode::group(
@@ -88,7 +77,7 @@ fn stress_tree(arms: u32) -> ArtworkTree {
         ));
     }
     let body = ArtNode::group("Body", body);
-    ArtworkTree { size: Size::new(1000.0, 1400.0), root: ArtNode::group("", vec![body, head]), warnings: Vec::new() }
+    tree(1000, 1400, vec![body, head])
 }
 
 fn stress_puppet(arms: u32) -> Puppet {

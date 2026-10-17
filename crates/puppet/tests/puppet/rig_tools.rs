@@ -10,8 +10,9 @@
     reason = "test code"
 )]
 
-use anim_artwork::{ArtNode, ArtworkTree};
-use anim_core::{Point, Rgba8, Size, Vec2};
+use anim_artwork::ArtNode;
+use anim_artwork::synthetic::{rect, tree};
+use anim_core::{Point, Rgba8, Vec2};
 use anim_display::Image;
 use anim_render::{Background, RenderOptions};
 use charcraft_puppet::{AttachStyle, CycleDef, CycleMode, HandleKind, LayerId, Puppet, PuppetOp, PuppetPose, Xform};
@@ -23,21 +24,11 @@ const BLUE: [u8; 3] = [30, 60, 220];
 const RED: [u8; 3] = [220, 30, 30];
 const GREEN: [u8; 3] = [30, 200, 60];
 
-fn rect(name: &str, left: f64, top: f64, width: u32, height: u32, rgb: [u8; 3]) -> ArtNode {
-    let count = usize::try_from(width * height).unwrap();
-    let px: Vec<u8> = [rgb[0], rgb[1], rgb[2], 255].iter().copied().cycle().take(count * 4).collect();
-    ArtNode::raster(name, Image::new(width, height, px).unwrap(), Point::new(left, top))
-}
-
-fn tree(children: Vec<ArtNode>) -> ArtworkTree {
-    ArtworkTree { size: Size::new(f64::from(W), f64::from(W)), root: ArtNode::group("", children), warnings: Vec::new() }
-}
-
 /// A head resting on a body through a thin neck that belongs to the body's artwork.
 fn neck() -> Puppet {
     let head = ArtNode::group("Head", vec![rect("Face", 50.0, 20.0, 100, 100, SKIN)]);
     let body = ArtNode::group("Body", vec![rect("Torso", 60.0, 140.0, 80, 60, GRAY), rect("Neck", 90.0, 110.0, 20, 40, BLUE)]);
-    Puppet::from_artwork(&tree(vec![body, head])).unwrap()
+    Puppet::from_artwork(&tree(W, W, vec![body, head])).unwrap()
 }
 
 fn id(p: &Puppet, path: &str) -> LayerId {
@@ -167,7 +158,7 @@ fn warp_independence_keeps_attached_groups_out_of_the_mesh() {
 fn a_free_group_is_not_carried_by_the_parent_mesh() {
     // A hand with a handle of its own (so it is not welded) sits on an arm whose mesh bends when its handle is pulled.
     let arm = ArtNode::group("+Arm", vec![rect("Sleeve", 20.0, 100.0, 120, 20, BLUE), ArtNode::group("+Hand", vec![rect("Palm", 128.0, 98.0, 24, 24, SKIN)])]);
-    let mut p = Puppet::from_artwork(&tree(vec![arm])).unwrap();
+    let mut p = Puppet::from_artwork(&tree(W, W, vec![arm])).unwrap();
     let arm_id = id(&p, "+Arm");
     let hand = id(&p, "+Arm/+Hand");
     p.set_origin(hand, Point::new(130.0, 110.0));
@@ -217,7 +208,7 @@ fn swatches() -> Puppet {
         "Swatches",
         vec![rect("Red", 10.0, 10.0, 40, 40, RED), rect("Green", 10.0, 10.0, 40, 40, GREEN), rect("Blue", 10.0, 10.0, 40, 40, BLUE)],
     );
-    Puppet::from_artwork(&tree(vec![sw])).unwrap()
+    Puppet::from_artwork(&tree(W, W, vec![sw])).unwrap()
 }
 
 #[test]
