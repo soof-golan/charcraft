@@ -23,7 +23,31 @@ use anim_artwork::{ArtNode, ArtworkTree};
 use anim_core::{Point, Rgba8, Size};
 use anim_display::Image;
 use anim_render::{Background, RenderOptions, straight_rgba};
-use charcraft_puppet::{Puppet, PuppetPose, Viseme};
+use charcraft_behaviors::{BehaviorStack, ChainLink, Rig, RigHandle, Script, SimFrame, behaviors, simulate};
+use charcraft_puppet::{HandleKind, Puppet, PuppetPose, Viseme};
+use serde_json::Value;
+
+/// A behavior stack on `rig` made of the behaviors `parts` names (id and parameters), with a fixed seed.
+pub fn stack_of(rig: Rig, parts: &[(&str, Value)]) -> BehaviorStack {
+    let mut stack = BehaviorStack::new(rig);
+    for (id, params) in parts {
+        stack.push(behaviors::create_with(id, params).unwrap());
+    }
+    stack.with_seed(1)
+}
+
+/// Runs `script` through `stack` and returns every frame.
+pub fn play(stack: &mut BehaviorStack, script: &Script) -> Vec<SimFrame> {
+    simulate(stack, script, 1).unwrap()
+}
+
+/// A rig whose only handle is a hair lock dangling from the head.
+pub fn hair_rig() -> Rig {
+    let head =
+        ChainLink { is_root: false, is_head: true, tags: Default::default(), path: "Head".into(), label: "head".into(), origin: Point::new(100.0, 100.0) };
+    let hair = RigHandle { chain: vec![head], reach: 120.0, ..RigHandle::new("head/Hair", HandleKind::Dangle, Point::new(200.0, 100.0)) };
+    Rig::new(Size::new(1000.0, 600.0)).with_handle(hair)
+}
 
 pub const SKIN: [u8; 3] = [240, 190, 160];
 pub const WHITE: [u8; 3] = [255, 255, 255];

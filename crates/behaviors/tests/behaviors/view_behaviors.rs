@@ -18,25 +18,15 @@
     reason = "test code"
 )]
 
+use crate::common::{hair_rig, play, stack_of};
+
 use anim_core::{Point, Rect, Size};
 use anim_lipsync::Viseme as Voice;
 use charcraft_behaviors::behaviors;
-use charcraft_behaviors::{BehaviorStack, ChainLink, FaceInput, Rig, RigHandle, Script, ScriptEvent, SimFrame, simulate};
+use charcraft_behaviors::{ChainLink, FaceInput, Rig, RigHandle, Script, ScriptEvent, SimFrame};
 use charcraft_puppet::tags::ids;
 use charcraft_puppet::{HandleKind, Viseme};
 use serde_json::{Value, json};
-
-fn stack_of(rig: Rig, parts: &[(&str, Value)]) -> BehaviorStack {
-    let mut stack = BehaviorStack::new(rig);
-    for (id, params) in parts {
-        stack.push(behaviors::create_with(id, params).unwrap());
-    }
-    stack.with_seed(1)
-}
-
-fn play(stack: &mut BehaviorStack, script: &Script) -> Vec<SimFrame> {
-    simulate(stack, script, 1).unwrap()
-}
 
 fn face(frame: u32, f: FaceInput) -> ScriptEvent {
     ScriptEvent::Face { frame, face: f }
@@ -325,13 +315,6 @@ fn feet_are_free_while_walking_and_pinned_to_the_ground_where_it_stopped() {
 }
 
 // ---- Physics: gravity, collide, squash --------------------------------------------------------------------
-
-fn hair_rig() -> Rig {
-    let head =
-        ChainLink { is_root: false, is_head: true, tags: Default::default(), path: "Head".into(), label: "head".into(), origin: Point::new(100.0, 100.0) };
-    let hair = RigHandle { chain: vec![head], reach: 120.0, ..RigHandle::new("head/Hair", HandleKind::Dangle, Point::new(200.0, 100.0)) };
-    Rig::new(Size::new(1000.0, 600.0)).with_handle(hair)
-}
 
 fn settled(rig: Rig, params: Value) -> (f64, f64) {
     let mut s = stack_of(rig, &[("Adobe.RigDynamics.js", params)]);

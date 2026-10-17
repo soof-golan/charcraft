@@ -20,25 +20,15 @@
     reason = "test code"
 )]
 
+use crate::common::{hair_rig, play, stack_of};
+
 use anim_core::{Point, Size, Tick, Vec2};
 use anim_lipsync::Viseme as Voice;
 use charcraft_behaviors::behaviors::{self, TriggerMode};
-use charcraft_behaviors::{BehaviorStack, ChainLink, FaceInput, Rig, RigHandle, Script, ScriptEvent, SimFrame, simulate};
+use charcraft_behaviors::{BehaviorStack, ChainLink, FaceInput, Rig, RigHandle, Script, ScriptEvent, SimFrame};
 use charcraft_puppet::tags::ids;
 use charcraft_puppet::{HandleKind, Viseme};
 use serde_json::{Value, json};
-
-fn stack_of(rig: Rig, parts: &[(&str, Value)]) -> BehaviorStack {
-    let mut stack = BehaviorStack::new(rig);
-    for (id, params) in parts {
-        stack.push(behaviors::create_with(id, params).unwrap());
-    }
-    stack.with_seed(1)
-}
-
-fn play(stack: &mut BehaviorStack, script: &Script) -> Vec<SimFrame> {
-    simulate(stack, script, 1).unwrap()
-}
 
 fn face(f: FaceInput) -> ScriptEvent {
     ScriptEvent::Face { frame: 0, face: f }
@@ -418,13 +408,6 @@ fn a_drag_is_turned_into_the_groups_own_space() {
 }
 
 // ---- Physics ----------------------------------------------------------------------------------------------
-
-fn hair_rig() -> Rig {
-    let head =
-        ChainLink { is_root: false, is_head: true, tags: Default::default(), path: "Head".into(), label: "head".into(), origin: Point::new(100.0, 100.0) };
-    let hair = RigHandle { chain: vec![head], reach: 120.0, ..RigHandle::new("head/Hair", HandleKind::Dangle, Point::new(200.0, 100.0)) };
-    Rig::new(Size::new(1000.0, 600.0)).with_handle(hair)
-}
 
 #[test]
 fn hair_swings_when_the_head_turns_and_settles() {
