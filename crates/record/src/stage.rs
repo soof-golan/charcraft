@@ -198,40 +198,6 @@ pub(crate) fn skin_of(item: &PuppetItem) -> Vec2 {
     item.bindings.iter().find(|b| b.kind == BindingKind::Skin).map_or(Vec2::ZERO, |b| Vec2::new(b.transform.position[0], b.transform.position[1]))
 }
 
-/// The ids a store holds, found by probing from 0 (a store has no iterator; puppets insert densely).
-fn store_ids(store: &ImageStore) -> Vec<ImageId> {
-    let want = store.len();
-    let mut ids = Vec::with_capacity(want);
-    let mut id = 0_u64;
-    while ids.len() < want && id < u64::try_from(want).unwrap_or(0).saturating_add(65_536) {
-        if store.get(ImageId(id)).is_some() {
-            ids.push(ImageId(id));
-        }
-        id = id.saturating_add(1);
-    }
-    ids
-}
-
-fn remap(nodes: &mut [Node], map: &BTreeMap<ImageId, ImageId>) {
-    for node in nodes {
-        match node {
-            Node::Bitmap(b) => {
-                if let Some(new) = map.get(&b.image) {
-                    b.image = *new;
-                }
-            }
-            Node::Group(g) => {
-                if let Some(mask) = g.mask.as_mut() {
-                    remap(mask, map);
-                }
-                remap(&mut g.children, map);
-            }
-            Node::Mesh(m) => remap(&mut m.content, map),
-            Node::Fill(_) | Node::Stroke(_) => {}
-        }
-    }
-}
-
 /// The frames of a scene, ready for the exporters.
 #[derive(Debug)]
 pub struct SceneFrames<'a> {
@@ -259,13 +225,7 @@ impl<'a> SceneFrames<'a> {
                 continue;
             }
             let Some(member) = cast.get(&track.puppet) else { continue };
-            let mut map = BTreeMap::new();
-            for id in store_ids(member.puppet.images()) {
-                if let Some(image) = member.puppet.images().get(id) {
-                    map.insert(id, store.insert(image.clone()));
-                }
-            }
-            remaps.insert(track.puppet.clone(), map);
+            remaps.insert(track.puppet.clone(), store.merge(member.puppet.images()));
         }
         Ok(Self { scene, cast, poses, store, remaps })
     }
@@ -322,7 +282,7 @@ impl FrameSource for SceneFrames<'_> {
                 continue;
             };
             let mut nodes = member.puppet.evaluate(pose).nodes;
-            remap(&mut nodes, map);
+            Node::remap_images(&mut nodes, map);
             let opacity = f32::from(u8::try_from(anim_core::num::round_f64_to_u32(placement.opacity.clamp(0.0, 1.0) * 255.0).min(255)).unwrap_or(255)) / 255.0;
             list.nodes.push(Node::Group(Group {
                 transform: layout.camera * placement.matrix(centre, member.skin, member.handle),

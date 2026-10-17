@@ -20,41 +20,6 @@ pub struct Stage {
     remaps: BTreeMap<String, BTreeMap<ImageId, ImageId>>,
 }
 
-/// The ids a store holds, found by probing from 0 (a store has no iterator; puppets insert densely).
-fn store_ids(store: &ImageStore) -> Vec<ImageId> {
-    let want = store.len();
-    let mut ids = Vec::with_capacity(want);
-    let mut id = 0_u64;
-    let limit = u64::try_from(want).unwrap_or(0).saturating_add(65_536);
-    while ids.len() < want && id < limit {
-        if store.get(ImageId(id)).is_some() {
-            ids.push(ImageId(id));
-        }
-        id = id.saturating_add(1);
-    }
-    ids
-}
-
-fn remap(nodes: &mut [Node], map: &BTreeMap<ImageId, ImageId>) {
-    for node in nodes {
-        match node {
-            Node::Bitmap(b) => {
-                if let Some(new) = map.get(&b.image) {
-                    b.image = *new;
-                }
-            }
-            Node::Group(g) => {
-                if let Some(mask) = g.mask.as_mut() {
-                    remap(mask, map);
-                }
-                remap(&mut g.children, map);
-            }
-            Node::Mesh(m) => remap(&mut m.content, map),
-            Node::Fill(_) | Node::Stroke(_) => {}
-        }
-    }
-}
-
 /// The pixels a render produced, straight alpha.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Picture {
@@ -80,13 +45,7 @@ impl Stage {
         let mut remaps = BTreeMap::new();
         for key in cast.keys() {
             let Some(member) = cast.get(key) else { continue };
-            let mut map = BTreeMap::new();
-            for id in store_ids(member.puppet.images()) {
-                if let Some(image) = member.puppet.images().get(id) {
-                    map.insert(id, store.insert(image.clone()));
-                }
-            }
-            remaps.insert(key.to_owned(), map);
+            remaps.insert(key.to_owned(), store.merge(member.puppet.images()));
         }
         Self { cast, store, remaps }
     }
@@ -115,7 +74,7 @@ impl Stage {
             }
             let (Some(member), Some(map)) = (self.cast.get(&track.puppet), self.remaps.get(&track.puppet)) else { continue };
             let mut nodes = member.puppet.evaluate(poses.get(i).unwrap_or(&neutral)).nodes;
-            remap(&mut nodes, map);
+            Node::remap_images(&mut nodes, map);
             let opacity = anim_core::num::f64_to_f32(track.placement.opacity.clamp(0.0, 1.0));
             list.nodes.push(Node::Group(Group {
                 transform: track.placement.matrix(centre, member.skin, member.handle),
