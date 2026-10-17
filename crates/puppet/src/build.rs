@@ -86,6 +86,7 @@ impl Puppet {
                 handles: Vec::new(),
                 key_trigger: None,
                 hide_others: false,
+                midi_trigger: None,
                 attach: AttachStyle::default(),
                 warp_independent: false,
                 mesh_density: 1.0,

@@ -140,14 +140,14 @@ impl Puppet {
         }
 
         for layer in &self.layers {
-            if let Some(key) = &layer.key_trigger {
-                set(layer.id, pose.triggers.contains(key));
+            if let Some(on) = layer.trigger_on(&pose.triggers) {
+                set(layer.id, on);
             }
         }
 
         // A layer that hides the others hides its siblings for as long as its key is down.
         for layer in &self.layers {
-            let on = layer.hide_others && layer.key_trigger.as_ref().is_some_and(|k| pose.triggers.contains(k));
+            let on = layer.hide_others && layer.trigger_on(&pose.triggers) == Some(true);
             if let (true, Some(parent)) = (on, layer.parent.and_then(|p| self.layer(p))) {
                 for &sibling in parent.children.iter().filter(|&&s| s != layer.id) {
                     set(sibling, false);

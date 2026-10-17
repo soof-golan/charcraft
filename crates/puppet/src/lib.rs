@@ -44,7 +44,7 @@ mod warp;
 pub use api::{LayerInfo, OpOutcome, PuppetOp};
 pub use build::MAX_LAYERS;
 pub use error::{Error, Result};
-pub use model::{AttachStyle, CycleDef, CycleMode, HandleDef, HandleKind, Layer, LayerId, LayerKind, MESH_DENSITY, Puppet, STICK_PINS, SwapSet};
+pub use model::{AttachStyle, CycleDef, CycleMode, HandleDef, HandleKind, Layer, LayerId, LayerKind, MESH_DENSITY, MidiTrigger, Puppet, STICK_PINS, SwapSet};
 pub use pose::{PuppetPose, Sprite, Xform};
 pub use report::{ImportIssue, IssueKind};
 pub use summary::{GroupSummary, PuppetSummary};

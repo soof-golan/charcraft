@@ -116,6 +116,31 @@ impl CycleMode {
     }
 }
 
+/// A MIDI note that shows a layer while it is held, the way a key trigger does.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MidiTrigger {
+    /// The channel (1 to 16), or `None` for any channel.
+    #[serde(default)]
+    pub channel: Option<u8>,
+    /// The note number (0 to 127).
+    pub note: u8,
+}
+
+impl MidiTrigger {
+    /// The trigger token a held note puts into [`crate::PuppetPose::triggers`]: `midi:<note>` for any channel,
+    /// otherwise `midi:<channel>:<note>`.
+    #[must_use]
+    pub fn token(&self) -> String {
+        Self::token_for(self.channel, self.note)
+    }
+
+    /// The token of a note on a channel (`None` is the any-channel token).
+    #[must_use]
+    pub fn token_for(channel: Option<u8>, note: u8) -> String {
+        channel.map_or_else(|| format!("midi:{note}"), |c| format!("midi:{c}:{note}"))
+    }
+}
+
 /// A layer cycle: the children of a group are shown one after the other, as an animated sequence.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CycleDef {
@@ -246,6 +271,9 @@ pub struct Layer {
     pub handles: Vec<HandleDef>,
     /// The key that shows the layer (project data).
     pub key_trigger: Option<String>,
+    /// A MIDI note that shows the layer while it is held (alone or next to the key trigger).
+    #[serde(default)]
+    pub midi_trigger: Option<MidiTrigger>,
     /// While this layer is shown by its key trigger, its siblings are hidden.
     #[serde(default)]
     pub hide_others: bool,
@@ -273,6 +301,18 @@ const fn default_density() -> f64 {
 }
 
 impl Layer {
+    /// Whether the layer's triggers are on: `None` when it has neither a key nor a MIDI trigger, otherwise whether
+    /// its key or its note is held (`triggers` holds keys and MIDI tokens).
+    #[must_use]
+    pub fn trigger_on(&self, triggers: &BTreeSet<String>) -> Option<bool> {
+        if self.key_trigger.is_none() && self.midi_trigger.is_none() {
+            return None;
+        }
+        let key = self.key_trigger.as_ref().is_some_and(|k| triggers.contains(k));
+        let note = self.midi_trigger.as_ref().is_some_and(|m| triggers.contains(&m.token()));
+        Some(key || note)
+    }
+
     /// True when the layer has this tag.
     #[must_use]
     pub fn has_tag(&self, tag: &str) -> bool {
@@ -593,6 +633,18 @@ impl Puppet {
             Some(l) => {
                 l.key_trigger = key.map(str::to_owned);
                 true
+            }
+            None => false,
+        }
+    }
+
+    /// Makes a layer show only while a MIDI note is held (`None` removes the trigger). False when nothing changed.
+    pub fn set_midi_trigger(&mut self, layer: LayerId, trigger: Option<MidiTrigger>) -> bool {
+        match self.layer_mut(layer) {
+            Some(l) => {
+                let changed = l.midi_trigger != trigger;
+                l.midi_trigger = trigger;
+                changed
             }
             None => false,
         }

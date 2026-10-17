@@ -20,7 +20,7 @@ use anim_core::Point;
 use serde::{Deserialize, Serialize};
 
 use crate::error::{Error, Result};
-use crate::model::{AttachStyle, CycleDef, HandleDef, HandleKind, LayerId, Puppet};
+use crate::model::{AttachStyle, CycleDef, HandleDef, HandleKind, LayerId, MidiTrigger, Puppet};
 
 /// One edit of a puppet. Plain serde, tagged by `op`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -69,6 +69,14 @@ pub enum PuppetOp {
     SetOrigin { group: String, origin: [f64; 2] },
     /// Shows a layer only while a key trigger is on; no key removes the trigger.
     SetKeyTrigger { layer: String, key: Option<String> },
+    /// Shows a layer only while a MIDI note is held; no note removes the trigger. `channel` 1 to 16, absent for any.
+    SetMidiTrigger {
+        layer: String,
+        #[serde(default)]
+        note: Option<u8>,
+        #[serde(default)]
+        channel: Option<u8>,
+    },
     /// Defines a swap set from layers.
     AddSwapSet { name: String, members: Vec<String> },
     /// Changes whether the artwork shows a layer by default.
@@ -109,6 +117,8 @@ pub struct LayerInfo {
     pub handles: Vec<HandleDef>,
     /// Key trigger.
     pub key_trigger: Option<String>,
+    /// MIDI note trigger.
+    pub midi_trigger: Option<MidiTrigger>,
     /// The key trigger hides the siblings while it shows the layer.
     pub hide_others: bool,
     /// How an independent group attaches to its parent's mesh.
@@ -161,6 +171,7 @@ impl Puppet {
             origin: l.independent.then_some([l.origin.x, l.origin.y]),
             handles: l.handles.clone(),
             key_trigger: l.key_trigger.clone(),
+            midi_trigger: l.midi_trigger,
             hide_others: l.hide_others,
             attach: l.independent.then_some(l.attach),
             warp_independent: l.independent.then_some(l.warp_independent),
@@ -262,6 +273,17 @@ impl Puppet {
             PuppetOp::SetKeyTrigger { layer, key } => {
                 let id = self.need(layer)?;
                 Ok(OpOutcome { changed: self.set_key_trigger(id, key.as_deref()), key: None })
+            }
+            PuppetOp::SetMidiTrigger { layer, note, channel } => {
+                let id = self.need(layer)?;
+                if note.is_some_and(|n| n > 127) {
+                    return Err(Error::Rejected("MIDI notes are 0 to 127"));
+                }
+                if channel.is_some_and(|c| !(1..=16).contains(&c)) {
+                    return Err(Error::Rejected("MIDI channels are 1 to 16"));
+                }
+                let trigger = note.map(|n| MidiTrigger { channel: *channel, note: n });
+                Ok(OpOutcome { changed: self.set_midi_trigger(id, trigger), key: None })
             }
             PuppetOp::AddSwapSet { name, members } => {
                 let ids = members.iter().map(|m| self.need(m)).collect::<Result<Vec<_>>>()?;

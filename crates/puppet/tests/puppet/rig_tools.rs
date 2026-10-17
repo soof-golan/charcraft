@@ -274,6 +274,29 @@ fn hide_others_hides_the_siblings_while_the_key_is_down() {
 }
 
 #[test]
+fn a_held_midi_note_shows_the_layer_like_a_key() {
+    let mut p = swatches();
+    assert!(apply(&mut p, serde_json::json!({ "op": "set_midi_trigger", "layer": "Swatches/Red", "note": 60, "channel": 2 })).changed);
+    assert!(!apply(&mut p, serde_json::json!({ "op": "set_midi_trigger", "layer": "Swatches/Red", "note": 60, "channel": 2 })).changed);
+    apply(&mut p, serde_json::json!({ "op": "set_hide_others", "layer": "Swatches/Red", "on": true }));
+    let at = |p: &Puppet, tokens: &[&str]| {
+        let mut pose = PuppetPose::neutral();
+        pose.triggers = tokens.iter().map(|k| (*k).to_owned()).collect();
+        px(&render(p, &pose), 30, 30)
+    };
+    assert_eq!(at(&p, &[]), BLUE, "note up: Red is hidden");
+    assert_eq!(at(&p, &["midi:60"]), BLUE, "the any-channel token does not match a channel-bound trigger");
+    assert_eq!(at(&p, &["midi:2:60"]), RED, "note down: Red shows and hides the others");
+    assert!(p.layer_info("Swatches/Red").is_some_and(|i| i.midi_trigger.is_some_and(|m| m.note == 60 && m.channel == Some(2))));
+    assert!(apply(&mut p, serde_json::json!({ "op": "set_midi_trigger", "layer": "Swatches/Red", "note": 61 })).changed);
+    assert_eq!(at(&p, &["midi:61"]), RED, "no channel means any channel");
+    let bad: PuppetOp = serde_json::from_value(serde_json::json!({ "op": "set_midi_trigger", "layer": "Swatches/Red", "note": 200 })).unwrap();
+    assert!(p.apply(&bad).is_err());
+    assert!(apply(&mut p, serde_json::json!({ "op": "set_midi_trigger", "layer": "Swatches/Red" })).changed);
+    assert_eq!(at(&p, &["midi:61"]), BLUE, "the trigger is gone, so is the hiding");
+}
+
+#[test]
 fn swap_sets_can_be_defined_renamed_and_deleted() {
     let mut p = swatches();
     apply(&mut p, serde_json::json!({ "op": "add_swap_set", "name": "colors", "members": ["Swatches/Red", "Swatches/Green"] }));
