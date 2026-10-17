@@ -1,0 +1,24 @@
+[package]
+name = "charcraft-midi"
+description = "MIDI input for CharCraft: lists devices, turns note and controller messages into events and binds them to triggers and Controls sliders"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+anim-core = { workspace = true }
+crossbeam-channel = { workspace = true }
+serde = { workspace = true }
+thiserror = { workspace = true }
+
+# midir wraps ALSA on Linux, CoreMIDI on macOS and WinMM on Windows. Other systems get the no-op backend.
+[target.'cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))'.dependencies]
+midir = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }

@@ -21,6 +21,7 @@ charcraft-tracking = { path = "crates/tracking" }
 charcraft-record = { path = "crates/record" }
 charcraft-ndi = { path = "crates/ndi" }
 charcraft-stream = { path = "crates/stream" }
+charcraft-midi = { path = "crates/midi" }
 charcraft-maker = { path = "crates/maker" }
 
 # Shared engine crates from anicraft-libs, pinned to the v0.1.0 commit. To move to newer engine work, change every
@@ -87,6 +88,8 @@ nokhwa = { version = "0.10", default-features = false, features = ["input-native
 # v4l2loopback device. nokhwa already pulls v4l in on Linux, so this adds no new code to the build.
 libloading = "0.8"
 v4l = { version = "0.14", default-features = false, features = ["v4l2"] }
+# MIDI input (charcraft-midi): ALSA, CoreMIDI and WinMM behind one pure-Rust API.
+midir = "0.10"
 
 # anim-artwork reads Illustrator files through VectorCraft's PDF stack. Patches don't propagate through git
 # dependencies, so the pins VectorCraft needs are repeated here (same revs as its own root manifest).
