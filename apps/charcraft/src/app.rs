@@ -405,6 +405,7 @@ impl CharCraftApp {
             self.last_status = now;
             self.refresh_live_status();
             self.watch_artwork();
+            self.view.presets = self.host.session().doc().links.presets.all();
         }
         self.pump_render_results(ctx);
         self.pump_start_thumbs(ctx);

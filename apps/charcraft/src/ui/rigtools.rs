@@ -1006,7 +1006,8 @@ pub fn behaviors(ui: &mut Ui, puppet: &Puppet, view: &mut View, ctx: &Ctx<'_>, a
         if view.rig.only_layer && !layer.is_some_and(|l| uses_layer(&info.id, l)) {
             continue;
         }
-        super::params::behavior_block(ui, track, info, count, &ctx.doc.rec.arming.groups, false, actions);
+        let env = super::params::BlockEnv { armed: &ctx.doc.rec.arming.groups, presets: &view.presets };
+        super::params::behavior_block(ui, track, info, count, &env, false, actions);
     }
 }
 

@@ -272,6 +272,8 @@ pub struct Links {
     pub midi: Sender<crate::midi::MidiOp>,
     /// The other end of [`Self::midi`], drained by the hooks.
     pub midi_in: Receiver<crate::midi::MidiOp>,
+    /// Where the user's behavior presets are kept.
+    pub presets: crate::presets::PresetLibrary,
     /// Files to open with the system's default application (Edit Original), opened by the hooks.
     pub opens: Sender<PathBuf>,
     /// The other end of [`Self::opens`], drained by the hooks.
@@ -313,7 +315,22 @@ impl Links {
         let (puppets, puppets_in) = crossbeam_channel::unbounded();
         let (opens, opens_in) = crossbeam_channel::unbounded();
         let (midi, midi_in) = crossbeam_channel::unbounded();
-        Self { live, jobs, jobs_in, ui, sounds, sounds_in, output: OutputLink::disconnected(), puppets, puppets_in, midi, midi_in, opens, opens_in }
+        Self {
+            live,
+            jobs,
+            jobs_in,
+            ui,
+            sounds,
+            sounds_in,
+            output: OutputLink::disconnected(),
+            puppets,
+            puppets_in,
+            midi,
+            midi_in,
+            presets: crate::presets::PresetLibrary::user(),
+            opens,
+            opens_in,
+        }
     }
 
     /// These links with the stream output thread attached.
@@ -985,6 +1002,7 @@ pub fn registry() -> Result<CommandRegistry<AppDoc>, RegistryError> {
             .chain(crate::project_cmds::commands())
             .chain(crate::puppet_cmds::commands())
             .chain(crate::midi::commands())
+            .chain(crate::presets::commands())
             .map(place),
     )?;
     Ok(registry)

@@ -447,6 +447,8 @@ pub struct View {
     pub live: LiveSnapshot,
     /// MIDI: devices, learn mode, held notes and bindings.
     pub midi: crate::midi::MidiSnapshot,
+    /// The saved behavior presets: names by behavior id.
+    pub presets: BTreeMap<String, Vec<String>>,
     /// A line for the status bar.
     pub status: String,
     /// The take being recorded.
@@ -530,6 +532,7 @@ impl Default for View {
             stream: StreamUi::default(),
             live: LiveSnapshot::default(),
             midi: crate::midi::MidiSnapshot::default(),
+            presets: BTreeMap::new(),
             status: String::new(),
             recording: None,
             prompt: None,

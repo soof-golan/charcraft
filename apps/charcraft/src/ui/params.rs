@@ -236,6 +236,56 @@ pub fn row(ui: &mut Ui, track: usize, info: &charcraft_behaviors::api::BehaviorI
     });
 }
 
+/// What a behavior block needs besides the behavior: the armed input groups and the saved presets by behavior id.
+#[derive(Debug, Clone, Copy)]
+pub struct BlockEnv<'a> {
+    /// Input groups armed for recording.
+    pub armed: &'a std::collections::BTreeSet<charcraft_record::ParamGroup>,
+    /// Preset names by behavior id.
+    pub presets: &'a std::collections::BTreeMap<String, Vec<String>>,
+}
+
+/// The Presets part of a behavior's menu: load a saved set of parameters, delete one, or save the current ones.
+fn presets_menu(
+    ui: &mut Ui,
+    track: usize,
+    info: &charcraft_behaviors::api::BehaviorInfo,
+    presets: &std::collections::BTreeMap<String, Vec<String>>,
+    actions: &mut Vec<Action>,
+) {
+    let saved = presets.get(&info.id).map_or(&[][..], Vec::as_slice);
+    ui.menu_button("Load Preset", |ui| {
+        if saved.is_empty() {
+            ui.weak("No presets saved yet");
+        }
+        for name in saved {
+            ui.horizontal(|ui| {
+                if ui.button(anim_ui::theme::visual(name).into_owned()).clicked() {
+                    actions.push(Action::Run("behavior.preset_load", json!({ "track": track, "index": info.index, "name": name })));
+                    ui.close();
+                }
+                if ui.small_button("\u{00D7}").on_hover_text("Delete this preset").clicked() {
+                    actions.push(Action::Run("behavior.preset_delete", json!({ "behavior": info.id, "name": name })));
+                    ui.close();
+                }
+            });
+        }
+    });
+    ui.menu_button("Save Preset", |ui| {
+        let id = ui.id().with(("preset_name", track, info.index));
+        let mut name: String = ui.data(|d| d.get_temp(id)).unwrap_or_default();
+        let edit = ui.add(egui::TextEdit::singleline(&mut name).hint_text("Preset name").desired_width(150.0));
+        ui.data_mut(|d| d.insert_temp(id, name.clone()));
+        let enter = edit.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+        let ready = !name.trim().is_empty();
+        if (ui.add_enabled(ready, egui::Button::new("Save")).clicked() || enter) && ready {
+            actions.push(Action::Run("behavior.preset_save", json!({ "track": track, "index": info.index, "name": name.trim() })));
+            ui.data_mut(|d| d.remove_temp::<String>(id));
+            ui.close();
+        }
+    });
+}
+
 /// One behavior as a collapsible group, as in Character Animator.
 ///
 /// A disclosure triangle, the red arm dot, the name (drag it onto another behavior to reorder), and on the right the
@@ -245,13 +295,14 @@ pub fn behavior_block(
     track: usize,
     info: &charcraft_behaviors::api::BehaviorInfo,
     count: usize,
-    armed: &std::collections::BTreeSet<charcraft_record::ParamGroup>,
+    env: &BlockEnv<'_>,
     open: bool,
     actions: &mut Vec<Action>,
 ) {
     use anim_ui::icons::Icon;
     use charcraft_behaviors::api::StackOp;
 
+    let armed = env.armed;
     let groups = super::record::arm_groups(&info.id);
     let id = ui.make_persistent_id(("behavior_block", track, info.index));
     let state = egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), id, open);
@@ -278,6 +329,13 @@ pub fn behavior_block(
         });
     });
     let (_, header_inner, _) = header.body(|ui| {
+        ui.menu_button(RichText::new("Presets \u{25be}").size(11.0), |ui| {
+            if ui.button("Reset Parameters").clicked() {
+                actions.push(Action::Run("behavior.reset", json!({ "track": track, "index": info.index })));
+                ui.close();
+            }
+            presets_menu(ui, track, info, env.presets, actions);
+        });
         if let Some(map) = info.params.as_object() {
             for (name, value) in map.iter().filter(|(k, _)| !is_advanced(&info.id, k)) {
                 row(ui, track, info, name, value, actions);
@@ -310,11 +368,10 @@ pub fn behavior_block(
             ui.close();
         }
         if ui.button("Reset Parameters").clicked() {
-            if let Some(entry) = charcraft_behaviors::api::catalog().into_iter().find(|c| c.id == info.id) {
-                actions.push(Action::Run("track.behavior", json!({ "track": track, "op": StackOp::SetParams { index: info.index, params: entry.params } })));
-            }
+            actions.push(Action::Run("behavior.reset", json!({ "track": track, "index": info.index })));
             ui.close();
         }
+        presets_menu(ui, track, info, env.presets, actions);
         if ui.button("Remove Behavior").clicked() {
             actions.push(Action::Run("track.behavior", json!({ "track": track, "op": StackOp::Remove { index: info.index } })));
             ui.close();

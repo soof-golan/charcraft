@@ -24,6 +24,18 @@ pub fn headless_with(setup: impl FnOnce(&mut Hooks) + Send + 'static) -> Headles
     .unwrap()
 }
 
+/// A headless session on the demo puppet whose behavior presets live in `presets` (so tests never touch the user's).
+pub fn headless_presets(presets: std::path::PathBuf) -> HeadlessSession {
+    spawn_headless(move || {
+        let opened = World::demo().unwrap();
+        let (ui, _rx) = crossbeam_channel::unbounded();
+        let mut links = Links::new(LiveLink::disconnected(), ui);
+        links.presets = charcraft_app::presets::PresetLibrary::at(presets);
+        make_host(opened, links, registry().unwrap(), Confinement::unrestricted(), HostInfo { name: "charcraft".into(), version: "test".into() })
+    })
+    .unwrap()
+}
+
 /// A headless session on the demo puppet.
 pub fn headless() -> HeadlessSession {
     headless_with(|_| {})

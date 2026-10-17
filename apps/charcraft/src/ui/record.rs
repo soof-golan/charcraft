@@ -320,7 +320,7 @@ pub fn properties_panel(ui: &mut Ui, view: &mut View, ctx: &Ctx<'_>, actions: &m
         ui.add_space(2.0);
         let count = stack.behaviors.len();
         for info in &stack.behaviors {
-            super::params::behavior_block(ui, track_index, info, count, armed, info.index < 3, actions);
+            super::params::behavior_block(ui, track_index, info, count, &super::params::BlockEnv { armed, presets: &view.presets }, info.index < 3, actions);
         }
         ui.add_space(6.0);
         ui.horizontal(|ui| {

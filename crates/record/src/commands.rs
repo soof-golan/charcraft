@@ -314,21 +314,30 @@ struct TrackBehavior {
     op: Option<StackOp>,
 }
 
-fn track_behavior(doc: &mut RecordDoc, value: &Value) -> Result<Value, CommandError> {
-    let p: TrackBehavior = params(value)?;
-    let track = doc.scene.track_mut(p.track).map_err(fail)?;
-    match p.op {
+/// Lays one behavior edit over a track (`None` clears the track's edits) and proves the edits still apply.
+///
+/// # Errors
+/// A [`CommandError`] when the track does not exist, has the most edits already, or an edit no longer applies.
+pub fn edit_track_behaviors(doc: &mut RecordDoc, track: usize, op: Option<StackOp>) -> Result<usize, CommandError> {
+    let t = doc.scene.track_mut(track).map_err(fail)?;
+    match op {
         Some(op) => {
-            if track.behaviors.len() >= MAX_OPS {
+            if t.behaviors.len() >= MAX_OPS {
                 return Err(CommandError::failed("this track already has the most behavior edits"));
             }
-            track.behaviors.push(op);
+            t.behaviors.push(op);
         }
-        None => track.behaviors.clear(),
+        None => t.behaviors.clear(),
     }
     // Prove the edits still apply before keeping them.
     doc.evaluator().map_err(fail)?;
-    Ok(json!({ "track": p.track, "edits": doc.scene.track(p.track).map_err(fail)?.behaviors.len() }))
+    Ok(doc.scene.track(track).map_err(fail)?.behaviors.len())
+}
+
+fn track_behavior(doc: &mut RecordDoc, value: &Value) -> Result<Value, CommandError> {
+    let p: TrackBehavior = params(value)?;
+    let edits = edit_track_behaviors(doc, p.track, p.op)?;
+    Ok(json!({ "track": p.track, "edits": edits }))
 }
 
 // --- recording -----------------------------------------------------------------------------------------------
@@ -790,7 +799,7 @@ fn base_commands() -> Vec<CommandSpec<RecordDoc>> {
             .describe("Rename a track, switch it on or off, lock or unlock it, change its puppet or its placement (position, anchor, scale, rotation, opacity; keyframe these with keyframe.set). A locked track refuses edits and recordings.")
             .with_schema(schema!(r#""required":["track"],"properties":{"track":{"type":"integer","minimum":0},"name":{"type":"string"},"puppet":{"type":"string"},"enabled":{"type":"boolean"},"placement":{"type":"object"},"locked":{"type":"boolean"}}"#)),
         CommandSpec::new("track.behavior", "Edit track behaviors", track_behavior)
-            .describe("Lay one edit over the puppet's behavior stack for this track, using behaviors.edit operations: {\"op\":\"set_param\",\"index\":0,\"name\":\"...\",\"value\":...}, set_enabled, set_seed, add, remove, move. Pass op null to clear the track's edits. Edits apply in order before playback.")
+            .describe("Lay one edit over the puppet's behavior stack for this track, using behaviors.edit operations: {\"op\":\"set_param\",\"index\":0,\"name\":\"...\",\"value\":...}, set_params, reset_params (index: every parameter back to its default), set_enabled, set_seed, add, remove, move. Pass op null to clear the track's edits. Edits apply in order before playback.")
             .with_schema(schema!(r#""required":["track"],"properties":{"track":{"type":"integer","minimum":0},"op":{"type":["object","null"]}}"#)),
         CommandSpec::new("record.arm", "Arm inputs", record_arm)
             .describe("Choose which input groups the next recording captures: head, brows, eyes, mouth (the face), voice (lip sync), pointer (drags), keys (triggers, walk). 'groups' with armed true/false arms or disarms them; 'only': true arms exactly the list. 'audio' arms the microphone.")

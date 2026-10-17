@@ -3,4 +3,5 @@
 
 mod common;
 mod midi;
+mod presets;
 mod project_workspace;

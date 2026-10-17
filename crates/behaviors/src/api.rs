@@ -66,6 +66,11 @@ pub enum StackOp {
         /// A JSON object of parameters.
         params: Value,
     },
+    /// Puts every parameter of a behavior back to its default (the behavior stays on or off as it was).
+    ResetParams {
+        /// Position.
+        index: usize,
+    },
     /// Switches a behavior on or off.
     SetEnabled {
         /// Position.
@@ -182,6 +187,11 @@ pub fn apply(stack: &mut BehaviorStack, op: &StackOp) -> Result<StackInfo> {
             let slot = stack.slot_mut(*index).ok_or(Error::NoSuchSlot(*index))?;
             slot.behavior.set_params(params)?;
         }
+        StackOp::ResetParams { index } => {
+            let slot = stack.slot_mut(*index).ok_or(Error::NoSuchSlot(*index))?;
+            let defaults = behaviors::create(slot.behavior.id())?.params();
+            slot.behavior.set_params(&defaults)?;
+        }
         StackOp::SetEnabled { index, enabled } => {
             stack.slot_mut(*index).ok_or(Error::NoSuchSlot(*index))?.enabled = *enabled;
         }
@@ -229,8 +239,20 @@ mod tests {
     }
 
     #[test]
+    fn reset_params_restores_the_defaults_and_keeps_the_switch() {
+        let mut s = BehaviorStack::new(Rig::default());
+        apply(&mut s, &StackOp::Add { behavior: "Adobe.Blinker.js".into(), params: Some(serde_json::json!({"rate": 60})), at: None }).unwrap();
+        apply(&mut s, &StackOp::SetEnabled { index: 0, enabled: false }).unwrap();
+        let info = apply(&mut s, &StackOp::ResetParams { index: 0 }).unwrap();
+        assert_eq!(info.behaviors[0].params["rate"], 30.0);
+        assert!(!info.behaviors[0].enabled);
+        assert!(matches!(apply(&mut s, &StackOp::ResetParams { index: 3 }), Err(Error::NoSuchSlot(3))));
+    }
+
+    #[test]
     fn ops_survive_json() {
         let ops = vec![
+            StackOp::ResetParams { index: 1 },
             StackOp::Add { behavior: "Adobe.Dragger3.js".into(), params: None, at: Some(0) },
             StackOp::Move { from: 0, to: 2 },
             StackOp::SetEnabled { index: 1, enabled: false },
