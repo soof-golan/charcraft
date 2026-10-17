@@ -16,7 +16,8 @@ pub fn headless_with(setup: impl FnOnce(&mut Hooks) + Send + 'static) -> Headles
         let opened = World::demo().unwrap();
         let (ui, _rx) = crossbeam_channel::unbounded();
         let links = Links::new(LiveLink::disconnected(), ui);
-        let mut host = make_host(opened, links, registry().unwrap(), Confinement::unrestricted(), HostInfo { name: "charcraft".into(), version: "test".into() });
+        let mut host =
+            make_host(opened, links, registry().unwrap(), Confinement::unrestricted(), HostInfo { name: "charcraft".into(), version: "test".into() });
         setup(host.hooks_mut());
         host
     })

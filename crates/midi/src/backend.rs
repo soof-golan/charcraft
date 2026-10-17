@@ -90,12 +90,10 @@ mod system {
 
         fn connect(&mut self, name: &str, mut sink: Sink) -> Result<Connection, String> {
             let input = client()?;
-            let port = input
-                .ports()
-                .into_iter()
-                .find(|p| input.port_name(p).is_ok_and(|n| n == name))
-                .ok_or_else(|| format!("no MIDI device called \"{name}\""))?;
-            let connection = input.connect(&port, "charcraft-input", move |_stamp, bytes, ()| sink(bytes), ()).map_err(|e| format!("cannot open \"{name}\": {e}"))?;
+            let port =
+                input.ports().into_iter().find(|p| input.port_name(p).is_ok_and(|n| n == name)).ok_or_else(|| format!("no MIDI device called \"{name}\""))?;
+            let connection =
+                input.connect(&port, "charcraft-input", move |_stamp, bytes, ()| sink(bytes), ()).map_err(|e| format!("cannot open \"{name}\": {e}"))?;
             Ok(Connection::new(connection))
         }
     }

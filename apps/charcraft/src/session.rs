@@ -978,8 +978,15 @@ fn place(spec: CommandSpec<AppDoc>) -> CommandSpec<AppDoc> {
 /// [`RegistryError`] for a duplicate id (a bug; the tests build the registry).
 pub fn registry() -> Result<CommandRegistry<AppDoc>, RegistryError> {
     let mut registry = CommandRegistry::with_history_commands();
-    registry
-        .register_all(wrapped().into_iter().chain(app_commands()).chain(crate::project_cmds::commands()).chain(crate::puppet_cmds::commands()).chain(crate::midi::commands()).map(place))?;
+    registry.register_all(
+        wrapped()
+            .into_iter()
+            .chain(app_commands())
+            .chain(crate::project_cmds::commands())
+            .chain(crate::puppet_cmds::commands())
+            .chain(crate::midi::commands())
+            .map(place),
+    )?;
     Ok(registry)
 }
 

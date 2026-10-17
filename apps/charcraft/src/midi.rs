@@ -241,7 +241,8 @@ impl MidiBank {
 
     /// The settings to save, when they changed since the last call.
     pub fn take_prefs(&mut self) -> Option<MidiPrefs> {
-        std::mem::take(&mut self.dirty).then(|| MidiPrefs { bindings: self.bindings.clone(), device: self.connected.clone().or_else(|| self.wanted_device.clone()) })
+        std::mem::take(&mut self.dirty)
+            .then(|| MidiPrefs { bindings: self.bindings.clone(), device: self.connected.clone().or_else(|| self.wanted_device.clone()) })
     }
 
     /// The trigger tokens of the notes held now.

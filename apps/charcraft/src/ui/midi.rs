@@ -26,9 +26,10 @@ pub fn device(ui: &mut Ui, view: &View, actions: &mut Vec<Action>) {
     let midi = &view.midi;
     ui.horizontal(|ui| {
         let current = midi.connected.clone().unwrap_or_else(|| if midi.ports.is_empty() { "No MIDI device".to_owned() } else { "Choose a device".to_owned() });
-        egui::ComboBox::from_id_salt("midi_device").width((ui.available_width() - 34.0).max(80.0)).selected_text(anim_ui::theme::visual(&current).into_owned()).show_ui(
-            ui,
-            |ui| {
+        egui::ComboBox::from_id_salt("midi_device")
+            .width((ui.available_width() - 34.0).max(80.0))
+            .selected_text(anim_ui::theme::visual(&current).into_owned())
+            .show_ui(ui, |ui| {
                 if ui.selectable_label(midi.connected.is_none(), "None").clicked() {
                     actions.push(Action::Run("midi.connect", json!({ "device": null })));
                 }
@@ -37,8 +38,7 @@ pub fn device(ui: &mut Ui, view: &View, actions: &mut Vec<Action>) {
                         actions.push(Action::Run("midi.connect", json!({ "device": port })));
                     }
                 }
-            },
-        );
+            });
         if ui.small_button("\u{21BB}").on_hover_text("Look for MIDI devices again").clicked() {
             actions.push(Action::Run("midi.refresh", json!({})));
         }
