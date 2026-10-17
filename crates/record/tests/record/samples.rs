@@ -12,17 +12,12 @@
 )]
 #![allow(clippy::assert_is_empty, reason = "test code")]
 
-use std::path::PathBuf;
-
 use anim_core::{FrameRate, Size, Tick};
 use anim_export::{FrameSource, RasterOptions, render_frame};
+use anim_testkit::samples_dir as samples;
 use charcraft_behaviors::{FaceInput, Script, ScriptEvent};
 use charcraft_project::Project;
 use charcraft_record::{Cast, MediaStore, ParamGroup, PuppetTrack, RecordDoc, Scene, SceneFrames, import_scene, load_sounds, mix_scene};
-
-fn samples() -> Option<PathBuf> {
-    std::env::var_os("ANICRAFT_SAMPLES").map(PathBuf::from)
-}
 
 fn opaque_pixels(frame: &anim_export::RgbaFrame, background: [u8; 4]) -> usize {
     frame.rgba.as_chunks::<4>().0.iter().filter(|p| **p != background).count()

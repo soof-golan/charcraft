@@ -21,7 +21,6 @@
 use std::cell::OnceCell;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::hint::black_box;
-use std::path::PathBuf;
 
 use anim_artwork::{ArtNode, ArtworkTree};
 use anim_core::{Point, Size};
@@ -122,7 +121,7 @@ fn bench_behaviors(c: &mut Criterion) {
     for groups in [8, 32] {
         bench_puppet(c, &format!("stress_{groups}"), || stress_puppet(groups));
     }
-    let Some(root) = std::env::var_os("ANICRAFT_SAMPLES").map(PathBuf::from) else {
+    let Some(root) = anim_testkit::samples_dir() else {
         eprintln!("ANICRAFT_SAMPLES is not set: skipping the sample puppets");
         return;
     };

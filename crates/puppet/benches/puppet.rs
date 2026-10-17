@@ -22,7 +22,6 @@
 use std::cell::OnceCell;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::hint::black_box;
-use std::path::PathBuf;
 
 use anim_artwork::{ArtNode, ArtworkTree};
 use anim_core::{Point, Size, Vec2};
@@ -184,7 +183,7 @@ impl Scene {
 }
 
 fn bench_samples(c: &mut Criterion) {
-    let Some(root) = std::env::var_os("ANICRAFT_SAMPLES").map(PathBuf::from) else {
+    let Some(root) = anim_testkit::samples_dir() else {
         eprintln!("ANICRAFT_SAMPLES is not set: skipping the sample puppets");
         return;
     };

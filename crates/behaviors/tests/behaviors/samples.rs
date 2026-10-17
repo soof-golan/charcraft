@@ -10,16 +10,11 @@
     reason = "test code"
 )]
 
-use std::path::PathBuf;
-
 use anim_core::Point;
+use anim_testkit::samples_dir as samples;
 use charcraft_behaviors::{BehaviorStack, FaceInput, Rig, Script, ScriptEvent, behaviors, simulate};
 use charcraft_project::Project;
 use charcraft_puppet::{HandleKind, Puppet, PuppetPose};
-
-fn samples() -> Option<PathBuf> {
-    std::env::var_os("ANICRAFT_SAMPLES").map(PathBuf::from)
-}
 
 #[test]
 fn every_stored_default_is_a_parameter_with_the_same_name_and_value() {

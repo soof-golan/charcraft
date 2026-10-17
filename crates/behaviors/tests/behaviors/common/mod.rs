@@ -36,7 +36,7 @@ pub const PURPLE: [u8; 3] = [130, 40, 160];
 
 /// Where renders for inspection go: `$ANICRAFT_VISUAL_OUT/charcraft-puppet-behaviors`, or nowhere when it is unset (CI).
 pub fn scratch() -> Option<PathBuf> {
-    std::env::var_os("ANICRAFT_VISUAL_OUT").map(|root| PathBuf::from(root).join("charcraft-puppet-behaviors"))
+    anim_testkit::out_dir("charcraft-puppet-behaviors")
 }
 
 /// Writes a PNG into [`scratch`] when there is one.
@@ -232,21 +232,8 @@ pub fn save_sheet(name: &str, imgs: &[&Image]) {
 
 /// Saves a crop scaled up with nearest-neighbour sampling.
 pub fn save_zoom(name: &str, img: &Image, x: u32, y: u32, w: u32, h: u32, k: u32) {
-    let rgba = straight_rgba(img);
-    let mut out = vec![0_u8; (w * k * h * k * 4) as usize];
-    for oy in 0..h * k {
-        for ox in 0..w * k {
-            let (sx, sy) = (x + ox / k, y + oy / k);
-            let dst = ((oy * w * k + ox) * 4) as usize;
-            if sx < img.width && sy < img.height {
-                let src = ((sy * img.width + sx) * 4) as usize;
-                out[dst..dst + 4].copy_from_slice(&rgba[src..src + 4]);
-            } else {
-                out[dst..dst + 4].copy_from_slice(&[255, 0, 255, 255]);
-            }
-        }
-    }
-    save_png(name, w * k, h * k, &out);
+    let crop = anim_testkit::crop_zoom(&straight_rgba(img), img.width, x, y, w, h, k);
+    save_png(name, crop.width, crop.height, &crop.rgba);
 }
 
 fn golden_dir() -> PathBuf {

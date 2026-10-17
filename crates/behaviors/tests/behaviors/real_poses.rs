@@ -23,19 +23,14 @@
 
 use crate::common;
 
-use std::path::PathBuf;
-
 use anim_artwork::Limits;
 use anim_core::{Point, Rgba8, Vec2};
 use anim_display::Image;
 use anim_render::{Background, RenderOptions};
+use anim_testkit::samples_dir as samples;
 use charcraft_behaviors::{BehaviorStack, FaceInput, Rig, Script, ScriptEvent, simulate};
 use charcraft_project::Project;
 use charcraft_puppet::{HandleKind, Puppet, PuppetPose};
-
-fn samples() -> Option<PathBuf> {
-    std::env::var_os("ANICRAFT_SAMPLES").map(PathBuf::from)
-}
 
 struct Subject {
     name: &'static str,

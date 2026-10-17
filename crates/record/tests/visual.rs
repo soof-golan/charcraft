@@ -25,7 +25,6 @@
 )]
 
 use std::collections::BTreeSet;
-use std::path::PathBuf;
 
 use anim_artwork::{ArtNode, ArtworkTree};
 use anim_audio::{MixFormat, PcmBuffer};
@@ -46,12 +45,8 @@ const SKIN: [u8; 3] = [240, 190, 160];
 
 // ---- output helpers --------------------------------------------------------------------------------------
 
-fn scratch() -> Option<PathBuf> {
-    std::env::var_os("ANICRAFT_VISUAL_OUT").map(|root| PathBuf::from(root).join("charcraft-record"))
-}
-
 fn write_png(name: &str, w: u32, h: u32, rgba: &[u8]) {
-    let Some(dir) = scratch() else { return };
+    let Some(dir) = anim_testkit::out_dir("charcraft-record") else { return };
     anim_testkit::write_png(&dir.join(format!("{name}.png")), w, h, rgba).unwrap();
 }
 
@@ -73,20 +68,8 @@ fn save_sheet(name: &str, frames: &[&RgbaFrame], columns: usize) {
 
 /// A crop scaled up with nearest-neighbour sampling.
 fn save_zoom(name: &str, f: &RgbaFrame, x: u32, y: u32, w: u32, h: u32, k: u32) {
-    let mut out = vec![0_u8; (w * k * h * k * 4) as usize];
-    for oy in 0..h * k {
-        for ox in 0..w * k {
-            let (sx, sy) = (x + ox / k, y + oy / k);
-            let dst = ((oy * w * k + ox) * 4) as usize;
-            if sx < f.width && sy < f.height {
-                let src = ((sy * f.width + sx) * 4) as usize;
-                out[dst..dst + 4].copy_from_slice(&f.rgba[src..src + 4]);
-            } else {
-                out[dst..dst + 4].copy_from_slice(&[255, 0, 255, 255]);
-            }
-        }
-    }
-    write_png(name, w * k, h * k, &out);
+    let crop = anim_testkit::crop_zoom(&f.rgba, f.width, x, y, w, h, k);
+    write_png(name, crop.width, crop.height, &crop.rgba);
 }
 
 fn pixel(frame: &RgbaFrame, x: u32, y: u32) -> [u8; 4] {

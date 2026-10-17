@@ -19,12 +19,9 @@ use anim_artwork::Limits;
 use anim_core::{Point, Rgba8, Vec2};
 use anim_display::{Image, ImageStore};
 use anim_render::{Background, RenderOptions, Renderer, straight_rgba};
+use anim_testkit::samples_dir as samples;
 use charcraft_project::Project;
 use charcraft_puppet::{HandleKind, Puppet, PuppetPose, Viseme, Xform, tags::ids};
-
-fn samples() -> Option<PathBuf> {
-    std::env::var_os("ANICRAFT_SAMPLES").map(PathBuf::from)
-}
 
 fn scratch(name: &str) -> Option<PathBuf> {
     let dir = PathBuf::from(std::env::var_os("ANICRAFT_SCRATCH")?);

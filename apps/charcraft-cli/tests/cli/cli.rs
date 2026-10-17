@@ -14,6 +14,8 @@
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
+use anim_testkit::samples_dir as samples;
+
 const SVG_PUPPET: &str = r##"<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200" viewBox="0 0 200 200">
   <g id="Head">
     <circle id="face" cx="100" cy="90" r="70" fill="#f5c9a5"/>
@@ -43,10 +45,6 @@ fn run<const N: usize>(args: [&dyn AsRef<std::ffi::OsStr>; N]) -> Output {
 
 fn ok(out: &Output) {
     assert!(out.status.success(), "stdout: {}\nstderr: {}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
-}
-
-fn samples() -> Option<PathBuf> {
-    std::env::var_os("ANICRAFT_SAMPLES").map(PathBuf::from)
 }
 
 /// Where sample renders go for the owner to look at: `$ANICRAFT_VISUAL_OUT/charcraft-cli`, else the temp folder (the

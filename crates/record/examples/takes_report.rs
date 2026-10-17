@@ -142,15 +142,8 @@ impl Canvas {
     }
 
     fn save(&self, path: &Path) -> Result<(), Error> {
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent)?;
-        }
-        let file = std::io::BufWriter::new(std::fs::File::create(path)?);
-        let mut encoder = png::Encoder::new(file, self.w as u32, self.h as u32);
-        encoder.set_color(png::ColorType::Rgb);
-        encoder.set_depth(png::BitDepth::Eight);
-        let flat: Vec<u8> = self.px.iter().flatten().copied().collect();
-        encoder.write_header()?.write_image_data(&flat)?;
+        let rgba: Vec<u8> = self.px.iter().flat_map(|&[r, g, b]| [r, g, b, 255]).collect();
+        anim_testkit::write_png(path, self.w as u32, self.h as u32, &rgba)?;
         Ok(())
     }
 }
