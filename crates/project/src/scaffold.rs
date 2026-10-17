@@ -1,7 +1,9 @@
 //! Building a project from nothing: the repository boilerplate, the opening records and a minimal puppet.
 
 use std::fmt::Write;
+use std::hash::Hasher as _;
 
+use anim_core::hash::Fnv1a;
 use charcraft_rope::{Commit, ObjectKind, Oid, Record, RefTarget, RopeStore};
 
 use crate::classed::ClassedDoc;
@@ -27,14 +29,12 @@ pub fn build_branch(build: &str) -> String {
 /// scripted project is reproducible.
 #[must_use]
 pub fn make_guid(seed: &str) -> String {
-    let mut state = 0xcbf2_9ce4_8422_2325_u64;
+    let mut hash = Fnv1a::new();
     let mut bytes = [0_u8; 16];
     for (round, chunk) in bytes.chunks_mut(8).enumerate() {
-        for byte in seed.bytes().chain(round.to_le_bytes()) {
-            state ^= u64::from(byte);
-            state = state.wrapping_mul(0x0100_0000_01b3);
-        }
-        chunk.copy_from_slice(&state.to_be_bytes());
+        hash.write(seed.as_bytes());
+        hash.write(&round.to_le_bytes());
+        chunk.copy_from_slice(&hash.finish().to_be_bytes());
     }
     if let Some(b) = bytes.get_mut(6) {
         *b = (*b & 0x0f) | 0x40;
