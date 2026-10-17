@@ -43,8 +43,14 @@ pub fn play(stack: &mut BehaviorStack, script: &Script) -> Vec<SimFrame> {
 
 /// A rig whose only handle is a hair lock dangling from the head.
 pub fn hair_rig() -> Rig {
-    let head =
-        ChainLink { is_root: false, is_head: true, tags: Default::default(), path: "Head".into(), label: "head".into(), origin: Point::new(100.0, 100.0) };
+    let head = ChainLink {
+        is_root: false,
+        is_head: true,
+        tags: std::collections::BTreeSet::default(),
+        path: "Head".into(),
+        label: "head".into(),
+        origin: Point::new(100.0, 100.0),
+    };
     let hair = RigHandle { chain: vec![head], reach: 120.0, ..RigHandle::new("head/Hair", HandleKind::Dangle, Point::new(200.0, 100.0)) };
     Rig::new(Size::new(1000.0, 600.0)).with_handle(hair)
 }

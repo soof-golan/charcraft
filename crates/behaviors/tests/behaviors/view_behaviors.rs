@@ -22,7 +22,6 @@ use crate::common::{hair_rig, play, stack_of};
 
 use anim_core::{Point, Rect, Size};
 use anim_lipsync::Viseme as Voice;
-use charcraft_behaviors::behaviors;
 use charcraft_behaviors::{ChainLink, FaceInput, Rig, RigHandle, Script, ScriptEvent, SimFrame};
 use charcraft_puppet::tags::ids;
 use charcraft_puppet::{HandleKind, Viseme};
